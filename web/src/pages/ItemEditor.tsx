@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Dropdown, Sheet, MenuHost } from '../dialogs';
 import { SpecEditor, type EditorApi } from '../editor/SpecEditor';
+import { SpecForm } from '../form/SpecForm';
 import { BLOCK_MENU } from '../editor/blockTypes';
 import { CORE_LABEL, enc, foundState, hasContent, rawMode } from '../lib';
 import { ConflictSheet, LinkSheet, PathSheet } from '../sheets';
@@ -91,22 +92,26 @@ export function ItemEditor({ item }: { item: Item }) {
   const isSpec = item.kind === 'spec';
   const ro = !S.can('write');
   const raw = rawMode(item);
-  const blocks = ui.mode === 'blocks' && !raw;
+  const stype = isSpec ? S.specType(item.specType) : null;
+  const form = stype && !stype.missing && stype.form ? stype.form : null;
+  const mode: 'form' | 'blocks' | 'markdown' = raw ? 'markdown' : ui.modes[item.id] ?? (form && stype!.view === 'form' ? 'form' : ui.mode);
+  const blocks = mode === 'blocks';
+  const asForm = mode === 'form' && !!form;
   const path = isSpec ? `${S.team()!.key}/${item.id}.md` : `docs/${item.id}`;
   const back = isSpec ? '/' : item.id === 'glossary.md' ? '/glossary' : '/docs';
 
   async function itemMenu() {
     const info = [{ key: 'info', label: `${path}${item.version ? ` · v${item.version}` : ''}${item.updatedBy ? ` · edited by ${item.updatedBy}` : ''}`, disabled: true }];
     const typeItem = isSpec && S.can('write') ? [{ key: 'type', label: `Type: ${S.specType(item.specType).label} – change…` }] : [];
-    const mode = raw ? [] : [{ key: 'mode:blocks', label: 'Editor: Blocks', current: ui.mode === 'blocks' }, { key: 'mode:markdown', label: 'Editor: Markdown', current: ui.mode === 'markdown' }];
+    const modeItems = raw ? [] : [...(form ? [{ key: 'mode:form', label: 'Editor: Form', current: asForm }] : []), { key: 'mode:blocks', label: 'Editor: Blocks', current: blocks }, { key: 'mode:markdown', label: 'Editor: Markdown', current: mode === 'markdown' }];
     const actions = !S.can('write') ? [] : isSpec ? [{ key: 'delete', label: 'Delete spec', danger: true }]
       : item.core ? [{ key: 'none', label: 'Foundation document – every team has it', disabled: true }]
       : [{ key: 'move', label: 'Move / rename…' }, { key: 'pin', label: item.pinned ? 'Unpin: no longer always available to agents' : 'Pin: always available to agents' }, { key: 'delete', label: 'Delete document', danger: true }];
-    const key = await openMenu(item.id, [...info, ...mode, ...typeItem, ...actions]);
+    const key = await openMenu(item.id, [...info, ...modeItems, ...typeItem, ...actions]);
     if (key === 'type') {
       const k = await openMenu('Spec type', S.specTypes().map((t) => ({ key: t.key, label: t.label, current: t.key === item.specType })));
       if (k && k !== item.specType) { S.edit(item.id, { specType: k }); toast('Type changed – the content stays as it is'); }
-    } else if (key?.startsWith('mode:')) ui.set({ mode: key.slice(5) as 'blocks' | 'markdown' });
+    } else if (key?.startsWith('mode:')) { const m = key.slice(5) as 'form' | 'blocks' | 'markdown'; ui.set({ modes: { ...ui.modes, [item.id]: m }, ...(m === 'form' ? {} : { mode: m }) }); }
     else if (key === 'move') setSheet('move');
     else if (key === 'pin') { S.setPinned(item.id, !item.pinned); toast(item.pinned ? 'Unpinned' : 'Pinned – goes live for agents'); }
     else if (key === 'delete') {
@@ -135,11 +140,13 @@ export function ItemEditor({ item }: { item: Item }) {
       </header>
       {item.conflict && <div id="banner"><div className="card bad banner"><div className="grow"><b>Changed on the server</b><span>Your edits and the server version differ.</span></div><button className="btn danger" data-act="conflict" onClick={() => setSheet('conflict')}>Review</button></div></div>}
       <div id="editorBody" className="ed-scroll">
-        {blocks
+        {asForm
+          ? <div className="blocks" id="form"><SpecForm docKey={`${item.team}|${item.id}|${item.specType}`} schema={form!} value={item.body} readOnly={ro} onChange={(md) => S.edit(item.id, { body: md })} /></div>
+          : blocks
           ? <div className="blocks" id="blocks"><SpecEditor docKey={`${item.team}|${item.id}`} value={item.body} readOnly={ro} onChange={(md) => S.edit(item.id, { body: md })} onReady={(a) => (api.current = a)} refs={isSpec ? S.all('doc').filter((d) => !d.pinned).map((d) => d.id) : undefined} onRef={(id) => !item.links.includes(id) && S.toggleLink(item.id, id)} /></div>
           : <><label className="sr" htmlFor="body">Content</label><textarea id="body" className="ed-body" spellCheck={false} placeholder="Write Markdown…" readOnly={ro} value={item.body} onChange={(e) => S.edit(item.id, { body: e.target.value })} /></>}
       </div>
-      {!ro && (
+      {!ro && !asForm && (
         <div className="toolbar"><div className="tools" id="tools" onPointerDown={(e) => (e.target as HTMLElement).closest('button') && e.preventDefault()}>
           {blocks ? <>
             <button type="button" data-act="t-add" aria-label="Add block" title="Add block at cursor" onClick={addBlock}><Icon name="plus" size={20} /></button>

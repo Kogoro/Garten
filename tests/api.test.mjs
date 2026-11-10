@@ -122,7 +122,7 @@ try {
   const draftTok = (await editor.c.post('/api/me/tokens', { name: 'drafts', scopes: ['mcp:read', 'mcp:drafts'], teamId: T1 })).data;
 
   let c0; let c = await mcp(readTok.token);
-  assert.deepEqual(await toolNames(c), ['get_document', 'get_glossary', 'get_spec', 'get_team_context', 'list_documents', 'list_specs']);
+  assert.deepEqual(await toolNames(c), ['get_document', 'get_glossary', 'get_spec', 'get_team_context', 'list_documents', 'list_spec_types', 'list_specs']);
   assert.equal(await hasParam(c, 'list_specs', 'include_drafts'), false); ok('read token: no draft parameters exposed');
   assert.ok(JSON.parse((await call(c, 'list_specs')).text).find((s) => s.id === id && s.approved_by === 'approver user'));
   assert.match((await call(c, 'get_spec', { id })).text, /```mermaid\nflowchart LR/); ok('agent receives released spec incl. mermaid block');
@@ -395,6 +395,22 @@ try {
   const connId = (await oauthUser.c.get('/api/me/tokens')).data.connections[0].id;
   await oauthUser.c.del(`/api/me/connections/${connId}`);
   await assert.rejects(async () => (await mcp(rt.access_token)).listTools()); ok('revoking a connection kills its tokens');
+
+  // ---------------------------------------------------------------- spec types as forms
+  const ftUrl = `/api/teams/${T1}/spec-types`;
+  const apiType = (await admin.get(ftUrl)).data.types.find((t) => t.key === 'api');
+  assert.equal(apiType.view, 'form'); assert.ok(apiType.form.fields.some((f) => f.kind === 'endpoints')); assert.deepEqual(apiType.form.tabs.map((t) => t.label), ['Overview', 'Endpoints', 'Contract', 'Quality']); ok('built-in API / UI / NFR types are forms; the others stay free-form editor types');
+  assert.equal((await admin.get(ftUrl)).data.types.find((t) => t.key === 'data').form.fields.length > 0, true);
+  const mkForm = (extra) => admin.post(ftUrl, { label: 'Runbook form', description: 'x', view: 'form', form: { tabs: [{ key: 'a', label: 'Prepare' }, { key: 'b', label: 'Run' }], fields: [{ label: 'OWNER', kind: 'text' }, { label: 'PHASE', kind: 'select', options: 'Plan, Run', tab: 'b' }, { label: 'STEPS', kind: 'checklist', tab: 'b' }], ...extra } });
+  const ft = await mkForm({});
+  assert.equal(ft.status, 200); assert.equal(ft.data.type.view, 'form'); assert.deepEqual(ft.data.type.form.fields.map((f) => f.key), ['owner', 'phase', 'steps']); assert.equal(ft.data.type.form.fields[1].options.length, 2); assert.match(ft.data.type.template, /## OWNER\n\n## PHASE\n\n## STEPS/); ok('a team can define a form type (fields, tabs, default view); its template is derived from the fields');
+  assert.equal((await admin.post(ftUrl, { label: 'Bad A', form: { fields: [{ label: 'X', kind: 'nope' }] } })).status, 400);
+  assert.equal((await admin.post(ftUrl, { label: 'Bad B', form: { fields: [{ label: 'X', kind: 'text' }, { label: 'x', kind: 'list' }] } })).status, 400);
+  assert.equal((await admin.post(ftUrl, { label: 'Bad C', form: { fields: [{ label: 'X', kind: 'select' }] } })).status, 400);
+  assert.equal((await admin.post(ftUrl, { label: 'Bad D', form: { fields: [] } })).status, 400); ok('invalid form schemas are rejected (unknown kind, duplicate label, select without choices, no fields)');
+  const upT = await admin.patch(`${ftUrl}/${ft.data.type.key}`, { form: null }); assert.equal(upT.data.type.form, null); assert.equal(upT.data.type.view, 'editor'); ok('a form can be removed again (type falls back to the editor)');
+  await admin.del(`${ftUrl}/${ft.data.type.key}`);
+  { const ftU = await mk('viewer', 'ft'); const ftTok = (await ftU.c.post('/api/me/tokens', { name: 'ft', scopes: ['mcp:read'], teamId: T1 })).data; const tc = await mcp(ftTok.token); const lt = JSON.parse((await call(tc, 'list_spec_types')).text); await tc.close(); assert.ok(lt.find((t) => t.key === 'api').form.some((f) => f.section === '## ENDPOINTS' && f.kind === 'endpoints')); ok('agents can read the form sections of each type (list_spec_types)'); }
 
   // ---------------------------------------------------------------- agents write DRAFTS, people approve
   assert.equal((await viewer.c.post('/api/me/tokens', { name: 'w', scopes: ['mcp:read', 'mcp:write'], teamId: T1 })).status, 403); ok('viewer may not create a write token');

@@ -147,7 +147,7 @@ function buildServer(team, canDrafts, writer) {
       const missing = (paths ?? []).filter((p) => !store.getItem(t, p) || store.getItem(t, p).kind !== 'doc');
       if (missing.length) throw new store.ApiError(`These documents do not exist: ${missing.join(', ')}. Create them with create_draft_document first.`);
     };
-    const body = z.string().max(100_000).describe('Markdown. Requirements as "R1 text" lines, tasks as "- [ ] text", diagrams as ```mermaid fences, API endpoints as ```endpoint GET /path fences, definitions as "Term" + ": definition" lines.');
+    const body = z.string().max(100_000).describe('Markdown (for typed specs follow list_spec_types). Requirements as "R1 text" lines, tasks as "- [ ] text", diagrams as ```mermaid fences, API endpoints as ```endpoint GET /path fences, definitions as "Term" + ": definition" lines.');
 
     server.registerTool(
       'create_draft_spec',
@@ -211,6 +211,15 @@ function buildServer(team, canDrafts, writer) {
       }),
     );
   }
+
+  server.registerTool(
+    'list_spec_types',
+    { description: 'The spec types of this team. Types with a form list their fields: every field is a "## LABEL" section in the Markdown of a spec, written as its kind says (list = "- item" lines, checklist = "- [ ] item", requirements = "R1 text" lines, endpoints = ```endpoint METHOD /path fences, code/diagram = fenced block, select = one of the options). Follow them when you write drafts.' },
+    async () => text(JSON.stringify(listTypes(t).map((x) => ({
+      key: x.key, label: x.label, description: x.description,
+      form: x.form ? x.form.fields.map((f) => ({ section: `## ${f.label}`, kind: f.kind, ...(f.options ? { options: f.options } : {}), ...(f.lang ? { language: f.lang } : {}), ...(f.help ? { hint: f.help } : {}) })) : null,
+    })), null, 2)),
+  );
 
   server.registerTool(
     'get_glossary',

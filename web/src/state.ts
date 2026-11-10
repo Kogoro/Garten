@@ -6,6 +6,8 @@ interface MenuState { title: string; items: MenuItem[]; resolve: (k: string | nu
 
 interface UiState {
   mode: 'blocks' | 'markdown';
+  /** per-item editor view (a form for specs of a form type, blocks, raw Markdown) */
+  modes: Record<string, 'form' | 'blocks' | 'markdown'>;
   openFolders: Record<string, boolean>;
   lastFolder: string;
   lastType: string;
@@ -13,7 +15,7 @@ interface UiState {
   set: (p: Partial<UiState>) => void;
 }
 export const useUi = create<UiState>((set) => ({
-  mode: 'blocks', openFolders: {}, lastFolder: '', lastType: 'feature', menu: null,
+  mode: 'blocks', modes: {}, openFolders: {}, lastFolder: '', lastType: 'feature', menu: null,
   set: (p) => set(p),
 }));
 

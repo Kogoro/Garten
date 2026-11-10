@@ -4,6 +4,7 @@ import { FormError, Sheet } from '../dialogs';
 import { guard, useTeamInfo } from '../hooks';
 import { Bar, Shell } from '../Shell';
 import { Icon, ago, copy, toast, useStore } from '../ui';
+import { FIELD_KINDS, KIND_LABELS } from '@shared/specForm.js';
 import { ROLES, RIGHTS, ROLE_RIGHTS } from './Account';
 
 type Store = ReturnType<typeof useStore>;
@@ -13,24 +14,60 @@ function TypeSheet({ type, onClose, onDone }: { type?: any; onClose: () => void;
   const [err, setErr] = useState<string | null>(null);
   const [tpl, setTpl] = useState(type?.template ?? '');
   const [desc, setDesc] = useState(type?.description ?? '');
+  const [useForm, setUseForm] = useState(!!type?.form);
+  const [formView, setFormView] = useState(type?.view === 'form');
+  const [tabsText, setTabsText] = useState((type?.form?.tabs ?? []).map((t: any) => t.label).join(', '));
+  const [fields, setFields] = useState<any[]>(type?.form?.fields?.map((f: any) => ({ ...f, optionsText: (f.options ?? []).join(', ') })) ?? [{ label: '', kind: 'longtext' }]);
+  const setField = (i: number, p: any) => setFields(fields.map((f, k) => (k === i ? { ...f, ...p } : f)));
+  const moveField = (i: number, d: number) => { const j = i + d; if (j < 0 || j >= fields.length) return; const n = [...fields]; [n[i], n[j]] = [n[j], n[i]]; setFields(n); };
+  const tabLabels = tabsText.split(',').map((t: string) => t.trim()).filter(Boolean);
+  const tabKey = (l: string) => l.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 24);
+  function buildForm() {
+    const tabs = tabLabels.map((l: string) => ({ key: tabKey(l), label: l }));
+    return { tabs, fields: fields.filter((f) => f.label.trim()).map((f) => ({ key: f.key, label: f.label, kind: f.kind, help: f.help, tab: f.tab && tabs.some((t: any) => t.key === f.tab) ? f.tab : undefined, options: f.kind === 'select' ? f.optionsText : undefined, lang: f.lang })) };
+  }
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const f = new FormData(e.currentTarget);
-    const body = { label: f.get('label'), description: desc, template: tpl };
+    const body: any = { label: f.get('label'), description: desc, template: tpl, form: useForm ? buildForm() : null, view: useForm && formView ? 'form' : 'editor' };
     try {
       if (type?.key) await S.teamApi('PATCH', `/spec-types/${type.key}`, body); else await S.teamApi('POST', '/spec-types', body);
       await S.refreshTypes(); onClose(); onDone(); toast(type?.key ? 'Type saved' : 'Type added');
     } catch (x: any) { setErr(x.message); }
   }
+  function startFrom(key: string) {
+    const t: any = S.specTypes().find((x) => x.key === key);
+    if (!t) return;
+    setTpl(t.template); if (!desc) setDesc(t.description);
+    if (t.form) { setUseForm(true); setFormView(t.view === 'form'); setTabsText((t.form.tabs ?? []).map((x: any) => x.label).join(', ')); setFields(t.form.fields.map((f: any) => ({ ...f, optionsText: (f.options ?? []).join(', ') }))); } else setUseForm(false);
+  }
   return (
     <Sheet onClose={onClose}>
       <h2>{type?.key ? 'Edit spec type' : 'New spec type'}</h2>
-      <p>The template is Markdown that new specs of this type start from (headings, requirements, code or diagram blocks).</p>
+      <p>A type gives new specs their structure: either a <b>form</b> with fields, lists and tabs, or a free-form Markdown template for the block editor.</p>
       <form id="stypeForm" className="form" onSubmit={submit}>
         <label className="sr" htmlFor="st-label">Name</label><input id="st-label" name="label" className="field" placeholder="Name, e.g. Runbook" defaultValue={type?.label ?? ''} required maxLength={40} autoComplete="off" />
         <label className="sr" htmlFor="st-desc">Description</label><input id="st-desc" className="field" placeholder="One line: what is this type for?" value={desc} onChange={(e) => setDesc(e.target.value)} maxLength={200} autoComplete="off" />
-        {!type?.key && <><label className="sr" htmlFor="st-from">Start from</label><select id="st-from" className="field" defaultValue="" onChange={(e) => { const t = S.specTypes().find((x) => x.key === e.target.value); if (t) { setTpl(t.template); if (!desc) setDesc(t.description); } }}><option value="">Start from an empty template</option>{S.specTypes().filter((x) => x.builtin).map((x) => <option key={x.key} value={x.key}>Start from: {x.label}</option>)}</select></>}
-        <label className="sr" htmlFor="st-tpl">Template</label><textarea id="st-tpl" className="field mono" style={{ height: 180, padding: 12, fontSize: 13 }} placeholder={'## SECTION\n\n## ANOTHER SECTION\n'} value={tpl} onChange={(e) => setTpl(e.target.value)} />
+        {!type?.key && <><label className="sr" htmlFor="st-from">Start from</label><select id="st-from" className="field" defaultValue="" onChange={(e) => startFrom(e.target.value)}><option value="">Start from scratch</option>{S.specTypes().filter((x) => x.builtin).map((x) => <option key={x.key} value={x.key}>Start from: {x.label}</option>)}</select></>}
+        <label className="check"><input type="checkbox" id="st-useform" checked={useForm} onChange={(e) => setUseForm(e.target.checked)} /> Describe this type as a form (fields, lists, tabs)</label>
+        {useForm ? <>
+          <label className="check"><input type="checkbox" id="st-formview" checked={formView} onChange={(e) => setFormView(e.target.checked)} /> Open specs as a form (no editor); people can still switch to blocks or Markdown</label>
+          <label className="sr" htmlFor="st-tabs">Tabs</label><input id="st-tabs" className="field" placeholder="Tabs, comma separated (optional), e.g. Overview, Details" value={tabsText} onChange={(e) => setTabsText(e.target.value)} autoComplete="off" />
+          <div className="fb-fields" aria-label="Form fields">
+            {fields.map((f, i) => (
+              <div className="fb-field" key={i}>
+                <input className="field" aria-label={`Field ${i + 1} label`} placeholder="Field name, e.g. TARGETS" value={f.label} maxLength={60} onChange={(e) => setField(i, { label: e.target.value })} />
+                <select className="field" aria-label={`Field ${i + 1} type`} value={f.kind} onChange={(e) => setField(i, { kind: e.target.value })}>{FIELD_KINDS.map((k: string) => <option key={k} value={k}>{(KIND_LABELS as any)[k]}</option>)}</select>
+                {f.kind === 'select' && <input className="field wide" aria-label={`Field ${i + 1} choices`} placeholder="Choices, comma separated" value={f.optionsText ?? ''} onChange={(e) => setField(i, { optionsText: e.target.value })} />}
+                {f.kind === 'code' && <input className="field wide" aria-label={`Field ${i + 1} language`} placeholder="Language, e.g. json, sql, yaml" value={f.lang ?? ''} onChange={(e) => setField(i, { lang: e.target.value })} />}
+                <input className="field wide" aria-label={`Field ${i + 1} hint`} placeholder="Hint shown under the name (optional)" value={f.help ?? ''} maxLength={200} onChange={(e) => setField(i, { help: e.target.value })} />
+                {tabLabels.length > 1 && <select className="field wide" aria-label={`Field ${i + 1} tab`} value={f.tab ?? ''} onChange={(e) => setField(i, { tab: e.target.value })}><option value="">First tab</option>{tabLabels.map((l: string) => <option key={l} value={tabKey(l)}>Tab: {l}</option>)}</select>}
+                <div className="fb-acts"><button type="button" className="btn small" disabled={i === 0} onClick={() => moveField(i, -1)}>↑</button><button type="button" className="btn small" disabled={i === fields.length - 1} onClick={() => moveField(i, 1)}>↓</button><button type="button" className="btn small" onClick={() => setFields(fields.filter((_, k) => k !== i))}>Remove</button></div>
+              </div>
+            ))}
+            <button type="button" className="btn small" id="st-addfield" onClick={() => setFields([...fields, { label: '', kind: 'longtext' }])}><Icon name="plus" size={14} /> Add field</button>
+          </div>
+        </> : <><label className="sr" htmlFor="st-tpl">Template</label><textarea id="st-tpl" className="field mono" style={{ height: 180, padding: 12, fontSize: 13 }} placeholder={'## SECTION\n\n## ANOTHER SECTION\n'} value={tpl} onChange={(e) => setTpl(e.target.value)} /></>}
         <FormError msg={err} /><button className="btn primary" type="submit">{type?.key ? 'Save' : 'Add type'}</button>
       </form>
     </Sheet>
@@ -127,7 +164,7 @@ export function TeamPage() {
 
         <section className="card"><div className="card-head"><h2>Spec types</h2>{admin && <button className="btn small" data-act="stype-new" onClick={() => setTsheet({})}><Icon name="plus" size={14} /> New type</button>}</div>
           <p className="note">A type gives a new spec its starting structure and tells agents what kind of specification they are reading (<span className="mono">list_specs(type: "api")</span>). Built-in types are fixed; add your own for your team.</p>
-          {d?.types ? d.types.map((x: any) => <div className="typerow" key={x.key}><div><b>{x.label}</b> <small className="muted mono">{x.key}{x.builtin ? ' · built-in' : ''}</small><p className="muted">{x.description}</p></div>
+          {d?.types ? d.types.map((x: any) => <div className="typerow" key={x.key}><div><b>{x.label}</b> <small className="muted mono">{x.key}{x.builtin ? ' · built-in' : ''}{x.form ? (x.view === 'form' ? ' · form' : ' · form optional') : ''}</small><p className="muted">{x.description}</p></div>
             {admin && !x.builtin && <div className="typeacts"><button className="btn small" data-act="stype-edit" onClick={() => setTsheet({ type: x })}>Edit</button><button className="btn small" data-act="stype-delete" style={{ color: 'var(--red)', borderColor: 'var(--red-line)' }} onClick={guard(async () => { if (!confirm(`Delete the spec type “${x.key}”?`)) return; await S.teamApi('DELETE', `/spec-types/${x.key}`); await S.refreshTypes(); await reload(); })}>Delete</button></div>}</div>) : <div className="muted">Loading…</div>}</section>
 
         <section className="card"><div className="card-head"><h2><Icon name="git" size={16} /> Git connection</h2></div>{d?.git ? <GitForm key={JSON.stringify(d.git)} g={d.git} S={S} reload={reload} res={gitRes} setRes={setGitRes} /> : <div className="muted">Loading…</div>}</section>

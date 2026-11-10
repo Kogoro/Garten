@@ -180,6 +180,8 @@ db.exec(`
     label TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
     template TEXT NOT NULL DEFAULT '',
+    form TEXT,                                  -- JSON form schema (shared/specForm.js) or NULL for a free-form editor type
+    view TEXT NOT NULL DEFAULT 'editor',        -- 'form' | 'editor': how specs of this type open by default
     created_at TEXT NOT NULL,
     PRIMARY KEY (team_id, key)
   );
@@ -196,3 +198,8 @@ db.exec(`
   );
 `);
 
+
+// v0.8 -> v0.9: spec types can carry a form schema
+for (const [col, ddl] of [['form', 'ALTER TABLE spec_types ADD COLUMN form TEXT'], ['view', "ALTER TABLE spec_types ADD COLUMN view TEXT NOT NULL DEFAULT 'editor'"]]) {
+  if (!db.prepare("SELECT 1 FROM pragma_table_info('spec_types') WHERE name=?").get(col)) db.exec(ddl);
+}

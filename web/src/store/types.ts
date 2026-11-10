@@ -8,4 +8,6 @@ export interface Item {
   dirty: boolean; baseRev: number; approve: boolean; revoke: boolean; del: boolean; conflict: any; localSeq: number; editedAt: number | null;
   syncError?: string | null;
 }
-export interface SpecType { key: string; label: string; short?: string; description: string; template: string; builtin?: boolean; missing?: boolean; [k: string]: any }
+export interface FormField { key: string; label: string; kind: 'text' | 'longtext' | 'select' | 'list' | 'checklist' | 'requirements' | 'endpoints' | 'diagram' | 'code'; help?: string; tab?: string; options?: string[]; lang?: string }
+export interface FormSchema { tabs?: { key: string; label: string }[]; fields: FormField[] }
+export interface SpecType { form?: FormSchema | null; view?: 'form' | 'editor'; key: string; label: string; short?: string; description: string; template: string; builtin?: boolean; missing?: boolean; [k: string]: any }

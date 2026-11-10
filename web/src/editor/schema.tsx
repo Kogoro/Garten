@@ -12,11 +12,16 @@ export const requirement = createReactBlockSpec(
   { render: ({ block, contentRef }) => <div className="blk-req" style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}><b className="req-label" contentEditable={false} style={{ color: 'var(--accent)', minWidth: 32 }}>{block.props.label}</b><div ref={contentRef} style={{ flex: 1 }} /></div> },
 );
 
+/** Rendered Mermaid (debounced) – used by the diagram block and by form fields. */
+export function MermaidView({ text }: { text: string }) {
+  const [out, setOut] = useState<{ svg?: string; error?: string }>({});
+  useEffect(() => { let live = true; const t = setTimeout(() => renderMermaid(text).then((r) => live && setOut(r)), 250); return () => { live = false; clearTimeout(t); }; }, [text]);
+  return <div className={`mm${out.error ? ' err' : ''}`}>{out.error ? <span className="mm-hint">{out.error}</span> : <div dangerouslySetInnerHTML={{ __html: out.svg ?? '' }} />}</div>;
+}
+
 function Diagram({ block, editor }: any) {
   const { text, view } = block.props as { text: string; view: 'view' | 'code' | 'split' };
-  const [out, setOut] = useState<{ svg?: string; error?: string }>({});
   const set = (p: Record<string, unknown>) => editor.updateBlock(block, { props: p });
-  useEffect(() => { let live = true; const t = setTimeout(() => renderMermaid(text).then((r) => live && setOut(r)), 250); return () => { live = false; clearTimeout(t); }; }, [text]);
   const showCode = view !== 'view';
   const showView = view !== 'code';
   return (
@@ -26,7 +31,7 @@ function Diagram({ block, editor }: any) {
       </div>
       <div className="dg-body" style={{ display: 'grid', gridTemplateColumns: showCode && showView ? '1fr 1fr' : '1fr', gap: 8 }}>
         {showCode && <textarea className="blk-in mono" aria-label="Mermaid source" spellCheck={false} readOnly={ro(editor)} value={text} rows={Math.max(4, text.split('\n').length)} onChange={(e) => set({ text: e.target.value })} />}
-        {showView && <div className={`mm${out.error ? ' err' : ''}`}>{out.error ? <span className="mm-hint">{out.error}</span> : <div dangerouslySetInnerHTML={{ __html: out.svg ?? '' }} />}</div>}
+        {showView && <MermaidView text={text} />}
       </div>
     </div>
   );

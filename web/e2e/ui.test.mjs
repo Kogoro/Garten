@@ -40,7 +40,7 @@ try {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
   const page = await ctx.newPage();
   watch(page);
-  const setMode = async (pg, mode) => { await pg.click('[data-act=item-menu]'); await pg.getByRole('button', { name: `Editor: ${mode === 'markdown' ? 'Markdown' : 'Blocks'}` }).click(); };
+  const setMode = async (pg, mode) => { await pg.click('[data-act=item-menu]'); await pg.getByRole('button', { name: `Editor: ${{ markdown: 'Markdown', blocks: 'Blocks', form: 'Form' }[mode]}` }).click(); };
   const pill = () => page.locator('.bar [data-pill]').first().innerText();
 
   await page.goto(BASE);
@@ -404,8 +404,30 @@ try {
   assert.equal(await chooser.count(), 6); await d.getByRole('button', { name: /UI spec \/ design rule/ }).waitFor(); await d.getByRole('button', { name: /API spec/ }).waitFor(); ok('new spec: choose from the built-in types (API, UI spec / design rule, feature, data model …)');
   await d.getByRole('button', { name: /API spec/ }).click();
   await d.locator('#title').waitFor(); await d.fill('#title', 'Orders API');
-  await d.locator('[data-content-type=heading] .bn-inline-content', { hasText: 'ENDPOINTS' }).waitFor();
-  assert.ok(await d.locator('[data-content-type=endpoint]').count() >= 1); ok('an API spec starts from its template (endpoints, request/response code blocks)');
+  await d.locator('[data-testid=spec-form]').waitFor();
+  assert.equal(await d.locator('.editor .bn-editor').count(), 0);
+  assert.deepEqual(await d.locator('.form-tabs .tab').allInnerTexts(), ['Overview', 'Endpoints', 'Contract', 'Quality']); ok('an API spec opens as a form with tabs (no editor): Overview, Endpoints, Contract, Quality');
+  await d.locator('[data-field=overview] textarea').fill('Orders for the checkout.');
+  await d.locator('[data-field=authentication] select').selectOption('OAuth 2');
+  await d.getByRole('tab', { name: 'Endpoints', exact: true }).click();
+  await d.getByRole('button', { name: 'Add endpoint' }).click(); await d.getByRole('button', { name: 'Add endpoint' }).click();
+  await d.locator('[aria-label="HTTP method 1"]').selectOption('POST'); await d.locator('[aria-label="Path 1"]').fill('/orders');
+  await d.locator('[aria-label="Endpoint 1 description"]').fill('Creates an order. Idempotent via Idempotency-Key.');
+  await d.locator('[data-content-type=endpoint]').first().getByRole('tab', { name: 'Responses' }).click(); await d.locator('[aria-label="Endpoint 1 responses"]').fill('201 Created');
+  await d.locator('[aria-label="Path 2"]').fill('/orders/{id}'); await d.locator('[aria-label="Endpoint 2 description"]').fill('Returns one order.');
+  await d.getByRole('tab', { name: 'Quality', exact: true }).click();
+  await d.locator('[data-field=requirements] .btn', { hasText: 'Add' }).click();
+  const reqs = d.locator('[aria-label="REQUIREMENTS 1"]'); await reqs.fill('Orders are never duplicated'); await reqs.press('Enter'); await d.keyboard.type('Creating an order takes under 300 ms');
+  await d.locator('[data-field=acceptance] .btn', { hasText: 'Add' }).click(); await d.keyboard.type('Retry with the same key returns the first order'); await d.locator('[aria-label="Done 1"]').check();
+  ok('form: fields, select, repeatable endpoint cards with tabs, requirement and checklist rows (Enter adds a row)');
+  await setMode(d, 'markdown');
+  const formMd = await d.inputValue('#body');
+  assert.match(formMd, /## OVERVIEW\n\nOrders for the checkout\.\n\n## AUTHENTICATION\n\nOAuth 2\n\n## ENDPOINTS\n\n```endpoint POST \/orders\nCreates an order\. Idempotent via Idempotency-Key\.\n\nResponses:\n201 Created\n```\n\n```endpoint GET \/orders\/\{id\}\nReturns one order\.\n```/);
+  assert.match(formMd, /## REQUIREMENTS\n\nR1 Orders are never duplicated\nR2 Creating an order takes under 300 ms\n\n## ACCEPTANCE CRITERIA\n\n- \[x\] Retry with the same key returns the first order/); ok('the form is stored as plain Markdown sections (what agents read)');
+  await setMode(d, 'blocks');
+  await d.locator('[data-content-type=endpoint]').first().waitFor(); assert.equal(await d.locator('[data-content-type=endpoint]').count(), 2); ok('the same spec can be opened in the block editor');
+  await setMode(d, 'form');
+  await d.getByRole('tab', { name: 'Endpoints', exact: true }).click(); assert.equal(await d.locator('[aria-label="Path 2"]').inputValue(), '/orders/{id}'); ok('...and back as a form');
   assert.match(await d.locator('#chips').innerText(), /API/); ok('the type is shown as a chip in the editor bar');
   await d.locator('.row', { hasText: 'Orders API' }).locator('.chip.type', { hasText: 'API' }).waitFor(); ok('...and in the spec list');
   await d.selectOption('#typeFilter', 'api');
@@ -415,7 +437,8 @@ try {
   await d.click('[data-act=item-menu]'); await d.getByRole('button', { name: /Type: API spec/ }).click();
   await d.getByRole('button', { name: 'UI spec / design rule' }).click();
   await d.waitForFunction(() => /UI/.test(document.querySelector('#chips')?.textContent ?? '')); ok('the type can be changed later (content stays)');
-  await d.locator('[data-content-type=heading] .bn-inline-content', { hasText: 'ENDPOINTS' }).waitFor();
+  await setMode(d, 'markdown'); assert.match(await d.inputValue('#body'), /## ENDPOINTS[\s\S]*```endpoint POST \/orders/); ok('sections the new type does not know are kept (shown under "Other content")');
+  await setMode(d, 'blocks');
   // team-defined type
   await d.click('.sidebar a[href="#/team"]');
   await d.getByText('Spec types').first().waitFor();
@@ -428,6 +451,24 @@ try {
   await d.click('.bar [data-act=new-spec]');
   await d.getByRole('button', { name: /^Runbook/ }).click();
   await d.locator('[data-content-type=heading] .bn-inline-content', { hasText: 'ROLLBACK' }).waitFor(); ok('the custom type is offered when creating a spec and applies its template');
+  // team-defined FORM type
+  await d.click('.sidebar a[href="#/team"]');
+  await d.click('[data-act=stype-new]');
+  await d.fill('#st-label', 'Checklist type'); await d.fill('#st-desc', 'Release checklist');
+  await d.check('#st-useform'); await d.check('#st-formview');
+  await d.fill('#st-tabs', 'Prepare, Release');
+  await d.fill('[aria-label="Field 1 label"]', 'OWNER'); await d.selectOption('[aria-label="Field 1 type"]', 'text');
+  await d.click('#st-addfield'); await d.fill('[aria-label="Field 2 label"]', 'STEPS'); await d.selectOption('[aria-label="Field 2 type"]', 'checklist'); await d.selectOption('[aria-label="Field 2 tab"]', 'release');
+  await d.click('#stypeForm button[type=submit]');
+  await d.locator('.typerow', { hasText: 'Checklist type' }).getByText('form', { exact: false }).first().waitFor();
+  await d.click('.sidebar a[href="#/"]'); await d.click('.bar [data-act=new-spec]'); await d.getByRole('button', { name: /^Checklist type/ }).click();
+  await d.locator('[data-testid=spec-form]').waitFor(); assert.deepEqual(await d.locator('.form-tabs .tab').allInnerTexts(), ['Prepare', 'Release']);
+  await d.locator('[aria-label="OWNER"]').fill('Ops'); await d.getByRole('tab', { name: 'Release' }).click(); await d.locator('[data-field=steps] .btn', { hasText: 'Add' }).click(); await d.keyboard.type('Tag the build');
+  await setMode(d, 'markdown'); assert.match(await d.inputValue('#body'), /## OWNER\n\nOps\n\n## STEPS\n\n- \[ \] Tag the build/); ok('a team-defined type can describe its own form (fields, tabs, default view) and specs of it open as that form');
+  await setMode(d, 'blocks');
+  await d.click('[data-act=item-menu]'); d.once('dialog', (x) => x.accept()); await d.getByRole('button', { name: 'Delete spec' }).click();
+  await d.click('.sidebar a[href="#/"]'); await d.click('.bar [data-act=new-spec]'); await d.getByRole('button', { name: /^Runbook/ }).click();
+  await d.locator('[data-content-type=heading] .bn-inline-content', { hasText: 'ROLLBACK' }).waitFor();
   await shot(d, '06f-desktop-spec-types');
   await d.click('[data-act=item-menu]'); d.once('dialog', (x) => x.accept()); await d.getByRole('button', { name: 'Delete spec' }).click();
   await d.click('.sidebar a[href="#/"]');

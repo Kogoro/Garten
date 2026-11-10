@@ -9,3 +9,5 @@ no-team page, PWA (offline shell, Mermaid, editor precached).
 
 Open ideas (not part of parity): spec-type forms with tabs per section, visual Mermaid editor, real-device touch testing,
 smaller bundle (BlockNote locales / Mantine).
+
+v0.9: spec types can be forms (shared/specForm.js, web/src/form/SpecForm.tsx); built-in API, UI and NFR specs open as forms.

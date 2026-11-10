@@ -1,4 +1,4 @@
-# Specs – Prototyp v0.8 (React)
+# Specs – Prototyp v0.9 (React)
 
 Self-hosted, offline-first App, um auf Handy **und Desktop** Spezifikationen und Dokumente für KI-Agenten zu schreiben – **pro Team**.
 Freigegebene (approved) Specs werden als Markdown in das Git-Repo **des Teams** geschrieben (Commit + Tag pro Version, Autor = Freigebender),
@@ -51,6 +51,16 @@ Jede Spec hat einen **Typ**, der ihre Startstruktur (Vorlage) bestimmt und Agent
 * **Eigene Typen pro Team:** *Members & Git → Spec types → New type* (Name, Beschreibung, Vorlage als Markdown, optional „Start from“ ein eingebauter Typ). Ein Typ, den noch Specs verwenden, lässt sich nicht löschen.
 * **Git/MCP:** Die freigegebene Datei trägt `type: api` im Front-Matter; `list_specs` liefert `type` und `type_label` und filtert mit `list_specs(type: "api")`.
 * Bestehende Specs sind „Feature spec“; die Spalte wird automatisch migriert.
+
+## Spec als Formular
+
+Ein Spec-Typ kann seinen Inhalt als **Formular** beschreiben statt als freien Editor: vordefinierte Felder, Listen und **Tabs**, ganz ohne Editor. Eingebaut sind **API** (Tabs *Overview / Endpoints / Contract / Quality*), **UI spec** und **NFR** als Formular (öffnen direkt als Formular); *Feature*, *Data model* und *Integration* haben ein Formular zur Auswahl, öffnen aber im Editor. Im Overflow-Menü wechselst du jederzeit zwischen **Form**, **Blocks** und **Markdown** – es ist immer dieselbe Datei.
+
+* **Feldtypen:** Einzeilig, Text, Auswahl, Liste, Checkliste, Requirements (R1, R2 …, fortlaufend), API-Endpoints (Karten mit Tabs Description / Request / Responses), Diagramm (Mermaid mit Vorschau), Code. In Listen: `Enter` neue Zeile, `Rücktaste` in leerer Zeile löscht sie, `Alt+↑/↓` verschiebt.
+* **Gespeichert wird Markdown:** jedes Feld ist ein Abschnitt `## FELDNAME` (Liste = `- Punkt`, Checkliste = `- [x] …`, Requirements = `R1 …`, Endpoints = ` ```endpoint GET /pfad `-Fences). Agenten, Git und der Block-Editor sehen dieselbe Datei.
+* **Nichts geht verloren:** Abschnitte, die das Formular nicht kennt (z. B. nach einem Typwechsel oder von einem Agenten geschrieben), und Text vor dem ersten Abschnitt bleiben erhalten und stehen unter „Other content“.
+* **Eigene Formular-Typen:** Team-Admins definieren unter *Members & Git → Spec types* Felder (Name, Typ, Auswahl-Optionen, Hinweis, Tab), Tabs und ob Specs als Formular öffnen. „Start from“ übernimmt ein eingebautes Formular als Vorlage.
+* **Für Agenten:** `list_spec_types` liefert je Typ die Abschnitte mit Art (`kind`), Optionen und Hinweisen – so schreiben Agenten Drafts, die im Formular sauber ankommen.
 
 ## Foundation-Dokumente: Vision, Strategie, Glossar
 

@@ -51,7 +51,7 @@ export function ReloginSheet({ onClose }: { onClose: Done }) {
 export function NewSpecSheet({ onClose }: { onClose: Done }) {
   const S = useStore(); const nav = useNavigate();
   const { lastType, set } = useUi();
-  const pick = (key: string) => { set({ lastType: key }); const s = S.createSpec(key); onClose(); nav(`/spec/${encodeURIComponent(s.id)}`); setTimeout(() => document.getElementById('title')?.focus(), 80); };
+  const pick = (key: string) => { const s = S.createSpec(key); const { [s.id]: _drop, ...modes } = useUi.getState().modes; set({ lastType: key, modes }); onClose(); nav(`/spec/${encodeURIComponent(s.id)}`); setTimeout(() => document.getElementById('title')?.focus(), 80); };
   return (
     <Sheet onClose={onClose}>
       <h2>New spec</h2>
