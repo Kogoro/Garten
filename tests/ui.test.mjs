@@ -1,0 +1,608 @@
+// Browser test: login, offline-first block editor with diagrams, conflicts, desktop layout, roles.
+//   node tests/ui.test.mjs              (starts its own server)      SHOTS=./shots to keep screenshots
+import assert from 'node:assert/strict';
+import { chromium } from 'playwright';
+import { mkdirSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { startServer, Client, startSmtpSink } from './helpers.mjs';
+
+const SHOTS = process.env.SHOTS;
+if (SHOTS) mkdirSync(SHOTS, { recursive: true });
+const shot = (page, name) => SHOTS && page.screenshot({ path: `${SHOTS}/${name}.png` });
+
+const tmp = mkdtempSync(path.join(process.env.TEST_TMP || tmpdir(), 'specs-ui-'));
+const remote = path.join(tmp, 'remote.git');
+execFileSync('git', ['init', '--bare', '-b', 'main', remote]);
+const smtp = await startSmtpSink();
+const srv = await startServer({ GIT_ALLOW_LOCAL: '1', FOUNDATION_DEBOUNCE_MS: '150', SMTP_URL: `smtp://127.0.0.1:${smtp.port}`, SMTP_FROM: 'Specs <specs@example.test>' });
+const BASE = srv.base;
+const admin = new Client(BASE);
+await admin.login('admin@localhost', 'adminpass1');
+await admin.post('/api/users', { email: 'viewer@example.com', name: 'Vera Viewer', teamId: admin.tid, role: 'viewer', password: 'viewerpass1' });
+
+const browser = await chromium.launch({ args: ['--no-sandbox'] });
+const errors = [];
+const watch = (page) => {
+  page.on('pageerror', (e) => errors.push(e.message));
+  page.on('console', (m) => m.type() === 'error' && !/Failed to load resource|net::ERR/.test(m.text()) && errors.push(m.text()));
+};
+let n = 0;
+const ok = (m) => console.log(`ok ${++n} - ${m}`);
+const serverItem = async (id) => (await admin.sync()).data.items.find((i) => i.id === id);
+const signIn = async (page, email, pw) => { await page.fill('#email', email); await page.fill('#password', pw); await page.click('#loginForm button[type=submit]'); };
+
+try {
+  // =============================================================== MOBILE
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
+  const page = await ctx.newPage();
+  watch(page);
+  const setMode = async (pg, mode) => { await pg.click('[data-act=item-menu]'); await pg.getByRole('button', { name: `Editor: ${mode === 'markdown' ? 'Markdown' : 'Blocks'}` }).click(); };
+  const pill = () => page.locator('.bar [data-pill]').first().innerText();
+
+  await page.goto(BASE);
+  await page.locator('#loginForm').waitFor();
+  await shot(page, '01-login');
+  await signIn(page, 'admin@localhost', 'wrong-password');
+  await page.getByText('Wrong e-mail or password').waitFor(); ok('wrong password shows an error');
+  await signIn(page, 'admin@localhost', 'adminpass1');
+  await page.locator('.row', { hasText: 'SPEC-012' }).waitFor();
+  await page.locator('.bar [data-pill].ok').first().waitFor(); ok('sign in + initial sync');
+  await shot(page, '02-list');
+
+  // offline reload must not ask for a login again
+  await page.evaluate(() => navigator.serviceWorker.ready);
+  await page.reload();
+  await page.waitForFunction(() => navigator.serviceWorker.controller);
+  await page.waitForTimeout(800); // let the service worker finish caching mermaid
+  await ctx.setOffline(true);
+  await page.reload();
+  await page.locator('.row', { hasText: 'SPEC-012' }).waitFor(); ok('offline reload opens the app without a new login');
+
+  // --- block editor, offline
+  await page.click('.fab[data-act=new-spec]'); await page.getByRole('button', { name: /Feature spec/ }).click();
+  const title = `Offline spec ${Date.now() % 100000}`;
+  await page.fill('#title', title);
+  await page.locator('.blk-in').first().waitFor();
+  assert.ok(await page.locator('.blk').count() >= 3); ok('new spec starts from a block template');
+  await page.locator('.blk-h h2, .blk-in.h2').first().waitFor().catch(() => {});
+  // type into first empty paragraph-like block via toolbar-added blocks
+  await page.click('[data-act=t-add]');
+  await page.getByRole('button', { name: 'Text', exact: true }).click();
+  await page.keyboard.type('Plain paragraph typed offline.');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('/');
+  await page.getByRole('button', { name: 'Requirement (R1, R2 …)' }).click();
+  await page.keyboard.type('Works on the train');
+  await page.keyboard.press('Enter'); // next requirement
+  await page.keyboard.type('Never double-bills');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter'); // empty item leaves the list
+  await page.keyboard.type('/');
+  await page.getByRole('button', { name: 'Diagram (Mermaid)' }).click();
+  await page.locator('.mm svg').first().waitFor({ timeout: 15000 }); ok('slash menu inserts a Mermaid diagram that renders offline');
+  await shot(page, '03-editor-blocks');
+  const src = page.locator('.blk-diagram .blk-in');
+  await src.fill('flowchart LR\n  Phone --> Server\n  Server --> Git');
+  await page.waitForFunction(() => /Phone/.test(document.querySelector('.blk-diagram .mm')?.textContent ?? ''), null, { timeout: 10000 }); ok('diagram preview follows the source');
+  await src.fill('flowchart LR\n  A -->');
+  await page.locator('.mm.err').waitFor(); ok('invalid diagram shows an error instead of breaking');
+  await src.fill('flowchart LR\n  Phone --> Server\n  Server --> Git');
+  await page.locator('.mm:not(.err) svg').waitFor();
+
+  // diagram: toggle between rendered view and code
+  const dg = page.locator('.blk-diagram').first();
+  await dg.getByRole('button', { name: 'Code', exact: true }).click();
+  assert.equal(await dg.locator('.mm').isVisible(), false); assert.equal(await dg.locator('.blk-in').isVisible(), true);
+  await dg.getByRole('button', { name: 'Diagram', exact: true }).click();
+  assert.equal(await dg.locator('.mm').isVisible(), true); assert.equal(await dg.locator('.blk-in').isVisible(), false);
+  await dg.getByRole('button', { name: 'Split', exact: true }).click();
+  assert.equal(await dg.locator('.mm').isVisible() && await dg.locator('.blk-in').isVisible(), true); ok('diagram block: toggle between Diagram, Code and Split');
+  // endpoint blocks: repeatable, each with description
+  for (const [method, path, text] of [['POST', '/orders', 'Creates an order. Idempotent via Idempotency-Key.'], ['GET', '/orders/{id}', 'Returns one order.']]) {
+    await page.click('[data-act=t-add]'); await page.getByRole('button', { name: 'API endpoint', exact: true }).click();
+    const ep = page.locator('.blk-endpoint').last();
+    await ep.locator('.ep-method').selectOption(method); await ep.locator('.ep-path').fill(path); await ep.locator('[data-f=text]').fill(text);
+  }
+  assert.equal(await page.locator('.blk-endpoint').count() >= 2, true);
+  await page.locator('.blk-endpoint').last().locator('[data-f=res]').fill('200 OK – the order\n404 – unknown id');
+  await setMode(page, 'markdown');
+  const epMd = await page.inputValue('#body');
+  assert.match(epMd, /```endpoint POST \/orders\nCreates an order\. Idempotent via Idempotency-Key\.\n```/);
+  assert.match(epMd, /```endpoint GET \/orders\/\{id\}\nReturns one order\.\n\nResponses:\n200 OK – the order\n404 – unknown id\n```/); ok('endpoint blocks are repeatable, carry a description and serialise to endpoint fences');
+  await setMode(page, 'blocks');
+  assert.equal(await page.locator('.blk-endpoint .ep-path').last().inputValue(), '/orders/{id}'); ok('endpoint fences parse back into endpoint blocks');
+
+  // markdown view round trip
+  await setMode(page, 'markdown');
+  const md = await page.inputValue('#body');
+  assert.match(md, /Plain paragraph typed offline\./);
+  assert.match(md, /R1 Works on the train\nR2 Never double-bills/);
+  assert.match(md, /```mermaid\nflowchart LR\n  Phone --> Server/); ok('blocks serialise to clean Markdown (requirements, mermaid fence)');
+  await page.locator('#body').press('Control+End');
+  await page.keyboard.type('\n\n## EXTRA\nAdded as Markdown');
+  await setMode(page, 'blocks');
+  await page.locator('.blk-in', { hasText: 'Added as Markdown' }).waitFor(); ok('Markdown edits come back as blocks');
+
+  // @ reference + approve
+  await page.click('[data-act=t-ref]');
+  await page.locator('.pick', { hasText: 'ADR-007.md' }).click();
+  await page.click('#docsDd [data-act=dd-toggle]'); await page.locator('#docsDd [aria-checked=true]', { hasText: 'ADR-007.md' }).waitFor(); await page.keyboard.press('Escape'); ok('@ reference links the document (shown in the documents dropdown)');
+  await page.locator('#saveInd[data-state="dirty"]').waitFor();
+  await page.click('[data-act=approve]');
+  await page.getByRole('button', { name: /Approval queued/ }).waitFor(); ok('approve offline is queued');
+  const specId = await page.evaluate(() => decodeURIComponent(location.hash.split('/').pop()));
+  await page.click('a[aria-label=Back]');
+  assert.match(await pill(), /Offline · 1/); ok('pill shows Offline · 1');
+  assert.equal(await serverItem(specId), undefined);
+
+  // conflict: edit SPEC-014 offline while the server changes it
+  await page.locator('.row', { hasText: 'SPEC-014' }).click();
+  const stamp = Date.now();
+  await page.locator('.blk-in').last().click();
+  await page.keyboard.press('Control+End');
+  await page.keyboard.type(` LOCAL${stamp}`);
+  const s14 = await serverItem('SPEC-014');
+  await admin.push([{ id: 'SPEC-014', kind: 'spec', baseRev: s14.rev, fields: { body: s14.body + `\nSERVER${stamp}` } }]);
+
+  await ctx.setOffline(false);
+  await page.evaluate(() => dispatchEvent(new Event('online')));
+  await page.locator('#saveInd[data-state="conflict"]').waitFor({ timeout: 10000 }); ok('conflicting edit is detected, not overwritten');
+  const released = await serverItem(specId);
+  assert.equal(released.status, 'approved'); assert.equal(released.updatedBy, 'Admin');
+  assert.match(released.body, /```mermaid\nflowchart LR/); ok('queued approval released on reconnect (with the diagram)');
+  assert.doesNotMatch((await serverItem('SPEC-014')).body, new RegExp(`LOCAL${stamp}`));
+  await page.click('[data-act=conflict]');
+  await page.getByText('Choose which version to keep').waitFor();
+  await shot(page, '04-conflict-sheet');
+  await page.click('[data-act=keep-mine]');
+  await page.locator('#saveInd[data-state="synced"]').waitFor({ timeout: 10000 });
+  assert.match((await serverItem('SPEC-014')).body, new RegExp(`LOCAL${stamp}`)); ok('"Keep mine" resolves the conflict');
+
+  // agent sees the diagram
+  const pat = (await admin.post('/api/me/tokens', { name: 'ui-test', scopes: ['mcp:read'], teamId: admin.tid })).data.token;
+  const rpc = await fetch(`${BASE}/mcp`, { method: 'POST', headers: { authorization: `Bearer ${pat}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'get_spec', arguments: { id: specId } } }) });
+  assert.match(await rpc.text(), /mermaid\\nflowchart LR/); ok('agent receives the diagram as a mermaid block');
+
+  // account on mobile
+  await page.click('a[aria-label=Back]').catch(() => {});
+  await page.click('[data-act=more-menu]'); await page.getByRole('button', { name: 'Account & agent access' }).click();
+  await page.getByText('Agent access (MCP)').waitFor();
+  await shot(page, '05-account-mobile');
+  await ctx.close();
+
+  // =============================================================== DESKTOP
+  const dctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
+  const d = await dctx.newPage();
+  watch(d);
+  await d.goto(BASE);
+  await signIn(d, 'admin@localhost', 'adminpass1');
+  await d.locator('.row', { hasText: 'SPEC-014' }).waitFor();
+  assert.ok(await d.locator('.sidebar').isVisible() && (await d.locator('.sidebar').boundingBox()).width > 200); ok('desktop: sidebar navigation');
+  assert.ok(await d.locator('.detail .placeholder').isVisible()); ok('desktop: empty detail pane until a spec is selected');
+  await d.locator('.row', { hasText: 'SPEC-014' }).click();
+  await d.locator('.blk-in').first().waitFor();
+  assert.ok(await d.locator('#list').isVisible() && await d.locator('.editor').isVisible()); ok('desktop: list and editor side by side');
+  await d.locator('.blk-in', { hasText: 'idempotency key' }).first().waitFor();
+
+  // --- editor bar: title, status, linked documents, save state, approve and overflow menu in ONE row
+  const bar = await d.locator('.ed-bar').boundingBox();
+  assert.ok(bar.height < 70, `bar height ${bar.height}`);
+  for (const sel of ['.ed-title', '#chips', '#docsDd', '#saveInd', '#approveSlot [data-act=approve]', '[data-act=item-menu]']) {
+    const b = await d.locator(`.ed-bar ${sel}`).boundingBox();
+    assert.ok(b && b.y >= bar.y - 1 && b.y + b.height <= bar.y + bar.height + 1, `${sel} sits in the bar`);
+  }
+  assert.equal(await d.locator('.ed-bar [data-act=mode]').count(), 0); assert.equal(await d.locator('.editor .ed-meta, .editor .links').count(), 0);
+  ok('editor: title, status, documents, save state and Approve share one compact bar; no extra meta/link rows');
+  await d.click('#docsDd [data-act=dd-toggle]');
+  await d.locator('#docsDd .dd-menu').waitFor();
+  const labelBefore = await d.locator('#docsDd .docsbtn').innerText();
+  await d.locator('#docsDd [data-act=dd-link][aria-checked=false]').first().click();
+  await d.locator('#docsDd .dd-menu').waitFor(); // stays open while toggling
+  await d.waitForFunction((l) => document.querySelector('#docsDd .docsbtn')?.innerText !== l, labelBefore);
+  await d.locator('#docsDd [data-act=dd-link][aria-checked=true]').first().click();
+  await d.keyboard.press('Escape'); assert.equal(await d.locator('#docsDd .dd-menu').isVisible(), false);
+  ok('linked documents dropdown: toggle links (stays open), Escape closes');
+  await d.click('[data-act=item-menu]');
+  await d.getByRole('button', { name: 'Editor: Blocks' }).waitFor(); await d.getByRole('button', { name: 'Editor: Markdown' }).waitFor(); await d.keyboard.press('Escape');
+  ok('Blocks/Markdown switch lives in the overflow menu');
+
+  // --- insert at cursor: splits the block at the caret
+  const req2 = d.locator('.blk-req .blk-in').nth(1);
+  const before = await req2.inputValue();
+  await req2.evaluate((el) => { el.focus(); el.setSelectionRange(11, 11); el.dispatchEvent(new Event('keyup', { bubbles: true })); });
+  await d.click('[data-act=t-def]');
+  await d.locator('.blk-def .def-term').waitFor();
+  await d.locator('.def-term').fill('Ledger entry');
+  await d.locator('.blk-def .blk-in').fill('One immutable row per charge.');
+  await setMode(d, 'markdown');
+  const md1 = await d.inputValue('#body');
+  const [head, tail] = [before.slice(0, 11).trimEnd(), before.slice(11).trimStart()];
+  assert.ok(md1.includes(`R2 ${head}\n\nLedger entry\n: One immutable row per charge.\n\n${tail}`), md1); ok('toolbar inserts a block at the cursor and splits the text there');
+  assert.match(md1, /Ledger entry\n: One immutable row per charge\./); ok('definition block serialises as a Markdown definition list');
+  await setMode(d, 'blocks');
+  await d.locator('.blk-def .def-term').waitFor(); assert.equal(await d.locator('.def-term').inputValue(), 'Ledger entry'); ok('definition list parses back into a definition block');
+
+  // --- drag & drop: drag the first block down below the fourth one with the mouse
+  const texts = () => d.locator('.blk').evaluateAll((els) => els.map((e) => `${e.querySelector('.def-term')?.value ?? ''}|${e.querySelector('.blk-in')?.value ?? ''}`));
+  const t0 = await texts();
+  const g = await d.locator('.blk').nth(0).locator('.grip').boundingBox();
+  const target = await d.locator('.blk').nth(3).boundingBox();
+  await d.mouse.move(g.x + g.width / 2, g.y + g.height / 2);
+  await d.mouse.down();
+  await d.mouse.move(g.x + 10, g.y + 30, { steps: 4 });
+  await d.mouse.move(g.x + 10, target.y + target.height - 2, { steps: 10 });
+  await d.locator('.drop-line').waitFor(); ok('dragging a block shows a drop indicator');
+  await d.mouse.up();
+  const expected = [...t0]; expected.splice(3, 0, expected.splice(0, 1)[0]);
+  await d.waitForFunction((exp) => JSON.stringify([...document.querySelectorAll('.blk')].map((e) => `${e.querySelector('.def-term')?.value ?? ''}|${e.querySelector('.blk-in')?.value ?? ''}`)) === JSON.stringify(exp), expected);
+  assert.equal(await d.locator('.drop-line').count(), 0); ok('drag & drop moves a block to a new position');
+  await setMode(d, 'markdown');
+  const mdOrder = await d.inputValue('#body');
+  assert.ok(mdOrder.indexOf(t0[0].split('|')[1]) > mdOrder.indexOf(t0[3].split('|')[1]) && mdOrder.indexOf(t0[3].split('|')[1]) >= 0);
+  await setMode(d, 'blocks'); await d.locator('.blk').first().waitFor(); ok('the new order is persisted in the Markdown');
+  await shot(d, '06-desktop-editor');
+  // a plain click on the handle still opens the block menu
+  await d.locator('.blk').first().locator('.grip').click();
+  await d.getByText('Turn into Text').waitFor(); await d.keyboard.press('Escape'); ok('clicking the handle (without dragging) opens the block menu');
+
+  // --- glossary: master/detail with folders, synonyms, references, global glossary
+  const settle = (await admin.get('/api/glossary/global')).data.terms.find((t) => t.term === 'Settlement'); // seeded demo terms: Chargeback, Settlement
+  assert.ok(settle);
+  await d.click('.sidebar a[href="#/glossary"]');
+  await d.locator('#glList .row', { hasText: 'Ledger entry' }).waitFor(); await d.locator('#glList .row', { hasText: 'Attempt window' }).waitFor();
+  assert.equal(await d.locator('#glDetail').count(), 0); assert.ok(await d.locator('.detail .placeholder').isVisible()); ok('glossary: term list on the left, placeholder on the right until a term is selected');
+  await d.locator('#glList .row', { hasText: 'Attempt window' }).click();
+  await d.locator('#glDetail h1', { hasText: 'Attempt window' }).waitFor(); await d.locator('#glDetail .gd-def', { hasText: 'time bucket' }).waitFor(); ok('glossary: selecting a term shows its definition in the detail pane');
+  await d.click('.bar [data-act=dd-toggle]'); await d.getByRole('menuitem', { name: 'Term' }).click();
+  await d.fill('#termname', 'Dunning'); await d.fill('#termdef', 'Reminding customers about unpaid invoices.'); await d.click('[data-act=create-term]');
+  await d.locator('#glDetail h1', { hasText: 'Dunning' }).waitFor(); await d.locator('#glList .row.active', { hasText: 'Dunning' }).waitFor(); ok('glossary: New → Term creates the term and opens it');
+  // folder + a term with synonyms and references inside it
+  await d.click('.bar [data-act=dd-toggle]'); await d.getByRole('menuitem', { name: 'Folder' }).click();
+  await d.fill('#glfname', 'Payments'); await d.click('[data-act=do-gl-folder]');
+  await d.locator('#glList .ftoggle', { hasText: 'Payments' }).waitFor(); ok('glossary folders: create a folder (a section heading in glossary.md)');
+  await d.click('.bar [data-act=dd-toggle]'); await d.getByRole('menuitem', { name: 'Term' }).click();
+  await d.fill('#termname', 'Payout'); await d.fill('#termdef', 'Money sent to the merchant after [[Settlement]] and [[Ghost term]].');
+  await d.fill('#termaliases', 'disbursement, transfer'); await d.fill('#termsee', 'Chargeback'); await d.selectOption('#termfolder', 'Payments'); await d.click('[data-act=create-term]');
+  await d.locator('#glDetail h1', { hasText: 'Payout' }).waitFor();
+  await d.locator('#glDetail .gd-alias', { hasText: 'disbursement' }).waitFor(); await d.locator('#glDetail .gd-alias', { hasText: 'transfer' }).waitFor();
+  assert.equal(await d.locator('#glDetail .termref.broken').count(), 5); ok('glossary detail: synonyms as chips, undefined references flagged (inline and in the related row)');
+  const order = await d.locator('#glList').evaluate((el) => el.innerText);
+  assert.ok(order.indexOf('Payments') >= 0 && order.indexOf('Payout') > order.indexOf('Payments')); ok('the term is listed under its folder');
+  // edit in the detail pane
+  await d.click('[data-act=gl-edit]');
+  await d.fill('#gd-def', 'Money sent to the merchant after [[Settlement]] and [[Ghost term]]. Paid daily.');
+  await d.click('#glEditForm button[type=submit]');
+  await d.locator('#glDetail').getByText('Paid daily.').waitFor(); ok('glossary: edit a term in the detail pane (no jump to glossary.md)');
+  // folder actions + alias search
+  await d.locator('#glList .frow', { hasText: 'Payments' }).locator('[data-act=gl-folder-menu]').click();
+  await d.getByRole('button', { name: 'Rename…' }).click(); await d.fill('#glfname', 'Billing'); await d.click('[data-act=do-gl-folder]');
+  await d.locator('#glList .ftoggle', { hasText: 'Billing' }).waitFor(); await d.locator('#glList .row', { hasText: 'Payout' }).waitFor(); ok('glossary folders can be renamed (terms move with them)');
+  await d.fill('#gsearch', 'disbursement');
+  await d.waitForFunction(() => document.querySelectorAll('#glList .row').length === 1 && /Payout/.test(document.querySelector('#glList .row').textContent)); ok('search also matches synonyms');
+  await d.fill('#gsearch', '');
+  // import from the global glossary
+  await d.click('.bar [data-act=dd-toggle]'); await d.getByRole('menuitem', { name: /Import from global/ }).click();
+  await d.locator('.gi-row', { hasText: 'Chargeback' }).waitFor();
+  await d.locator('.gi-row', { hasText: /^\s*Settlement/ }).locator('input').check();
+  await d.fill('#gimport-q', 'clearing'); assert.equal(await d.locator('.gi-row').count(), 1); ok('import dialog: search the global glossary');
+  await d.click('[data-act=do-gimport]');
+  await d.locator('#glList .row[href$="/Settlement"]').waitFor(); await d.locator('#glList .row[href$="/Settlement"]').locator('.chip', { hasText: 'Global' }).waitFor();
+  assert.equal(await d.locator('#glDetail .termref.broken').count(), 3); ok('importing a global term adds it to the glossary and resolves references to it');
+  await d.locator('#glDetail .termref', { hasText: 'Settlement' }).first().click();
+  await d.locator('#glDetail h1', { hasText: 'Settlement' }).waitFor();
+  await d.locator('#glDetail .relrow', { hasText: 'Referenced by' }).getByText('Payout').waitFor(); ok('clicking a reference opens that term, which lists what references it');
+  // the global term changes -> "Update available"
+  await admin.patch(`/api/glossary/global/${settle.id}`, { definition: 'Funds move from the processor to our bank account.' });
+  await d.click('.sidebar a[href="#/docs"]'); await d.click('.sidebar a[href="#/glossary"]');
+  await d.locator('#glList .row[href$="/Settlement"]').click();
+  await d.locator('#glDetail').getByText('Update available').first().waitFor({ timeout: 10000 });
+  await d.locator('#glDetail [data-act=gl-update]').click();
+  await d.locator('#glDetail').getByText('Funds move from the processor to our bank account.').waitFor();
+  assert.equal(await d.locator('#glDetail').getByText('Update available').count(), 0); ok('an updated global term can be pulled into the team glossary');
+  await shot(d, '06e-desktop-glossary-refs');
+  // terms defined in a spec can be adopted; deleting a term
+  await d.locator('#glList .row', { hasText: 'Ledger entry' }).click();
+  await d.locator('#glDetail [data-act=gl-adopt]').waitFor(); ok('terms that live in a spec offer "Add to glossary"');
+  await d.locator('#glList .row', { hasText: 'Dunning' }).click();
+  d.once('dialog', (x) => x.accept()); await d.click('[data-act=gl-delete]');
+  await d.waitForFunction(() => ![...document.querySelectorAll('#glList .row')].some((r) => /Dunning/.test(r.textContent))); ok('a term can be deleted from the glossary');
+  // the block editor still shows the same definitions (glossary.md is just Markdown)
+  await d.evaluate(() => (location.hash = '#/doc/glossary.md'));
+  await d.locator('.blk-def').first().waitFor();
+  assert.equal(await d.locator('.editor .back').getAttribute('href'), '#/glossary');
+  const pay = d.locator('.blk-def', { has: d.locator('.def-term[value="Payout"]') });
+  assert.equal(await pay.locator('.def-aliases').inputValue(), 'disbursement, transfer'); ok('glossary.md still carries aliases and references as Markdown; its back link returns to the glossary');
+  await d.evaluate(() => (location.hash = '#/glossary'));
+
+  // --- documents in folders
+  await d.click('.sidebar a[href="#/docs"]');
+  await d.locator('.ftoggle', { hasText: 'adr' }).waitFor();
+  await d.locator('.ftoggle', { hasText: 'schemas' }).waitFor(); ok('documents are shown in a folder tree');
+  await d.locator('.ftoggle', { hasText: 'adr' }).click();
+  assert.equal(await d.locator('.docrow', { hasText: 'ADR-007.md' }).count(), 0); await d.locator('.ftoggle', { hasText: 'adr' }).click();
+  await d.locator('.docrow', { hasText: 'ADR-007.md' }).waitFor(); ok('folders collapse and expand');
+  // the New button is a dropdown at the right edge of the bar
+  const ddBtn = await d.locator('.bar [data-act=dd-toggle]').boundingBox();
+  await d.click('.bar [data-act=dd-toggle]');
+  await d.locator('.dd-menu').waitFor();
+  const ddMenu = await d.locator('.dd-menu').boundingBox();
+  assert.ok(Math.abs((ddMenu.x + ddMenu.width) - (ddBtn.x + ddBtn.width)) <= 2); ok('documents: New is a dropdown aligned to the right edge');
+  assert.ok(await d.getByRole('menuitem', { name: 'Document' }).isVisible() && await d.getByRole('menuitem', { name: /Folder/ }).isVisible());
+  await d.keyboard.press('Escape'); assert.equal(await d.locator('.dd-menu').isVisible(), false);
+  await d.click('.bar [data-act=dd-toggle]'); await d.locator('#list').click({ position: { x: 5, y: 5 } }); assert.equal(await d.locator('.dd-menu').isVisible(), false); ok('the dropdown closes with Escape and on outside click');
+  await d.click('.bar [data-act=dd-toggle]'); await d.getByRole('menuitem', { name: 'Document' }).click();
+  await d.fill('#docname', 'notes/ideas/retry.md'); await d.click('[data-act=create-doc]');
+  await d.locator('.ed-title', { hasText: 'notes/ideas/retry.md' }).waitFor();
+  await d.locator('.ftoggle', { hasText: 'ideas' }).waitFor(); ok('a document in a new nested folder creates the folder');
+  await d.click('[data-act=item-menu]'); await d.getByRole('button', { name: 'Move / rename…' }).click();
+  await d.fill('#docname', 'decisions/retry.md'); await d.click('[data-act=do-move]');
+  await d.locator('.ed-title', { hasText: 'decisions/retry.md' }).waitFor();
+  await d.locator('.ftoggle', { hasText: 'decisions' }).waitFor();
+  assert.equal(await d.locator('.ftoggle', { hasText: 'ideas' }).count(), 0); ok('moving a document updates the tree');
+  await d.locator('#list .docrow.active').waitFor();
+  await d.locator('.sidebar .pill').first().waitFor();
+  await d.waitForFunction(() => document.querySelector('#saveInd')?.dataset.state === 'synced', null, { timeout: 15000 });
+  assert.ok((await admin.sync()).data.items.some((i) => i.id === 'decisions/retry.md' && !i.deleted)); ok('moved document reaches the server');
+  await d.click('[data-act=item-menu]'); d.once('dialog', (x) => x.accept()); await d.getByRole('button', { name: 'Delete document' }).click();
+  await d.waitForFunction(() => !document.querySelector('.docrow .row-title')?.textContent.includes('retry.md'));
+  await d.waitForTimeout(500);
+  await d.waitForFunction(async () => true);
+  await shot(d, '06c-desktop-docs');
+
+  // --- foundation documents: write the vision, it goes live without any spec
+  const ctxPat = (await admin.post('/api/me/tokens', { name: 'ctx', scopes: ['mcp:read'], teamId: admin.tid })).data.token;
+  const teamContext = async () => (await (await fetch(`${BASE}/mcp`, { method: 'POST', headers: { authorization: `Bearer ${ctxPat}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'get_team_context', arguments: {} } }) })).text());
+  assert.match(await teamContext(), /Payout/); ok('glossary terms are served by MCP without being linked to any spec');
+  await d.click('.sidebar a[href="#/docs"]');
+  await d.locator('.found', { hasText: 'Vision' }).click();
+  await d.locator('.blk-in').first().waitFor();
+  await d.click('[data-act=t-add]'); await d.getByRole('button', { name: 'Text', exact: true }).click();
+  await d.keyboard.type('Calm, correct billing for everyone.');
+  await new Promise((r) => setTimeout(r, 3500)); // client sync (2 s debounce) + server auto-release
+  await d.evaluate(() => dispatchEvent(new Event('online')));
+  await d.locator('#chips', { hasText: 'Live v' }).waitFor({ timeout: 15000});
+  assert.match(await teamContext(), /Calm, correct billing/); ok('a foundation document goes live automatically and reaches the agent');
+  await d.locator('.found.active', { hasText: 'Vision' }).waitFor();
+
+  // --- folders can be created, filled, renamed and deleted in the UI
+  await d.click('.sidebar a[href="#/docs"]');
+  await d.click('.bar [data-act=dd-toggle]'); await d.getByRole('menuitem', { name: /Folder/ }).click();
+  await d.fill('#docname', 'notes'); await d.click('[data-act=create-folder]');
+  await d.locator('.ftoggle', { hasText: 'notes' }).waitFor();
+  await d.locator('.ed-title', { hasText: 'notes/README.md' }).waitFor();
+  assert.equal(await d.locator('.docrow', { hasText: 'README.md' }).count(), 1); ok('a new folder is created together with a default README.md, which opens for editing');
+  await d.locator('.frow', { hasText: 'notes' }).hover();
+  await d.locator('.frow', { hasText: 'notes' }).locator('[data-act=new-doc-in]').click();
+  assert.equal(await d.inputValue('#docname'), 'notes/'); await d.fill('#docname', 'notes/plan.md'); await d.click('[data-act=create-doc]');
+  await d.locator('.ed-title', { hasText: 'notes/plan.md' }).waitFor(); ok('a document can be created directly inside a folder');
+  await d.locator('.frow', { hasText: 'notes' }).locator('[data-act=folder-menu]').click();
+  assert.ok(await d.getByRole('button', { name: 'Delete folder' }).isDisabled()); ok('a folder with content cannot be deleted');
+  await d.getByRole('button', { name: 'Rename / move…' }).click();
+  await d.fill('#docname', 'team-notes'); await d.click('[data-act=do-rename-folder]');
+  await d.locator('.ftoggle', { hasText: 'team-notes' }).waitFor();
+  assert.equal(await d.locator('.ftoggle', { hasText: /^notes/ }).count(), 0); ok('renaming a folder moves its documents');
+  await d.click('.bar [data-act=dd-toggle]'); await d.getByRole('menuitem', { name: /Folder/ }).click();
+  await d.fill('#docname', 'scratch'); await d.click('[data-act=create-folder]');
+  await d.locator('.ed-title', { hasText: 'scratch/README.md' }).waitFor();
+  await d.click('[data-act=item-menu]'); d.once('dialog', (x) => x.accept()); await d.getByRole('button', { name: 'Delete document' }).click();
+  await d.locator('.ftoggle', { hasText: 'scratch' }).waitFor();
+  await d.locator('.frow', { hasText: 'scratch' }).locator('[data-act=folder-menu]').click();
+  d.once('dialog', (x) => x.accept()); await d.getByRole('button', { name: 'Delete folder' }).click();
+  await d.waitForFunction(() => ![...document.querySelectorAll('.ftoggle')].some((e) => /scratch/.test(e.textContent))); ok('an empty folder can be deleted');
+  await d.evaluate(() => dispatchEvent(new Event('online')));
+  await d.waitForFunction(() => /Synced/.test(document.querySelector('.sidebar .pill')?.textContent ?? ''), null, { timeout: 15000 });
+  const folderState = (items) => items.some((i) => i.id === 'team-notes/plan.md' && !i.deleted) && items.some((i) => i.id === 'team-notes/README.md' && !i.deleted) && items.some((i) => i.id === 'team-notes' && i.kind === 'folder' && !i.deleted) && !items.some((i) => i.id === 'notes/plan.md' && !i.deleted) && !items.some((i) => i.id === 'notes' && !i.deleted) && !items.some((i) => i.id === 'scratch' && !i.deleted);
+  let srvItems = [];
+  for (let i = 0; i < 40 && !folderState(srvItems); i++) { await d.evaluate(() => dispatchEvent(new Event('online'))); await new Promise((r) => setTimeout(r, 400)); srvItems = (await admin.sync()).data.items; }
+  assert.ok(folderState(srvItems), JSON.stringify(srvItems.filter((i) => i.kind !== 'spec').map((i) => `${i.kind}:${i.id}${i.deleted ? ' (deleted)' : ''}`))); ok('folder renames and documents reach the server');
+  await shot(d, '06d-desktop-docs-folders');
+
+  // --- spec types: choose a type, template, chip, filter, change type, team-defined types
+  await d.click('.sidebar a[href="#/"]');
+  await d.click('.bar [data-act=new-spec]');
+  const chooser = d.locator('.typelist .typeopt');
+  assert.equal(await chooser.count(), 6); await d.getByRole('button', { name: /UI spec \/ design rule/ }).waitFor(); await d.getByRole('button', { name: /API spec/ }).waitFor(); ok('new spec: choose from the built-in types (API, UI spec / design rule, feature, data model …)');
+  await d.getByRole('button', { name: /API spec/ }).click();
+  await d.locator('#title').waitFor(); await d.fill('#title', 'Orders API');
+  await d.locator('.blk-in.h2', { hasText: 'ENDPOINTS' }).waitFor();
+  assert.ok(await d.locator('.blk-code').count() >= 1); ok('an API spec starts from its template (endpoints, request/response code blocks)');
+  assert.match(await d.locator('#chips').innerText(), /API/); ok('the type is shown as a chip in the editor bar');
+  await d.locator('.row', { hasText: 'Orders API' }).locator('.chip.type', { hasText: 'API' }).waitFor(); ok('...and in the spec list');
+  await d.selectOption('#typeFilter', 'api');
+  await d.waitForFunction(() => [...document.querySelectorAll('#list .row')].every((r) => /Orders API|Webhook signature/.test(r.textContent)) && document.querySelectorAll('#list .row').length >= 1);
+  assert.equal(await d.locator('#list .row', { hasText: 'Idempotent invoice retries' }).count(), 0); ok('the list can be filtered by type');
+  await d.selectOption('#typeFilter', '');
+  await d.click('[data-act=item-menu]'); await d.getByRole('button', { name: /Type: API spec/ }).click();
+  await d.getByRole('button', { name: 'UI spec / design rule' }).click();
+  await d.waitForFunction(() => /UI/.test(document.querySelector('#chips')?.textContent ?? '')); ok('the type can be changed later (content stays)');
+  await d.locator('.blk-in.h2', { hasText: 'ENDPOINTS' }).waitFor();
+  // team-defined type
+  await d.click('.sidebar a[href="#/team"]');
+  await d.getByText('Spec types').first().waitFor();
+  await d.click('[data-act=stype-new]');
+  await d.fill('#st-label', 'Runbook'); await d.fill('#st-desc', 'Operational procedure');
+  await d.fill('#st-tpl', '## TRIGGER\n\n## STEPS\n\n## ROLLBACK\n');
+  await d.click('#stypeForm button[type=submit]');
+  await d.locator('.typerow', { hasText: 'Runbook' }).waitFor(); ok('team admin defines a spec type with its own template');
+  await d.click('.sidebar a[href="#/"]');
+  await d.click('.bar [data-act=new-spec]');
+  await d.getByRole('button', { name: /^Runbook/ }).click();
+  await d.locator('.blk-in.h2', { hasText: 'ROLLBACK' }).waitFor(); ok('the custom type is offered when creating a spec and applies its template');
+  await shot(d, '06f-desktop-spec-types');
+  await d.click('[data-act=item-menu]'); d.once('dialog', (x) => x.accept()); await d.getByRole('button', { name: 'Delete spec' }).click();
+  await d.click('.sidebar a[href="#/"]');
+
+  // --- delete a spec
+  await d.click('.sidebar a[href="#/"]');
+  await d.click('.bar [data-act=new-spec]'); await d.getByRole('button', { name: /Feature spec/ }).click();
+  const newId = await d.evaluate(() => decodeURIComponent(location.hash.split('/').pop()));
+  await d.fill('#title', 'To be deleted');
+  await d.click('[data-act=item-menu]'); d.once('dialog', (x) => x.accept()); await d.getByRole('button', { name: 'Delete spec' }).click();
+  await d.waitForFunction((t) => ![...document.querySelectorAll('.row-title')].some((e) => e.textContent === t), 'To be deleted'); ok('a draft spec can be deleted');
+
+  // --- teams: second team, switcher, isolation
+  await admin.post('/api/teams', { name: 'Payments', key: 'PAY' });
+  await d.reload();
+  await d.locator('.sidebar .ws').click();
+  await d.getByRole('button', { name: /Payments/ }).click();
+  await d.locator('#list .empty').waitFor();
+  assert.match(await d.locator('.sidebar .ws').innerText(), /Payments/); ok('team switcher: other team starts empty (data is scoped per team)');
+  await d.click('.bar [data-act=new-spec]'); await d.getByRole('button', { name: /Feature spec/ }).click();
+  await d.waitForFunction(() => /PAY-001/.test(decodeURIComponent(location.hash))); ok('spec ids carry the team key');
+  await d.fill('#title', 'Payments spec');
+  await d.waitForFunction(() => document.querySelector('#saveInd')?.dataset.state === 'synced', null, { timeout: 15000 });
+  const t2 = (await admin.get('/api/teams')).data.teams.find((t) => t.key === 'PAY');
+  assert.ok((await admin.sync([], 0, t2.id)).data.items.some((i) => i.id === 'PAY-001')); ok('edits sync into the active team');
+  await d.locator('.sidebar .ws').click();
+  await d.getByRole('button', { name: /^specs ·/ }).click();
+  await d.locator('.row', { hasText: 'SPEC-014' }).waitFor();
+
+  // --- team page: members + git connection per team
+  await d.click('.sidebar a[href="#/team"]');
+  await d.getByText('Git connection').first().waitFor();
+  await d.fill('#g-url', remote); await d.fill('#g-branch', 'main'); await d.fill('#g-root', 'specs');
+  await d.click('#gitForm button[type=submit]');
+  await d.waitForFunction((u) => document.querySelector('#g-url')?.value === u, remote);
+  await d.click('[data-act=git-test]');
+  await d.getByText(/Connection works/).waitFor(); ok('team page: git connection can be saved and tested');
+  await d.selectOption('#g-auth', 'ssh');
+  assert.ok(await d.locator('.g-ssh').isVisible()); assert.ok(!(await d.locator('.g-token').isVisible()));
+  await d.selectOption('#g-auth', 'none');
+  await d.click('[data-act=git-push]');
+  await d.getByText('Pushed to the remote.').waitFor({ timeout: 20000 }); ok('team page: push now');
+  const cloned = path.join(tmp, 'clone'); execFileSync('git', ['clone', '-q', remote, cloned]);
+  assert.ok(existsSync(path.join(cloned, 'specs', 'SPEC-012.md')) && existsSync(path.join(cloned, 'specs', 'docs', 'adr', 'webhook-keys.md'))); ok('released specs and folders arrive in the team’s git repository');
+  await shot(d, '07-desktop-team');
+  await d.locator('.user-main', { hasText: 'Vera' }).locator('select').selectOption('editor');
+  await d.waitForFunction(async () => true);
+  await new Promise((r) => setTimeout(r, 400));
+  assert.equal((await admin.get(`/api/teams/${admin.tid}/members`)).data.members.find((m) => m.email === 'viewer@example.com').role, 'editor'); ok('team admins change member roles');
+  await d.locator('.user-main', { hasText: 'Vera' }).locator('select').selectOption('viewer');
+  await new Promise((r) => setTimeout(r, 400));
+
+  await d.click('.sidebar a[href="#/release"]');
+  await d.getByText('Agent endpoint').waitFor();
+  await d.getByText(/Pushed .* ago|Pushed just now/).first().waitFor(); ok('release page shows the git status');
+  await shot(d, '07b-desktop-release');
+
+  // account: create token for a team, shown once
+  await d.click('[data-act=user-menu]'); await d.getByRole('button', { name: 'Account & agent access' }).click();
+  await d.fill('#tname', 'Desktop agent');
+  await d.selectOption('#tscope', 'mcp:read mcp:drafts');
+  await d.click('#tokenForm button[type=submit]');
+  await d.getByText('copy it now, it is shown only once').waitFor();
+  const token = await d.locator('.ok-card .code').first().innerText();
+  assert.match(token, /^spc_/); ok('account: personal token created and shown once');
+  await d.click('.sidebar a[href="#/"]'); await d.click('[data-act=user-menu]'); await d.getByRole('button', { name: 'Account & agent access' }).click();
+  await d.getByText('Your tokens').waitFor();
+  assert.ok(!(await d.content()).includes(token)); assert.ok(await d.getByText('Desktop agent').count() > 0); ok('account: token no longer visible afterwards, only its prefix');
+  await shot(d, '08-desktop-account');
+
+  // theme: light / dark / system, remembered
+  await d.locator('[data-act=set-theme][data-v=light]').click();
+  assert.equal(await d.evaluate(() => document.documentElement.dataset.theme), 'light');
+  assert.equal(await d.evaluate(() => getComputedStyle(document.body).backgroundColor), 'rgb(244, 245, 247)'); ok('appearance: light mode');
+  await shot(d, '08b-desktop-light-account');
+  await d.reload(); assert.equal(await d.evaluate(() => document.documentElement.dataset.theme), 'light'); ok('appearance: choice is remembered');
+  await d.locator('[data-act=set-theme][data-v=dark]').click();
+  assert.equal(await d.evaluate(() => getComputedStyle(document.body).backgroundColor), 'rgb(15, 18, 20)'); ok('appearance: dark mode');
+
+  // any user can create a team from the workspace menu
+  await d.locator('.sidebar .ws').click();
+  await d.getByRole('button', { name: 'Create a new team…' }).click();
+  await d.fill('#newteam', 'Platform Crew'); await d.click('#createTeamForm button[type=submit]');
+  await d.waitForFunction(() => /Platform Crew/.test(document.querySelector('.sidebar .ws')?.textContent ?? ''));
+  assert.ok(await d.locator('.found', { hasText: 'Vision' }).count() === 0); // lands on specs
+  await d.click('.sidebar a[href="#/docs"]');
+  await d.locator('.found', { hasText: 'Vision' }).waitFor(); await d.locator('.found', { hasText: 'Strategy' }).waitFor();
+  assert.equal(await d.locator('.found', { hasText: 'Glossary' }).count(), 0); ok('a new team starts with vision and strategy under Documents; the glossary lives on its own page, not in the document list');
+
+  // invitation flow: team admin invites, the invitee registers through the link
+  await d.click('.sidebar a[href="#/team"]');
+  await d.fill('#inv-email', 'ed@example.com'); await d.selectOption('#inv-role', 'editor');
+  await d.click('#inviteForm button[type=submit]');
+  await d.locator('.ok-card .code').waitFor();
+  await d.getByText('Invitation e-mailed to ed@example.com').waitFor();
+  const shownLink = await d.locator('.ok-card .code').innerText();
+  assert.match(shownLink, /#\/invite\/inv_/);
+  const firstMail = smtp.mails.find((m) => m.to.includes('ed@example.com'));
+  assert.ok(firstMail && firstMail.text.includes(shownLink)); ok('team admin sends an invitation: it is e-mailed and the link is shown as a fallback');
+  // resend: a new mail with a new link; the old link stops working
+  await d.locator('[data-act=invite-resend]').click();
+  await d.waitForFunction(() => /sent again/.test(document.querySelector('#toast')?.textContent ?? ''));
+  const link = await d.locator('.ok-card .code').innerText();
+  assert.notEqual(link, shownLink);
+  assert.equal(smtp.mails.filter((m) => m.to.includes('ed@example.com')).length, 2);
+  assert.equal((await new Client(BASE).get(`/api/invites/${shownLink.split('/invite/')[1]}`)).status, 404); ok('resending creates a new e-mail and link and invalidates the old one');
+  await shot(d, '09-desktop-invite');
+  const ictx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const ip = await ictx.newPage(); watch(ip);
+  await ip.goto(link);
+  await ip.getByText('Join Platform Crew').waitFor();
+  await ip.fill('#iv-name', 'Ed Editor'); await ip.fill('#iv-pw', 'editorpass1'); await ip.click('#inviteRegister button[type=submit]');
+  await ip.waitForFunction(() => /Platform Crew/.test(document.querySelector('.ws-btn')?.getAttribute('aria-label') ?? ''));
+  await ip.click('.tabbar a[href="#/docs"]');
+  await ip.locator('.found', { hasText: 'Vision' }).waitFor(); ok('the invited person creates their account from the link and lands in the team');
+  await shot(ip, '09b-invitee');
+  await ictx.close();
+
+  // admin page: teams + accounts, delete an account
+  await d.click('.sidebar a[href="#/admin"]');
+  await d.getByText('configured', { exact: true }).waitFor();
+  await d.click('[data-act=mail-test]');
+  await d.waitForFunction(() => /Test e-mail sent/.test(document.querySelector('#toast')?.textContent ?? ''));
+  assert.ok(smtp.mails.some((m) => m.to.includes('admin@localhost') && /test e-mail/.test(m.subject))); ok('admin page: e-mail status and test e-mail');
+  // global glossary: import a file (CSV), preview, conflict mode
+  await d.locator('#gfile').setInputFiles({ name: 'terms.csv', mimeType: 'text/csv', buffer: Buffer.from('term,definition,aliases\nChargeback,Changed text,dispute\nRefund,Money returned to the customer,reimbursement\n"Bad [term]",x,\n') });
+  await d.getByRole('heading', { name: /Import “terms.csv”/ }).waitFor();
+  await d.getByText(/found:/).waitFor();
+  assert.match(await d.locator('.sheet').innerText(), /3 terms found: 2 new, 1 already/); ok('admin: importing a glossary file shows a preview (new vs. existing, parse problems)');
+  await d.locator('input[name=gmode][value=skip]').check(); await d.click('[data-act=do-gfile]');
+  await d.waitForFunction(() => /1 added/.test(document.querySelector('#toast')?.textContent ?? ''));
+  await d.locator('.rel', { hasText: 'Refund' }).waitFor();
+  assert.equal((await admin.get('/api/glossary/global')).data.terms.find((t) => t.term === 'Chargeback').definition.startsWith('Changed'), false); ok('admin: file import adds new terms and keeps existing ones by default');
+  await d.locator('#gfile').setInputFiles({ name: 'terms.md', mimeType: 'text/markdown', buffer: Buffer.from('Chargeback\n: Updated from a Markdown file.\n') });
+  await d.locator('input[name=gmode][value=update]').check(); await d.click('[data-act=do-gfile]');
+  await d.waitForFunction(() => /1 updated/.test(document.querySelector('#toast')?.textContent ?? ''));
+  assert.match((await admin.get('/api/glossary/global')).data.terms.find((t) => t.term === 'Chargeback').definition, /Updated from a Markdown file/); ok('admin: "update existing" overwrites terms from a Markdown file');
+  const dl = d.waitForEvent('download'); await d.click('[data-act=gterm-export]');
+  assert.equal((await dl).suggestedFilename(), 'global-glossary.md'); ok('admin: the global glossary can be exported as Markdown');
+  await d.locator('.user:has(.ws-av)', { hasText: 'Platform Crew' }).waitFor(); await d.locator('.user:has(.ws-av)', { hasText: 'Payments' }).waitFor();
+  await d.locator('.user:has(.avatar)', { hasText: 'Ed Editor' }).waitFor();
+  assert.equal(await d.locator('#userForm').count(), 0); ok('admin page lists teams and accounts (no account creation form – people are invited)');
+  await shot(d, '09c-desktop-admin');
+  d.once('dialog', (x) => x.accept());
+  await d.locator('.user:has(.avatar)', { hasText: 'Ed Editor' }).locator('[data-act=user-delete]').click();
+  await d.waitForFunction(() => ![...document.querySelectorAll('.user')].some((u) => /Ed Editor/.test(u.textContent)));
+  assert.equal((await admin.get('/api/users')).data.users.some((u) => u.email === 'ed@example.com'), false); ok('admin can delete an account');
+  await dctx.close();
+
+  // =============================================================== VIEWER (rights in the UI)
+  const vctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const v = await vctx.newPage();
+  watch(v);
+  await v.goto(BASE);
+  await signIn(v, 'viewer@example.com', 'viewerpass1');
+  await v.locator('.row', { hasText: 'SPEC-014' }).click();
+  await v.locator('.blk-in').first().waitFor();
+  assert.equal(await v.locator('[data-act=new-spec]').count(), 0);
+  assert.equal(await v.locator('[data-act=approve]').count(), 0);
+  assert.equal(await v.locator('.grip').count(), 0);
+  assert.equal(await v.locator('.sidebar a[href="#/admin"]').count(), 0);
+  assert.ok(await v.locator('.blk-in').first().evaluate((el) => el.readOnly));
+  await v.locator('#saveInd[data-state="ro"]').waitFor(); ok('viewer: read-only editor, no drag handles, no create/approve/admin');
+  await v.click('.sidebar a[href="#/team"]');
+  await v.locator('#g-url[readonly]').waitFor(); assert.equal(await v.locator('#gitForm button[type=submit]').count(), 0); ok('viewer: git connection is read-only');
+  await shot(v, '10-viewer');
+  await vctx.close();
+
+  assert.deepEqual(errors, [], 'page errors: ' + errors.join('; ')); ok('no console/page errors');
+  console.log(`\n${n} checks passed`);
+} finally {
+  await browser.close();
+  srv.stop();
+  smtp.stop();
+}

@@ -1,0 +1,10 @@
+{
+  "name": "Specs",
+  "short_name": "Specs",
+  "description": "Offline-first specifications for your AI agent",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0F1214",
+  "theme_color": "#0F1214",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

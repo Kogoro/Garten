@@ -1,0 +1,149 @@
+# Specs – Prototyp v0.7
+
+Self-hosted, offline-first App, um auf Handy **und Desktop** Spezifikationen und Dokumente für KI-Agenten zu schreiben – **pro Team**.
+Freigegebene (approved) Specs werden als Markdown in das Git-Repo **des Teams** geschrieben (Commit + Tag pro Version, Autor = Freigebender),
+optional automatisch in dessen Entwicklungs-Repository gepusht und über einen **MCP-Server** an Agenten ausgeliefert. Entwürfe bleiben privat.
+
+## Start
+
+```bash
+ADMIN_PASSWORD='mein-passwort' docker compose up -d --build   # ohne ADMIN_PASSWORD: wird erzeugt und im Log angezeigt
+docker compose logs specs
+```
+
+<http://localhost:3000> → `admin@localhost` anmelden. `SEED_DEMO=1` (Default) füllt das erste Team mit Beispieldaten.
+Konfiguration per Umgebungsvariablen, siehe `docker-compose.yml`.
+**v0.3 ändert das Datenbankschema** (Teams). Ein Volume aus v0.2 wird mit klarer Fehlermeldung abgelehnt: `docker compose down -v` oder erst das Repo sichern.
+
+## Teams, Einladungen, Rollen
+
+* **Jeder Nutzer kann ein eigenes Team anlegen** (Workspace-Menü → *Create a new team*; max. `MAX_TEAMS_PER_USER`, abschaltbar mit `ALLOW_TEAM_CREATION=0`) und wird dessen Team-Admin. Der Team-Schlüssel (Präfix der Spec-IDs) wird aus dem Namen abgeleitet.
+* **Mitglieder werden vom Team-Admin eingeladen** (*Members & Git → Invite people*): E-Mail + Rolle → einmaliger Link (7 Tage gültig). Neue Personen legen über den Link ihr Konto an; wer schon ein Konto hat, sieht die Einladung nach dem Login (Annehmen/Ablehnen) – oder per SSO, sobald die E-Mail eingeladen ist. Einladungen lassen sich widerrufen. Mit konfiguriertem Mailserver (siehe unten) wird die Einladung **per E-Mail** verschickt; der Link wird trotzdem angezeigt, damit eine fehlgeschlagene Zustellung nichts blockiert. Ohne Mailserver kopiert der Admin den Link.
+* **Der Instanz-Admin verwaltet nur Teams und Konten** (Seite *Admin*): Teams ansehen, umbenennen, löschen (mit Schlüssel-Bestätigung); Konten deaktivieren, löschen, zum Admin machen, Passwort zurücksetzen, Tokens einsehen/widerrufen. Er lädt niemanden ein – das tun die Team-Admins. Ein Nutzer, der einziger Team-Admin ist, kann nicht gelöscht werden.
+* **Rollen gelten pro Team:**
+
+| Recht | viewer | editor | approver | admin (Team) |
+|---|:-:|:-:|:-:|:-:|
+| Lesen | ✓ | ✓ | ✓ | ✓ |
+| Entwürfe schreiben, löschen | | ✓ | ✓ | ✓ |
+| Agent darf Entwürfe lesen (`mcp:drafts`) | | ✓ | ✓ | ✓ |
+| Agent darf Entwürfe schreiben (`mcp:write`) | | ✓ | ✓ | ✓ |
+| Freigeben / zurückziehen / nach Git pushen | | | ✓ | ✓ |
+| Mitglieder einladen, Git-Verbindung, Team-Einstellungen | | | | ✓ |
+
+Alle Daten (Specs, Dokumente, Glossar, Git-Repo, MCP-Zugriff) sind strikt an ein Team gebunden. Mitglieder können ein Team verlassen. Login per E-Mail/Passwort oder optional OpenID Connect (`OIDC_*`).
+
+## E-Mail (SMTP)
+
+Optional und nur für Einladungen. Setze `SMTP_URL` (`smtp://user:pass@host:587` für STARTTLS oder `smtps://user:pass@host:465` für implizites TLS) und `SMTP_FROM` (`Specs <no-reply@example.com>`); mit `SMTP_REQUIRE_TLS=1` verweigert der Server unverschlüsselten Versand. Passwörter mit Sonderzeichen URL-kodieren.
+
+* Die Mail nennt Team, einladende Person, Rolle, den einmaligen Link und die Gültigkeit (Text + HTML, Namen werden HTML-escaped).
+* Seite **Team → Invite people**: „Send invitation“, in der Liste offener Einladungen **Resend** (erzeugt einen neuen Link, der alte wird ungültig) und **Revoke**.
+* Schlägt der Versand fehl, bleibt die Einladung bestehen: die Oberfläche zeigt den Grund (ohne Zugangsdaten) und den Link zum Kopieren.
+* **Admin → E-mail** zeigt, ob SMTP konfiguriert ist, und schickt per **Send test e-mail** eine Testnachricht an dein eigenes Konto.
+* Missbrauchsschutz: höchstens 30 Einladungen pro Team und Stunde.
+
+## Spec-Typen
+
+Jede Spec hat einen **Typ**, der ihre Startstruktur (Vorlage) bestimmt und Agenten sagt, was sie lesen. Eingebaut: **Feature spec**, **API spec**, **UI spec / design rule**, **Data model**, **Non-functional requirement**, **Integration** (jeweils mit Vorlage aus Überschriften, Code-/Mermaid-Blöcken).
+
+* *New spec* öffnet die Typ-Auswahl; der Typ erscheint als Chip in Liste und Editor-Leiste, die Liste lässt sich nach Typ filtern, im ⋯-Menü ändert man ihn später (der Inhalt bleibt).
+* **Eigene Typen pro Team:** *Members & Git → Spec types → New type* (Name, Beschreibung, Vorlage als Markdown, optional „Start from“ ein eingebauter Typ). Ein Typ, den noch Specs verwenden, lässt sich nicht löschen.
+* **Git/MCP:** Die freigegebene Datei trägt `type: api` im Front-Matter; `list_specs` liefert `type` und `type_label` und filtert mit `list_specs(type: "api")`.
+* Bestehende Specs sind „Feature spec“; die Spalte wird automatisch migriert.
+
+## Foundation-Dokumente: Vision, Strategie, Glossar
+
+Jedes Team hat immer **`vision.md`, `strategy.md` und `glossary.md`** (werden mit dem Team angelegt, lassen sich nicht löschen). Beliebige weitere Dokumente lassen sich als Foundation-Dokument **anheften** (⋯-Menü → *Pin*).
+
+* Sie gehören **keinem Spec** – kein Verlinken nötig. Sobald sie Inhalt haben (reine Überschriften zählen als leer), gehen sie nach der letzten Änderung **automatisch live** (Standard; einstellbar pro Team: dann „Publish now“ durch einen Approver) und landen im Repo unter `<Ordner>/docs/`.
+* **MCP:** `get_team_context()` liefert Vision, Strategie, weitere angeheftete Dokumente und das Glossar in einem Aufruf; der Server weist Agenten per `instructions` darauf hin, es zuerst aufzurufen. Leere Teile werden weggelassen. `list_documents` markiert sie mit `always: true`.
+* **Glossar:** wird aus allen **Definition**-Blöcken freigegebener Specs, Dokumente und der Foundation-Dokumente erzeugt (`GLOSSARY.md`, `get_glossary`) – abfragbar, sobald es nicht leer ist.
+
+## Git-Verbindung pro Team
+
+Seite **Team → Git connection** (Team-Admin). Jedes Team hat sein eigenes lokales Repo (`/data/repos/<team>`) und optional **einen eigenen Remote** – typischerweise das Entwicklungsprojekt, damit der Agent die Specs direkt im Repo findet.
+
+| Einstellung | Bedeutung |
+|---|---|
+| URL | `https://…` oder SSH (`git@host:org/repo.git`). Andere Schemata (`file://`, `ext::`, `-…`) werden abgelehnt; `http://` nur mit `GIT_ALLOW_HTTP=1`. |
+| Branch | Ziel-Branch. Existiert er schon mit Commits, werden sie zuerst gemergt (bei Konflikten in Dateien, die Specs verwaltet, gewinnt Specs). |
+| Ordner | Specs schreibt **nur** in `<Ordner>/` (Default `specs/`): `<ID>.md`, `docs/…`, `GLOSSARY.md`. Alles andere im Repo bleibt unangetastet. Nach der ersten Freigabe gesperrt. |
+| Authentifizierung | *HTTPS-Token* (Benutzername + Token, nur schreibbar) oder *SSH-Deploy-Key* (der Server erzeugt ein ed25519-Paar; den öffentlichen Teil als Deploy-Key mit Schreibrecht eintragen). |
+| Auto-Push | Push (inkl. Version-Tags) nach jeder Freigabe/Rücknahme; **Test connection** und **Push now** manuell, Status wird angezeigt. |
+
+Tokens und Private Keys werden mit AES-256-GCM verschlüsselt gespeichert (`SECRET_KEY` oder automatisch erzeugte Schlüsseldatei im Volume) und nie wieder ausgegeben. Fehlermeldungen werden von Zugangsdaten bereinigt.
+
+## Editor
+
+* **Blöcke** (Text, Überschriften, Requirement `R1…`, Checkliste, Liste, **Definition**, Zitat, Code, **Diagramm**, **API-Endpoint**, Trennlinie), gespeichert als normales Markdown; Umschalten *Blocks ⇄ Markdown* jederzeit.
+* **Einfügen am Cursor:** Toolbar/Menü fügen den Block dort ein, wo der Cursor steht – mitten im Text wird der Block geteilt (Kopf | neuer Block | Rest), ein leerer Textblock wird ersetzt. `/` in einem leeren Block öffnet das Block-Menü.
+* **Drag & Drop:** am Griff ⋮⋮ ziehen (Maus, Stift, Touch; Auto-Scroll am Rand); ohne Ziehen öffnet der Griff das Block-Menü. Tastatur: `Alt+↑/↓`.
+* **API-Endpoint-Block** (` ```endpoint GET /pfad `): beliebig oft wiederholbar, mit Methode, Pfad, Beschreibung sowie optionalen Abschnitten *Request* / *Responses*; im Markdown als `Request:` / `Responses:` lesbar für Agenten. Der Typ *API* startet mit einem Endpoint.
+* **Diagramme:** ` ```mermaid `-Blöcke mit Umschalter **Diagramm | Code | Split** (auch für Leser) und Vorlagen; Mermaid wird lokal ausgeliefert und vom Service Worker gecacht (rendert offline). Andere Textformate (`plantuml`, `d2`, `dot`, `yaml` …) gehen als Code-Block unverändert an den Agenten.
+
+## Glossar: Definitionen, Verweise, globales Glossar
+
+Der **Definition**-Block speichert Begriffe als Markdown-Definitionsliste (agentenlesbar, Git-freundlich):
+
+```
+Attempt window
+: Das Zeitfenster, in dem Wiederholungen eines Rechnungslaufs als derselbe Versuch zählen. Siehe [[Idempotency key]].
+: Aliases: retry window, window
+: See also: Ledger entry
+: Source: global:7c1e…@3
+```
+
+* **Verweise:** `[[Begriff]]` oder `[[Begriff|Anzeigetext]]` in einer Definition; zusätzlich Felder **Also known as** (Synonyme) und **See also** im Block. Die Glossar-Seite löst Verweise auf (Klick springt zum Begriff), markiert **nicht definierte** Begriffe rot und fasst sie oben zusammen, zeigt *Referenced by* und *Used in* (Specs/Dokumente, die den Begriff oder ein Synonym erwähnen) und findet Begriffe auch über Synonyme.
+* **Globales Glossar:** Instanz-Admins pflegen es unter *Admin → Global glossary*. Teams importieren Begriffe über **Glossary → Import** als **editierbare Kopie** in ihr `glossary.md` (mit Herkunftsvermerk `Source: global:<id>@<rev>`). Ändert ein Admin den globalen Begriff, zeigt die Team-Glossar-Seite *Update available* mit **Update from global**; lokale Anpassungen bleiben, bis man das bewusst übernimmt. Bereits vorhandene Begriffe werden beim Import nicht überschrieben. **Datei-Import (Admin):** *Import file…* liest CSV/TSV (Spalten `term, definition, aliases, see`; Trennzeichen automatisch, deutsche Spaltennamen ok), JSON (Liste, `{terms:[…]}` oder `{"Begriff":"Definition"}`) oder Markdown-Definitionslisten, zeigt eine Vorschau (neu / vorhanden / Probleme) und importiert wahlweise *vorhandene behalten* oder *aktualisieren*. *Export* liefert `global-glossary.md`.
+* **Glossar-Seite** wie die Dokumentenseite: links Liste mit Ordnern (Überschriften in `glossary.md`), rechts die Definition mit Synonymen, Verweisen und Bearbeiten – ohne Umweg über `glossary.md`.
+* **Für Agenten:** `get_glossary(term?)` findet auch über Synonyme und liefert `aliases`, `see_also` (explizite Verweise + `[[…]]`), `from_global_glossary` und die Quelle; `get_team_context` listet `**Term** (also: …): Definition — see also: …`. `GLOSSARY.md` im Repo enthält dieselben Angaben.
+* Alle Definitionen aus freigegebenen Specs, Dokumenten und den Foundation-Dokumenten fließen ein – ohne Verlinken.
+
+## Dokumente in Ordnern
+
+Dokument-IDs sind Pfade (`adr/ADR-007.md`, bis 5 Ebenen). **Ordner sind eigene Objekte:** *New → Folder* legt auch leere Ordner an; an jedem Ordner gibt es *+* (Dokument hier anlegen) und ⋯ (Unterordner, Umbenennen/Verschieben samt Inhalt, Löschen wenn leer). Dokumente: **Move / rename** (Verlinkungen folgen) und **Delete** im ⋯-Menü. (In Git existieren Ordner nur, solange sie freigegebene Dokumente enthalten.) Löschen: nur Entwürfe bzw. Dokumente, die kein freigegebener Spec nutzt (erst *Revoke*). Bei jeder Freigabe räumt Specs verwaiste Dokumente im Repo auf.
+
+## Agenten anbinden (MCP)
+
+Ein Zugang gehört immer zu **einem Team** und handelt mit den **aktuellen** Rechten der Person in diesem Team (Rollen-Downgrade oder Entfernen aus dem Team wirkt sofort).
+
+1. **OAuth 2.1** (empfohlen; Discovery, Dynamic Client Registration, PKCE, Refresh-Tokens): `claude mcp add --transport http specs <PUBLIC_URL>/mcp` → im Browser anmelden, **Team wählen**, Zugriff erlauben.
+2. **Persönliches Token** (`spc_…`) unter *Account → Agent access*: Team, Scope (`mcp:read` / `mcp:drafts` / `mcp:write`), Ablauf. Nur einmal sichtbar, gespeichert als Hash; Admins können Tokens aller Nutzer einsehen und widerrufen.
+
+Tools: `get_team_context`, `list_specs`, `get_spec(id, version?)`, `list_documents(folder?)`, `get_document(path)`, `get_glossary(term?)`; mit Draft-Scope zusätzlich `include_drafts` / `draft=true`.
+
+**Agenten schreiben Entwürfe, Menschen geben frei:** mit Scope `mcp:write` (Rolle editor+; bei OAuth eine eigene, nicht vorangehakte Checkbox) kommen `create_draft_spec`, `update_draft_spec`, `create_draft_document`, `update_draft_document` hinzu. Es gibt **kein** Freigabe-Tool: Agenten-Änderungen bleiben Entwurf (eine freigegebene Version bleibt unverändert, bis ein Approver die neue freigibt). Die Server-ID wird vergeben, `base_rev` verhindert Überschreiben, Foundation-Dokumente (Vision, Strategie, Glossar) sind für Agenten gesperrt, Limit 60 Schreibzugriffe/Stunde. In der UI erscheint der Chip **Agent draft** (mit Token-/Client-Name), bis ein Mensch den Eintrag bearbeitet.
+
+## Wie es funktioniert
+
+| Teil | Umsetzung |
+|---|---|
+| Offline-first | Service Worker (App-Shell + Mermaid) + IndexedDB (pro Team). Login-Zustand ist gecacht. Änderungen landen lokal; „Waiting to sync“ ist die Outbox, auch für Löschen/Verschieben/Freigeben. |
+| Sync | `POST /api/teams/:id/sync` je Team: Push + Pull seit Cursor, Revision pro Item → bei Abweichung **Konflikt** („Keep mine / Use server“); Löschungen kommen als Tombstones. |
+| Freigabe | Server schreibt Spec + verlinkte Dokumente + `GLOSSARY.md`, committet als der Freigebende, taggt `ID/vN`, pusht ggf. zum Team-Remote. |
+| Server | Node 24, Express, `node:sqlite`, `git`/`ssh-keygen` CLI, MCP SDK. Ein Container, ein Volume `/data`. |
+| Navigation | **Eine** durchgängige Navigation, keine Seiten-Tabs mehr: Desktop = Sidebar (Team-Wechsler, Content: Specs/Documents/Glossary, Publish: Release, Team: Members & Git, Instance: Admin, unten Sync-Status und Benutzermenü); Handy = Tab-Leiste (Specs, Docs, Release, Sync, More) + Team-Menü oben rechts, Editor im Vollbild. Überall dieselbe kompakte Kopfzeile. |
+| Themes | **System / Hell / Dunkel** (Konto → Appearance oder Benutzermenü); Mermaid-Diagramme und die OAuth-Zustimmungsseite folgen dem Theme. |
+
+## HTTPS / PUBLIC_URL
+
+Service Worker („Offline-Start“, Installation auf dem Handy) brauchen **HTTPS** (Ausnahme `localhost`). Hinter einem Reverse Proxy mit TLS `PUBLIC_URL=https://…` und `TRUST_PROXY=1` setzen – `PUBLIC_URL` muss stimmen, sonst funktioniert OAuth für MCP nicht.
+
+## Tests
+
+```bash
+npm test                    # startet je einen eigenen Server (mit eingebautem SMTP-Testserver); ~240 Checks
+node tests/api.test.mjs     # Sessions, Teams/Rollen, Ordner, Glossar, Löschen/Verschieben, PATs, OAuth-Flow, Git-Push in ein echtes Bare-Repo
+node tests/oidc.test.mjs    # SSO gegen einen Mock-Identity-Provider
+node tests/ui.test.mjs      # Browser (Playwright): Offline, Blöcke, Cursor-Einfügen, Drag & Drop, Diagramme, Glossar, Ordner, Teams, Git, Rollen
+```
+
+## Bekannte Lücken
+
+* Drag & Drop ist mit der Maus getestet; auf echten Touch-Geräten noch nicht.
+* Git: Remote-Zugriff wurde mit lokalem Bare-Repo getestet, nicht gegen GitHub/GitLab; SSH-Host-Keys werden beim ersten Kontakt übernommen (`accept-new`). Die Remote-URL ist frei wählbar → Team-Admins können den Server zu beliebigen Hosts verbinden lassen (SSRF-Fläche; bei Bedarf per Egress-Firewall begrenzen).
+* Der zentrale Glossar-Export enthält nur Begriffe aus freigegebenen, verlinkten Dateien.
+* Rechte gelten pro Team, nicht pro Spec. Der Team-Schlüssel lässt sich nach dem Anlegen nicht ändern. Spec-Typen haben nur Vorlagen und (für API) den Endpoint-Block. Das globale Glossar wird beim Import kopiert, nicht live vererbt. Es gibt nur Einladungs-Mails (keine Passwort-Reset-Mail, keine Benachrichtigungen); Zustellung ist „fire and forget“ ohne Bounce-Auswertung.
+* v0.3 → v0.4: das Schema wird automatisch migriert (Ordner als Objekte, Foundation-Dokumente, Einladungen). Bereits vorhandene `glossary.md`/`vision.md` werden angeheftet, nicht überschrieben.
+* Nur OIDC als SSO; keine 2FA, Konfliktlösung auf Dokument-Ebene (kein Textmerge); Diagramme nur Mermaid; ein visueller (WYSIWYG-)Mermaid-Editor ist noch nicht gebaut (siehe Untersuchung in den Release-Notes dieser Version: machbar über Mermaids eigenen Parser, zunächst für Flowchart/Sequence).
