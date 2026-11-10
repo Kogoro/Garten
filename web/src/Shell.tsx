@@ -52,7 +52,7 @@ export function useMenus() {
     workspace: async () => pick(await openMenu('Team', workspaceItems())),
     user: async () => pick(await openMenu(S.state.me!.name, [{ key: 'go:account', label: 'Account & agent access' }, ...themeItems, { key: 'logout', label: 'Sign out', danger: true }])),
     more: async () => pick(await openMenu('More', [
-      { key: 'go:glossary', label: 'Glossary' }, { key: 'go:team', label: 'Members & Git' },
+      { key: 'go:glossary', label: 'Glossary' }, { key: 'go:sync', label: `Sync${S.queue().length + S.conflicts().length ? ` · ${S.queue().length + S.conflicts().length} waiting` : ''}` }, { key: 'go:team', label: 'Members & Git' },
       ...(S.isInstanceAdmin() ? [{ key: 'go:admin', label: 'Admin' }] : []), { key: 'go:account', label: 'Account & agent access' },
       ...invites.map((i) => ({ key: `invite:${i.id}`, label: `Join “${i.teamName}” as ${i.role} (invitation)` })),
       { key: 'switch', label: `Team: ${teamName} – switch or create…` }, ...themeItems, { key: 'logout', label: 'Sign out', danger: true },
@@ -92,15 +92,18 @@ export function Shell({ master, detail, single, active }: { master: ReactNode; d
     <NavLink key={to} to={to} end={to === '/'} className="navitem" aria-current={act === (to === '/' ? 'specs' : to.slice(1)) ? 'page' : undefined}><Icon name={icon} size={18} /><span>{label}</span>{extra}</NavLink>
   );
   const [pi, ptext] = PLACEHOLDER[act] ?? PLACEHOLDER.specs;
-  const badge = S.queue().length + S.conflicts().length;
+  const needs = S.feedbackTotal();
+  const moreBadge = m.invites + S.conflicts().length;
   return (
     <div className={`shell ${single ? 'single' : ''}`} data-pane={detail ? 'detail' : 'master'}>
       <aside className="sidebar" id="sidebar">
         <button type="button" className="ws" aria-label="Switch team" onClick={m.workspace}><span className="ws-av">{initial(m.teamName)}</span><b>{m.teamName}</b><Icon name="chevron" size={14} />{m.invites > 0 && <span className="navitem badge" style={{ marginLeft: 6 }}>{m.invites}</span>}</button>
         <div className="navlabel">Content</div>
-        {link('/', 'Specs', 'specs', <>{S.feedbackTotal() > 0 && <span className="chip warn" style={{ marginLeft: 'auto' }} title="Open feedback">{S.feedbackTotal()} feedback</span>}{nSpecs ? <span className="muted" style={{ marginLeft: S.feedbackTotal() > 0 ? 8 : 'auto', fontSize: 12 }}>{nSpecs}</span> : null}</>)}{link('/docs', 'Documents', 'docs')}{link('/glossary', 'Glossary', 'glossary')}
+        {link('/', 'Specs', 'specs', nSpecs ? <span className="muted" style={{ marginLeft: 'auto', fontSize: 12 }}>{nSpecs}</span> : null)}{link('/docs', 'Documents', 'docs')}{link('/glossary', 'Glossary', 'glossary')}
         <div className="navlabel">Publish</div>
         {link('/release', 'Release', 'release')}
+        <div className="navlabel">Agents</div>
+        {link('/garden', 'Garden', 'garden', needs > 0 ? <span className="badge" title="Decisions and feedback that wait for a person">{needs}</span> : null)}
         <div className="navlabel">Team</div>
         {link('/team', 'Members & Git', 'team')}
         {S.isInstanceAdmin() && <><div className="navlabel">Instance</div>{link('/admin', 'Admin', 'shield')}</>}
@@ -114,10 +117,10 @@ export function Shell({ master, detail, single, active }: { master: ReactNode; d
         {!single && <section className="detail" id="detail">{detail ?? <div className="placeholder"><Icon name={pi} size={40} /><p>{ptext}</p></div>}</section>}
       </div>
       <nav className="tabbar" id="tabbar" aria-label="Main">
-        {([['/', 'Specs', 'specs', 'specs'], ['/docs', 'Docs', 'docs', 'docs'], ['/release', 'Release', 'release', 'release'], ['/sync', 'Sync', 'sync', 'sync']] as const).map(([to, l, i, k]) => (
-          <NavLink key={to} to={to} end={to === '/'} aria-current={act === k ? 'page' : undefined}><Icon name={i} />{<span>{l}</span>}{k === 'sync' && badge > 0 && <span className="badge">{badge}</span>}</NavLink>
+        {([['/', 'Specs', 'specs', 'specs'], ['/garden', 'Garden', 'garden', 'garden'], ['/docs', 'Docs', 'docs', 'docs'], ['/release', 'Release', 'release', 'release']] as const).map(([to, l, i, k]) => (
+          <NavLink key={to} to={to} end={to === '/'} aria-current={act === k ? 'page' : undefined}><Icon name={i} />{<span>{l}</span>}{k === 'garden' && needs > 0 && <span className="badge">{needs}</span>}</NavLink>
         ))}
-        <button type="button" data-act="more-menu" aria-label="More" aria-current={['glossary', 'team', 'account', 'admin'].includes(act) ? 'page' : undefined} onClick={m.more}><Icon name="more" /><span>More</span>{m.invites > 0 && <span className="badge">{m.invites}</span>}</button>
+        <button type="button" data-act="more-menu" aria-label="More" aria-current={['glossary', 'sync', 'team', 'account', 'admin'].includes(act) ? 'page' : undefined} onClick={m.more}><Icon name="more" /><span>More</span>{moreBadge > 0 && <span className="badge">{moreBadge}</span>}</button>
       </nav>
       {m.sheet}
     </div>

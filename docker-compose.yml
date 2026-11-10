@@ -22,6 +22,9 @@ services:
       SMTP_URL: ${SMTP_URL:-}
       SMTP_FROM: ${SMTP_FROM:-Specs <no-reply@localhost>}
       SMTP_REQUIRE_TLS: ${SMTP_REQUIRE_TLS:-0}   # 1 = refuse to send over an unencrypted connection
+      # Agent trigger (webhook per team): one call this long after the last release / answer.
+      HOOK_DEBOUNCE_MS: ${HOOK_DEBOUNCE_MS:-5000}
+      HOOK_ALLOW_LOCAL: ${HOOK_ALLOW_LOCAL:-0}   # 1 = webhooks may call http:// and private addresses (LAN runner)
       FOUNDATION_DEBOUNCE_MS: ${FOUNDATION_DEBOUNCE_MS:-15000}  # vision/strategy/glossary go live this long after the last edit
       SEED_DEMO: ${SEED_DEMO:-1}              # 1 = fill an empty database with demo specs
       # First admin (created only on an empty database). Empty password = generated and printed in the log.
@@ -38,6 +41,21 @@ services:
       OIDC_DEFAULT_TEAM: ${OIDC_DEFAULT_TEAM:-}      # team key new SSO users are added to (empty = first team)
     volumes:
       - specs-data:/data           # SQLite (users, teams, sync state) + one Git repo per team at /data/repos/<team id>
+    restart: unless-stopped
+
+  # Optional: reach the server from the internet without opening a port (phone on the road, Claude Code in the cloud).
+  # Started by scripts/go-public.sh, which also sets PUBLIC_URL – do not start it by hand.
+  tunnel:            # quick tunnel: https://<random>.trycloudflare.com, no account; the address changes when it restarts
+    image: cloudflare/cloudflared:latest
+    profiles: [public]
+    command: tunnel --no-autoupdate --url http://specs:3000
+    restart: unless-stopped
+  tunnel-named:      # your own Cloudflare tunnel with a fixed address: TUNNEL_TOKEN + PUBLIC_URL in .env
+    image: cloudflare/cloudflared:latest
+    profiles: [public-named]
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
     restart: unless-stopped
 
 volumes:

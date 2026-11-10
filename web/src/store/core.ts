@@ -12,6 +12,9 @@ export const state: any = {
   authConfig: null as any,
   project: 'specs',
   feedback: {} as Record<string, Record<string, number>>, // open feedback per team and spec (from the last sync)
+  garden: {} as Record<string, Garden>, // per team: open feedback + decisions and the newest implementation report of every spec (kept for offline use)
+  fbOps: {} as Record<string, FbOp[]>, // per team: answers and triage done on this device that the server has not seen yet
+  gardenNotice: null as string | null, // an answer the server refused
   mcpUrl: `${location.origin}/mcp`,
   online: navigator.onLine,
   syncing: false,
@@ -19,6 +22,9 @@ export const state: any = {
   lastSync: null,
   error: null,
 };
+export type FbPatch = { status?: string; answer?: number; reply?: string };
+export type FbOp = FbPatch & { id: string; n: number };
+export type Garden = { rev: number; feedback: any[]; reports: Record<string, any> };
 const mapOf = (tid: string): Map<string, Item> => { if (!state.maps.has(tid)) state.maps.set(tid, new Map()); return state.maps.get(tid); };
 Object.defineProperty(state, 'items', { get: (): Map<string, Item> => mapOf(state.teamId) });
 
@@ -45,6 +51,8 @@ export async function init() {
   state.globalTerms = (await idb.get('meta', 'globalTerms')) ?? [];
   state.types = (await idb.get('meta', 'types')) ?? {};
   state.feedback = {};
+  state.garden = (await idb.get('meta', 'garden')) ?? {};
+  state.fbOps = (await idb.get('meta', 'fbOps')) ?? {};
   pickTeam((await idb.get('meta', 'teamId')) ?? null);
   addEventListener('online', () => ((state.online = true), emit(), sync()));
   addEventListener('offline', () => ((state.online = false), emit()));
@@ -93,8 +101,9 @@ async function wipeLocal() {
   state.maps.clear();
   state.cursors = {};
   state.types = {};
+  state.feedback = {}; state.garden = {}; state.fbOps = {}; state.gardenNotice = null;
   await idb.clear('items');
-  await Promise.all([meta('cursors', {}), meta('lastSync', null), meta('teamId', null), meta('types', {})]);
+  await Promise.all([meta('cursors', {}), meta('lastSync', null), meta('teamId', null), meta('types', {}), meta('garden', {}), meta('fbOps', {})]);
 }
 
 export async function login(email: string, password: string) {
@@ -394,9 +403,10 @@ async function syncTeam(tid: string) {
     fields: i.dirty && !i.del ? (i.kind === 'doc' ? { title: i.title, body: i.body, links: i.links, pinned: !!i.pinned } : { title: i.title, body: i.body, links: i.links, specType: i.specType }) : {},
     ls: i.localSeq,
   }));
+  const fbSent: FbOp[] = [...(state.fbOps[tid] ?? [])];
   let data: any;
   try {
-    data = await api('POST', `/api/teams/${tid}/sync`, { since: state.cursors[tid] ?? 0, changes });
+    data = await api('POST', `/api/teams/${tid}/sync`, { since: state.cursors[tid] ?? 0, changes, gardenRev: state.garden[tid]?.rev ?? -1, ...(fbSent.length ? { feedbackOps: fbSent.map(({ id, status, answer, reply }) => ({ id, status, answer, reply })) } : {}) });
   } catch (e: any) {
     if (e.status === 401) { state.sessionExpired = true; throw new Error('Session expired – sign in again to sync'); }
     if (e.status === 404) return; // team no longer accessible; refreshMe will drop it
@@ -437,6 +447,7 @@ async function syncTeam(tid: string) {
   }
   if (data.specTypes) state.types[tid] = data.specTypes;
   state.feedback[tid] = data.feedbackOpen ?? {};
+  await adoptGarden(tid, data, fbSent);
   state.cursors[tid] = data.cursor;
   if (data.me) { state.me = data.me; await meta('me', data.me); }
   state.project = data.project;
@@ -535,6 +546,65 @@ export function importGlobalTerms(ids: string[]) {
   return picked.length;
 }
 
-/** Open feedback entries on a spec (counts come with every sync). */
-export const feedbackCount = (specId: string): number => state.feedback?.[state.teamId]?.[specId] ?? 0;
-export const feedbackTotal = (): number => Object.values<number>(state.feedback?.[state.teamId] ?? {}).reduce((a, b) => a + b, 0);
+// ------------------------------------------------------------ garden: feedback, decisions, implementation reports
+/** What an answer or a triage step does to an entry – the same rules as on the server, so the device can show it before the sync. */
+export function applyOp(f: any, op: FbPatch, by?: string | null): any {
+  const n = { ...f };
+  if (op.reply !== undefined) n.reply = op.reply;
+  if (op.answer !== undefined && op.answer !== null) { n.answer = op.answer; n.status = 'answered'; }
+  else if (op.status) { n.status = op.status; if (op.status === 'open' && f.kind === 'decision') n.answer = null; }
+  if (n.status === 'open') { n.resolvedBy = null; n.resolvedAt = null; }
+  else if (n.status !== f.status || !n.resolvedAt) { n.resolvedBy = by ?? n.resolvedBy ?? null; n.resolvedAt = new Date().toISOString(); }
+  return n;
+}
+let opSeq = Date.now();
+const gardenOf = (tid: string): Garden => state.garden[tid] ?? (state.garden[tid] = { rev: -1, feedback: [], reports: {} });
+
+/** Answer a decision or triage feedback. Works offline: shown at once, sent with the next sync. */
+export function fbAct(entry: any, patch: FbPatch) {
+  const tid = state.teamId;
+  const g = gardenOf(tid);
+  const ops: FbOp[] = state.fbOps[tid] ?? (state.fbOps[tid] = []);
+  const prev = ops.find((o) => o.id === entry.id);
+  const merged: FbOp = {
+    id: entry.id, n: ++opSeq, reply: patch.reply ?? prev?.reply,
+    ...(patch.answer !== undefined && patch.answer !== null ? { answer: patch.answer } : patch.status ? { status: patch.status } : { status: prev?.status, answer: prev?.answer }),
+  };
+  state.fbOps[tid] = [...ops.filter((o) => o.id !== entry.id), merged];
+  const next = applyOp(g.feedback.find((f) => f.id === entry.id) ?? entry, patch, state.me?.name);
+  g.feedback = g.feedback.some((f) => f.id === entry.id) ? g.feedback.map((f) => (f.id === entry.id ? next : f)) : [next, ...g.feedback];
+  meta('garden', state.garden); meta('fbOps', state.fbOps);
+  emit();
+  sync();
+  return next;
+}
+
+async function adoptGarden(tid: string, data: any, sent: FbOp[]) {
+  const done = new Set(sent.map((o) => o.n));
+  const left: FbOp[] = (state.fbOps[tid] ?? []).filter((o: FbOp) => !done.has(o.n)); // made while the request was on its way
+  const refused = (data.fbResults ?? []).filter((r: any) => !r.ok);
+  if (refused.length) state.gardenNotice = `${refused.length === 1 ? 'One answer was' : `${refused.length} answers were`} not accepted: ${refused[0].error}`;
+  if (sent.length || left.length !== (state.fbOps[tid] ?? []).length) { state.fbOps[tid] = left; await meta('fbOps', state.fbOps); }
+  if (data.garden) {
+    const g: Garden = { rev: data.garden.rev, feedback: data.garden.feedback ?? [], reports: data.garden.reports ?? {} };
+    for (const op of left) g.feedback = g.feedback.map((f) => (f.id === op.id ? applyOp(f, op, state.me?.name) : f));
+    state.garden[tid] = g;
+    await meta('garden', state.garden);
+  } else if (refused.length && state.garden[tid]) { state.garden[tid].rev = -1; again = true; } // what the device shows is wrong: fetch it again
+}
+
+const gardenFb = (): any[] | null => state.garden[state.teamId]?.feedback ?? null;
+/** Everything that waits for a person, oldest first; decisions that block an agent come first. */
+export const openDecisions = (): any[] => (gardenFb() ?? []).filter((f) => f.kind === 'decision' && f.status === 'open')
+  .sort((a, b) => Number(b.blocking) - Number(a.blocking) || a.createdAt.localeCompare(b.createdAt));
+export const answeredDecisions = (): any[] => (gardenFb() ?? []).filter((f) => f.kind === 'decision' && f.status === 'answered')
+  .sort((a, b) => String(b.resolvedAt).localeCompare(String(a.resolvedAt)));
+export const openFeedback = (): any[] => (gardenFb() ?? []).filter((f) => f.kind !== 'decision' && f.status === 'open').sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+export const specFeedback = (specId: string): any[] => (gardenFb() ?? []).filter((f) => f.specId === specId);
+export const fbPending = (id?: string): number => (state.fbOps[state.teamId] ?? []).filter((o: FbOp) => !id || o.id === id).length;
+export const latestReport = (specId: string): any | null => state.garden[state.teamId]?.reports?.[specId] ?? null;
+export const dismissGardenNotice = () => { state.gardenNotice = null; emit(); };
+
+/** Open entries on a spec (feedback and decisions). From the offline copy, so it follows what was done on this device. */
+export const feedbackCount = (specId: string): number => { const g = gardenFb(); return g ? g.filter((f) => f.specId === specId && f.status === 'open').length : state.feedback?.[state.teamId]?.[specId] ?? 0; };
+export const feedbackTotal = (): number => { const g = gardenFb(); return g ? g.filter((f) => f.status === 'open').length : Object.values<number>(state.feedback?.[state.teamId] ?? {}).reduce((a, b) => a + b, 0); };

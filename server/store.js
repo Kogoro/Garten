@@ -181,6 +181,7 @@ export async function releaseSpec(team, id, by = null) {
   db.prepare("UPDATE items SET status='approved', version=?, released_rev=rev, released_at=?, released_by=?, seq=? WHERE team_id=? AND id=?")
     .run(version, at, by?.name ?? null, nextSeq(t), t, id);
   events.emit('committed', t);
+  events.emit('released', { teamId: t, id, version, title: spec.title, by: by?.name ?? null });
   return getItem(t, id);
 }
 
@@ -272,6 +273,8 @@ export async function deleteTeamData(team) {
 export const hasReleases = (t) => db.prepare("SELECT 1 FROM items WHERE team_id=? AND (status='approved' OR version>0) LIMIT 1").get(t) !== undefined;
 export const listTags = (team, id) => repoFor(team).tags(`${id}/v`);
 export const readReleasedSpec = (team, id, version) => repoFor(team).readFile(specPath(team, id), version ? tagFor(id, version) : undefined);
+/** Unified diff of a spec between two released versions (both are Git tags). */
+export const diffReleasedSpec = (team, id, from, to) => repoFor(team).git('diff', '--no-color', '-U2', tagFor(id, from), tagFor(id, to), '--', specPath(team, id));
 export const readReleasedDoc = (team, id) => repoFor(team).readFile(docPath(team, id));
 export const isReleasedDoc = (team, id) => repoFor(team).exists(docPath(team, id));
 export async function releasedDocs(team) {

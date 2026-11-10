@@ -7,6 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { createServer } from 'node:http';
 import { startServer, Client, startSmtpSink } from '../../tests/helpers.mjs';
 
 const SHOTS = process.env.SHOTS;
@@ -17,7 +18,11 @@ const tmp = mkdtempSync(path.join(process.env.TEST_TMP || tmpdir(), 'specs-ui-')
 const remote = path.join(tmp, 'remote.git');
 execFileSync('git', ['init', '--bare', '-b', 'main', remote]);
 const smtp = await startSmtpSink();
-const srv = await startServer({ WEB_DIR: new URL('../dist', import.meta.url).pathname, GIT_ALLOW_LOCAL: '1', FOUNDATION_DEBOUNCE_MS: '150', SMTP_URL: `smtp://127.0.0.1:${smtp.port}`, SMTP_FROM: 'Specs <specs@example.test>' });
+// stands in for the Claude Code routine API: records what the agent trigger sends
+const hits = [];
+const sink = createServer((q, r) => { let b = ''; q.on('data', (c) => (b += c)); q.on('end', () => { hits.push({ headers: q.headers, body: JSON.parse(b) }); r.setHeader('content-type', 'application/json'); r.end(JSON.stringify({ type: 'routine_fire', claude_code_session_id: 'session_test', claude_code_session_url: 'https://claude.ai/code/session_test' })); }); });
+await new Promise((res) => sink.listen(0, '127.0.0.1', res));
+const srv = await startServer({ HOOK_ALLOW_LOCAL: '1', HOOK_DEBOUNCE_MS: '200', WEB_DIR: new URL('../dist', import.meta.url).pathname, GIT_ALLOW_LOCAL: '1', FOUNDATION_DEBOUNCE_MS: '150', SMTP_URL: `smtp://127.0.0.1:${smtp.port}`, SMTP_FROM: 'Specs <specs@example.test>' });
 const BASE = srv.base;
 const admin = new Client(BASE);
 await admin.login('admin@localhost', 'adminpass1');
@@ -166,8 +171,60 @@ try {
   const rpc = await fetch(`${BASE}/mcp`, { method: 'POST', headers: { authorization: `Bearer ${pat}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'get_spec', arguments: { id: specId } } }) });
   assert.match(await rpc.text(), /mermaid\\nflowchart LR/); ok('agent receives the diagram as a mermaid block');
 
-  // account on mobile
+  // --- garden: the agent asks and reports, a person answers on the phone – also without a connection
+  const agentTok = (await admin.post('/api/me/tokens', { name: 'Claude Code', scopes: ['mcp:read', 'mcp:drafts', 'mcp:write'], teamId: admin.tid })).data.token;
+  const tool = async (name, args = {}) => {
+    const r = await fetch(`${BASE}/mcp`, { method: 'POST', headers: { authorization: `Bearer ${agentTok}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }) });
+    assert.match(r.headers.get('content-type'), /application\/json/);
+    const res = (await r.json()).result;
+    assert.ok(!res.isError, `${name}: ${res.content[0].text}`);
+    return JSON.parse(res.content[0].text);
+  };
+  const dec = await tool('request_decision', { spec_id: 'SPEC-012', question: 'How long do old signing keys stay valid after a rotation?', options: [{ label: '24 hours', detail: 'Matches the retry window of the queue' }, { label: '7 days', detail: 'Safer for slow consumers' }], recommended: 0, blocking: true, context: 'src/webhooks/keys.ts has no overlap at all' });
+  await tool('report_implementation', { spec_id: 'SPEC-012', status: 'partial', summary: 'Rotation endpoint is built. The overlap of old and new keys waits for a decision.', criteria: [{ text: 'A new key can be issued', status: 'met' }, { text: 'Old keys keep working during the overlap', status: 'open', note: 'waits for the decision' }], evidence: [{ kind: 'pr', ref: 'https://git.example.test/acme/api/pull/7', note: 'draft' }, { kind: 'test', ref: 'keys.rotate.test.ts' }], deviations: 'The audit log entry is written asynchronously.' });
   await page.click('a[aria-label=Back]').catch(() => {});
+  await page.evaluate(() => dispatchEvent(new Event('online')));
+  await page.locator('.tabbar a[href="#/garden"] .badge', { hasText: '1' }).waitFor({ timeout: 10000 }); ok('garden: a question from an agent shows up as a badge in the tab bar');
+  await page.click('.tabbar a[href="#/garden"]');
+  const card = page.locator(`[data-decision="${dec.id}"]`);
+  await card.getByText('How long do old signing keys stay valid').waitFor();
+  assert.equal(await page.locator('#gd-needs').innerText(), '1');
+  assert.ok(await card.getByText('Blocks the agent').isVisible());
+  assert.ok(await card.locator('.dc-opt', { hasText: '24 hours' }).locator('.dc-rec').isVisible()); ok('garden: the decision shows the spec, the options and the recommendation of the agent');
+  await page.locator('#gd-impl .gd-row[data-spec="SPEC-012"] [data-impl=partial]', { hasText: '1/2 criteria' }).waitFor(); ok('garden: every released spec shows how far the agent is');
+  await shot(page, '05a-garden');
+  await ctx.setOffline(true);
+  await page.evaluate(() => dispatchEvent(new Event('offline')));
+  assert.equal(await card.locator('[data-act=dc-send]').isDisabled(), true);
+  await card.locator('.dc-opt', { hasText: '7 days' }).click();
+  await card.locator('textarea').fill('Consumers in the field sync weekly.');
+  await card.locator('[data-act=dc-send]').click();
+  await page.locator('#gd-waiting').getByText('1 answer waiting to sync').waitFor();
+  assert.equal(await page.locator('#gd-needs').innerText(), '0');
+  await page.locator(`#gd-answered [data-decision="${dec.id}"] .dc-answer`, { hasText: '7 days' }).waitFor();
+  assert.equal((await admin.get(`/api/teams/${admin.tid}/feedback?spec=SPEC-012&kind=decision`)).data.feedback[0].status, 'open'); ok('garden: a decision is answered offline and waits on the device');
+  await page.reload();
+  await page.locator('#gd-waiting').waitFor();
+  await page.locator(`#gd-answered [data-decision="${dec.id}"] .dc-answer`, { hasText: '7 days' }).waitFor(); ok('garden: the offline answer survives a reload');
+  await shot(page, '05b-garden-offline');
+  await ctx.setOffline(false);
+  await page.evaluate(() => dispatchEvent(new Event('online')));
+  await page.locator('#gd-waiting').waitFor({ state: 'detached', timeout: 10000 });
+  const answeredDec = (await tool('list_decisions', { spec_id: 'SPEC-012' }));
+  assert.match(JSON.stringify(answeredDec), /7 days/); assert.match(JSON.stringify(answeredDec), /Consumers in the field sync weekly/);
+  assert.match(JSON.stringify(await tool('get_work_list')), /decisions_answered/); ok('garden: the answer reaches the server on reconnect and the agent finds it in its work list');
+  await page.click('#gd-impl .gd-row[data-spec="SPEC-012"]');
+  await page.locator('.sheet .rp-sum', { hasText: 'Rotation endpoint is built' }).waitFor();
+  assert.equal(await page.locator('.sheet .rp-crit li').count(), 2);
+  assert.equal(await page.locator('.sheet .rp-crit li[data-status=open]').count(), 1);
+  assert.equal(await page.locator('.sheet .rp-ev a').getAttribute('href'), 'https://git.example.test/acme/api/pull/7');
+  assert.ok(await page.locator('.sheet .rp-dev', { hasText: 'audit log' }).isVisible()); ok('garden: the report of the agent lists criteria, evidence and deviations');
+  await shot(page, '05c-report');
+  await page.keyboard.press('Escape');
+  await page.click('[data-act=more-menu]'); await page.getByRole('button', { name: /^Sync/ }).click();
+  await page.waitForFunction(() => location.hash === '#/sync'); ok('the sync page moved into the More menu');
+
+  // account on mobile
   await page.click('[data-act=more-menu]'); await page.getByRole('button', { name: 'Account & agent access' }).click();
   await page.getByText('Agent access (MCP)').waitFor();
   await shot(page, '05-account-mobile');
@@ -534,6 +591,20 @@ try {
   await d.waitForFunction((u) => document.querySelector('#g-url')?.value === u, remote);
   await d.click('[data-act=git-test]');
   await d.getByText(/Connection works/).waitFor(); ok('team page: git connection can be saved and tested');
+  // --- agent trigger: a webhook per team (e.g. a Claude Code routine) + what an agent needs to connect
+  await d.click('[data-act=hook-preset]');
+  assert.equal(await d.inputValue('#h-format'), 'text'); assert.match(await d.inputValue('#h-headers'), /anthropic-beta: experimental-cc-routine/);
+  await d.fill('#h-url', `http://127.0.0.1:${sink.address().port}/v1/claude_code/routines/trig_test/fire`); await d.fill('#h-token', 'sk-routine-token');
+  await d.click('#hookForm button[type=submit]');
+  await d.locator('#hookCard .card-head .chip.ok', { hasText: 'on' }).waitFor();
+  assert.equal(await d.inputValue('#h-token'), ''); assert.match(await d.getAttribute('#h-headers', 'placeholder'), /Saved: anthropic-beta, anthropic-version/); ok('team page: the agent trigger is saved; token and headers are never shown again');
+  d.once('dialog', (x) => x.accept()); await d.click('[data-act=hook-test]');
+  await d.locator('#hookRes', { hasText: 'accepted the call' }).waitFor();
+  assert.equal(hits.length, 1); assert.equal(hits[0].headers.authorization, 'Bearer sk-routine-token'); assert.equal(hits[0].headers['anthropic-beta'], 'experimental-cc-routine-2026-04-01');
+  assert.deepEqual(Object.keys(hits[0].body), ['text']); assert.match(hits[0].body.text, /Connection test/);
+  await d.locator('#hookStatus a', { hasText: 'Open the run' }).waitFor(); ok('team page: "Send test" calls the routine the way Claude Code expects and links the started run');
+  assert.match(await d.locator('#as-prompt').innerText(), /get_work_list[\s\S]*request_decision[\s\S]*report_implementation/);
+  assert.match(await d.locator('#as-json').innerText(), /"url": "http:\/\/[^"]+\/mcp"[\s\S]*SPECS_TOKEN/); ok('team page: agent setup offers the MCP connection and the standing instruction to copy');
   await d.selectOption('#g-auth', 'ssh');
   assert.ok(await d.locator('.g-ssh').isVisible()); assert.ok(!(await d.locator('.g-token').isVisible()));
   await d.selectOption('#g-auth', 'none');
@@ -667,8 +738,12 @@ try {
 
   assert.deepEqual(errors, [], 'page errors: ' + errors.join('; ')); ok('no console/page errors');
   console.log(`\n${n} checks passed`);
+} catch (e) {
+  if (SHOTS) { let k = 0; for (const c of browser.contexts()) for (const pg of c.pages()) await pg.screenshot({ path: `${SHOTS}/fail-${++k}.png` }).catch(() => {}); }
+  throw e;
 } finally {
   await browser.close();
   srv.stop();
   smtp.stop();
+  sink.close();
 }

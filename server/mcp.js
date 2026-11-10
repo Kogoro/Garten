@@ -4,7 +4,8 @@ import { z } from 'zod';
 import * as store from './store.js';
 import { getUser, roleIn, perms } from './auth.js';
 import { getTeam } from './teams.js';
-import { addFeedback, listFeedback, withdrawFeedback, KINDS } from './feedback.js';
+import { addFeedback, listFeedback, withdrawFeedback, requestDecision, KINDS, DECISION } from './feedback.js';
+import { addReport, listReports, workList, specChanges, REPORT_STATUSES, CRITERION_STATUSES, EVIDENCE_KINDS } from './reports.js';
 import { listTypes, isKnownType } from './specTypes.js';
 import { glossaryEntries, CORE_DOCS } from './store.js';
 import { hasContent } from '../shared/glossary.js';
@@ -23,12 +24,18 @@ function draftMarkdown(s) {
 function buildServer(team, canDrafts, writer) {
   const t = team.id;
   const server = new McpServer(
-    { name: `specs-${team.key.toLowerCase()}`, version: '0.4.0' },
+    { name: `specs-${team.key.toLowerCase()}`, version: '0.5.0' },
     {
       instructions:
         `Specifications of the team "${team.name}". Call get_team_context first: it returns the team's vision, strategy and glossary ` +
         'whenever they have content. Then use list_specs / get_spec for the approved specifications and get_document for their linked documents.' +
-        (writer ? ' You may create and edit DRAFTS (create_draft_spec, update_draft_spec, create_draft_document, update_draft_document); you can never approve or publish – a person reviews your drafts in the Specs app. If you disagree with a spec or find it conflicts with the code, do not edit it: use add_feedback (check list_feedback first).' : ''),
+        ' To implement: call get_work_list (what is new, changed or unfinished), read each spec with get_spec – for a changed spec get_spec_changes shows what is different – and check list_decisions for answers to earlier questions.' +
+        (writer
+          ? ' When you are done with a spec – or stuck – call report_implementation (status, every acceptance criterion, evidence such as commits, PRs and tests, deviations): people steer by these reports and do not read your code. ' +
+            'When the spec leaves a choice open that a person should make, do not guess: call request_decision with 2–6 options and your recommendation, continue with other work, and look for the answer with list_decisions later. ' +
+            'If you disagree with a spec or find it conflicts with the code, do not edit it: use add_feedback (check list_feedback first). ' +
+            'You may create and edit DRAFTS (create_draft_spec, update_draft_spec, create_draft_document, update_draft_document); you can never approve or publish – a person reviews your drafts in the Specs app.'
+          : ''),
     },
   );
 
@@ -168,14 +175,55 @@ function buildServer(team, canDrafts, writer) {
 
     server.registerTool(
       'withdraw_feedback',
-      { description: 'Take back feedback you left yourself while it is still open (for example because you were wrong). Feedback a person already accepted, dismissed or finished cannot be withdrawn.', inputSchema: { id: z.string() } },
+      { description: 'Take back feedback or a decision request you left yourself while it is still open (for example because you were wrong, or the question settled itself). Entries a person already answered, accepted, dismissed or finished cannot be withdrawn.', inputSchema: { id: z.string() } },
       run(async ({ id }) => { const f = withdrawFeedback(t, id, by); return { id: f.id, status: f.status }; }),
     );
 
     server.registerTool(
       'list_feedback',
       { description: 'Feedback already left on specs, with its status and the reply of the person who triaged it. Check before adding more.', inputSchema: { spec_id: z.string().optional(), status: z.enum(['open', 'accepted', 'dismissed', 'done', 'withdrawn']).optional() } },
-      run(async ({ spec_id, status }) => listFeedback(t, { specId: spec_id, status }).map((f) => ({ id: f.id, spec: f.specId, version: f.specVersion, kind: f.kind, section: f.section, text: f.text, status: f.status, reply: f.reply || undefined }))),
+      run(async ({ spec_id, status }) => listFeedback(t, { specId: spec_id, status }).filter((f) => f.kind !== DECISION).map((f) => ({ id: f.id, spec: f.specId, version: f.specVersion, kind: f.kind, section: f.section, text: f.text, status: f.status, reply: f.reply || undefined }))),
+    );
+
+    server.registerTool(
+      'request_decision',
+      {
+        description: 'Ask a person to decide something the spec leaves open (a trade-off, an ambiguity, a product choice). Give 2–6 concrete options and say which you recommend. The person answers in the Specs app, often from a phone – keep the question and the options short and self-contained. ' +
+          'Read the answer later with list_decisions (it also appears in get_work_list). Set blocking=false when you can sensibly continue with your recommendation in the meantime. The same open question is not recorded twice.',
+        inputSchema: {
+          spec_id: z.string(), question: z.string().min(1).max(2000).describe('One question a person can answer without reading code'),
+          options: z.array(z.union([z.string().min(1).max(120), z.object({ label: z.string().min(1).max(120), detail: z.string().max(600).optional().describe('Consequences, in one or two sentences') })])).min(2).max(6).describe('Each option is a short label, or { label, detail }'),
+          recommended: z.number().int().min(0).optional().describe('Index (0-based) of the option you recommend'),
+          section: z.string().max(80).optional().describe('Section of the spec the question is about, e.g. "## ACCEPTANCE CRITERIA"'),
+          context: z.string().max(2000).optional().describe('What you found and why it needs a person (file paths, constraints)'),
+          blocking: z.boolean().optional().describe('Default true: you wait for the answer before continuing with this spec'),
+        },
+      },
+      run(async ({ spec_id, question, options, recommended, section, context, blocking }) => {
+        const d = requestDecision(t, { specId: spec_id, question, options, recommended, section, context, blocking }, by);
+        return { id: d.id, status: d.status, blocking: d.blocking, duplicate: !!d.duplicate, note: 'Recorded. A person will answer in the Specs app; check list_decisions (or get_work_list) for the answer. Do not ask the same question again.' };
+      }),
+    );
+
+    server.registerTool(
+      'report_implementation',
+      {
+        description: 'Report what you built for a released spec. People steer by these reports instead of reading code, so be exact and honest: list every acceptance criterion / requirement of the spec with met, deviating or open; ' +
+          'give evidence someone can check (commit, PR, test, CI run); describe deviations from the spec in plain words. Call it when you finish a spec, and also when you stop early (partial, blocked) or start longer work (in_progress). Reports are a history – a new one replaces the previous as the current state.',
+        inputSchema: {
+          spec_id: z.string(), version: z.number().int().positive().optional().describe('Released version you implemented (default: the current one)'),
+          status: z.enum(REPORT_STATUSES).describe('implemented = everything in the spec is done · partial = some criteria are open · blocked = you cannot continue (say why) · in_progress = work has started'),
+          summary: z.string().min(1).max(4000).describe('What was done, in a few sentences a non-developer understands'),
+          criteria: z.array(z.object({ text: z.string().min(1).max(400).describe('The criterion or requirement, quoted from the spec (e.g. "R2 …")'), status: z.enum(CRITERION_STATUSES), note: z.string().max(600).optional() })).max(60).optional(),
+          evidence: z.array(z.object({ kind: z.enum(EVIDENCE_KINDS), ref: z.string().min(1).max(400).describe('Commit hash, PR or CI URL, test name …'), note: z.string().max(400).optional() })).max(30).optional(),
+          deviations: z.string().max(4000).optional().describe('Where the implementation differs from the spec, and why'),
+        },
+      },
+      run(async ({ spec_id, version, status, summary, criteria, evidence, deviations }) => {
+        const r = addReport(team, { specId: spec_id, version, status, summary, criteria, evidence, deviations }, by);
+        const cur = store.getItem(t, spec_id);
+        return { id: r.id, spec: r.specId, version: r.specVersion, status: r.status, ...(r.specVersion < cur.version ? { note: `Recorded for v${r.specVersion}. The current version is v${cur.version}: see get_spec_changes("${spec_id}").` } : { note: 'Recorded. People see it in the Specs app.' }) };
+      }),
     );
 
     server.registerTool(
@@ -241,6 +289,46 @@ function buildServer(team, canDrafts, writer) {
     );
   }
 
+  // ---- the implementation loop: what to do, what changed, what was reported, what people decided
+  const safe = (fn) => async (args) => {
+    try { return text(JSON.stringify(await fn(args ?? {}), null, 2)); }
+    catch (e) { if (e instanceof store.ApiError) return fail(e.message); throw e; }
+  };
+  server.registerTool(
+    'get_work_list',
+    { description: 'What is left to implement: released specs that are new, changed since your last report, unfinished or blocked, plus decisions people answered and questions still waiting for them. Start here when you are asked to work on this team\'s specs.' },
+    safe(async () => workList(team)),
+  );
+  server.registerTool(
+    'get_spec_changes',
+    {
+      description: 'What changed between two released versions of a spec: the sections that differ and a unified diff. Without arguments it compares the current version with the version of the latest implementation report (or the one before).',
+      inputSchema: { id: z.string(), from: z.number().int().positive().optional(), to: z.number().int().positive().optional() },
+    },
+    safe(async ({ id, from, to }) => specChanges(team, id, from, to)),
+  );
+  server.registerTool(
+    'list_reports',
+    { description: 'Implementation reports (newest first): which version of a spec was implemented, the status of every criterion, evidence and deviations.', inputSchema: { spec_id: z.string().optional(), limit: z.number().int().min(1).max(50).optional() } },
+    safe(async ({ spec_id, limit }) => listReports(t, { specId: spec_id, limit: limit ?? 10 }).map((r) => ({
+      id: r.id, spec: r.specId, version: r.specVersion, status: r.status, summary: r.summary, criteria: r.criteria, evidence: r.evidence, deviations: r.deviations || undefined, by: r.via ?? r.author, at: r.createdAt,
+    }))),
+  );
+  server.registerTool(
+    'list_decisions',
+    {
+      description: 'Decisions agents asked people for, with the answer once there is one: answer.label is the chosen option, note is what the person wrote (when answer.option is null the note is the answer). Pass id to look at one request.',
+      inputSchema: { id: z.string().optional(), spec_id: z.string().optional(), status: z.enum(['open', 'answered', 'dismissed', 'withdrawn']).optional() },
+    },
+    safe(async ({ id, spec_id, status }) => listFeedback(t, { specId: spec_id, status, kind: DECISION }).filter((d) => !id || d.id === id).map((d) => ({
+      id: d.id, spec: d.specId, version: d.specVersion, section: d.section || undefined, question: d.text, context: d.evidence || undefined, blocking: d.blocking,
+      options: d.options.map((o, i) => ({ index: i, ...o, ...(d.recommended === i ? { recommended: true } : {}) })), status: d.status,
+      ...(d.status === 'answered' ? { answer: { option: d.answer >= 0 ? d.answer : null, label: d.answer >= 0 ? d.options[d.answer]?.label ?? null : null }, note: d.reply || undefined, answered_by: d.resolvedBy, answered_at: d.resolvedAt } : {}),
+      ...(d.status === 'dismissed' ? { note: d.reply || undefined, dismissed_by: d.resolvedBy } : {}),
+      asked_by: d.via ?? d.author, asked_at: d.createdAt,
+    }))),
+  );
+
   server.registerTool(
     'list_spec_types',
     { description: 'The spec types of this team. Types with a form list their fields: every field is a "## LABEL" section in the Markdown of a spec, written as its kind says (list = "- item" lines, checklist = "- [ ] item", requirements = "R1 text" lines, endpoints = ```endpoint METHOD /path fences, code/diagram = fenced block, select = one of the options). Follow them when you write drafts.' },
@@ -275,7 +363,9 @@ export async function mcpHandler(req, res) {
     ? { user, via: `${req.auth.extra.via === 'pat' ? 'token' : 'agent'}: ${req.auth.extra.label ?? 'MCP client'}`.slice(0, 80) }
     : null;
   const server = buildServer(team, canDrafts, writer);
-  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+  // stateless, and plain JSON answers instead of an event stream: every call is one request and one response,
+  // which also works through proxies and tunnels that buffer or cut streams
+  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
   res.on('close', () => {
     transport.close();
     server.close();

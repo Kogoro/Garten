@@ -49,7 +49,7 @@ export function setFeedbackMail(id, on) {
 }
 /** Removes a team and everything that belongs to it (the Git repository directory is removed by the caller). */
 export function deleteTeamRows(id) {
-  for (const t of ['items', 'pats', 'oauth_tokens', 'oauth_codes']) db.prepare(`DELETE FROM ${t} WHERE team_id=?`).run(id);
+  for (const t of ['items', 'feedback', 'reports', 'pats', 'oauth_tokens', 'oauth_codes']) db.prepare(`DELETE FROM ${t} WHERE team_id=?`).run(id);
   db.prepare('DELETE FROM teams WHERE id=?').run(id); // memberships + invites cascade
 }
 

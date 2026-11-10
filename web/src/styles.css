@@ -543,3 +543,72 @@ select.field.role { width: auto; min-width: 110px; }
 .fb-acts { display: flex; flex-direction: column; gap: 6px; }
 @media (max-width: 1500px) { .fbbtn .lbl { display: none; } .fbbtn { padding: 4px 8px; } }
 .ed-bar .ed-title { min-width: 80px; }
+
+/* ---- garden: decisions, implementation reports, agent trigger ---- */
+.chip.bad { border-color: var(--red-line); color: var(--red); }
+.chip.impl { white-space: nowrap; }
+.chipbtn { display: inline-flex; padding: 0; border: 0; background: none; cursor: pointer; font: inherit; }
+.fb-spec { align-self: flex-start; font-size: 12.5px; font-weight: 600; color: var(--soft); text-decoration: none; }
+.fb-spec:hover { text-decoration: underline; }
+.fb-wait { border-color: var(--amber-line); color: var(--amber); }
+.fb-offline { margin: 8px 0 0; font-size: 12.5px; }
+.dc-item { border: 1px solid var(--line2); border-radius: 14px; padding: 12px; display: flex; flex-direction: column; gap: 8px; background: var(--panel); }
+.dc-item.blocking { border-color: var(--amber-line); }
+.dc-item.st-dismissed { opacity: .6; }
+.dc-q { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; }
+.dc-opts { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.dc-opt { display: flex; align-items: flex-start; gap: 10px; width: 100%; min-height: 44px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.dc-opt[aria-pressed="true"] { border-color: var(--green); background: var(--green-bg); }
+.dc-opt.other { color: var(--soft); }
+.dc-opt:disabled { cursor: default; }
+.dc-radio { flex: none; width: 18px; height: 18px; margin-top: 2px; border: 2px solid var(--line2); border-radius: 50%; }
+.dc-opt[aria-pressed="true"] .dc-radio { border-color: var(--green); background: radial-gradient(circle, var(--green) 0 45%, transparent 50%); }
+.dc-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.dc-body b { font-size: 14px; font-weight: 600; }
+.dc-body small { font-size: 12.5px; line-height: 1.45; color: var(--muted); }
+.dc-rec { flex: none; align-self: flex-start; padding: 2px 7px; border-radius: 6px; background: var(--blue-bg); color: var(--blue); font-size: 11px; font-weight: 700; }
+textarea.field.dc-note, textarea.field.hook-headers { height: auto; min-height: 64px; padding: 10px 14px; line-height: 1.45; resize: vertical; }
+textarea.field.hook-headers { min-height: 76px; font-size: 12.5px; }
+.dc-answer { display: flex; align-items: center; gap: 8px; margin: 0; padding: 8px 12px; color: var(--text); border-left: 3px solid var(--green); border-radius: 0 10px 10px 0; background: var(--green-bg); font-size: 14px; overflow-wrap: anywhere; }
+.dc-answer svg { flex: none; color: var(--green); }
+.dc-answer span { min-width: 0; font-size: 12.5px; color: var(--soft); }
+.dc-answer b { font-size: 14px; color: var(--text); }
+.dc-closed { margin: 0; font-size: 13px; color: var(--muted); }
+.rp { display: flex; flex-direction: column; gap: 8px; }
+.rp .sect-title { margin: 8px 0 0; }
+.rp-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 4px 0 8px; font-size: 13px; }
+.rp-sum, .rp-dev { margin: 0; font-size: 14px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.rp-dev { padding: 8px 12px; border-left: 3px solid var(--amber); border-radius: 0 10px 10px 0; background: var(--amber-bg); }
+.rp-warn { padding: 8px 12px; border: 1px solid var(--amber-line); border-radius: 10px; color: var(--amber); }
+.rp-crit, .rp-ev { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.rp-crit li, .rp-ev li { display: flex; align-items: flex-start; gap: 8px; font-size: 13.5px; line-height: 1.45; }
+.rp-mark { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; margin-top: 1px; border: 1.5px solid var(--line2); border-radius: 50%; color: var(--muted); }
+.rp-mark.ok { border-color: transparent; background: var(--green-bg); color: var(--green); }
+.rp-mark.warn { border-color: var(--amber-line); color: var(--amber); }
+.rp-ctext, .rp-ref { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.rp-ctext .chip, .rp-ev .chip { padding: 1px 6px; font-size: 11px; }
+.rp-ev .chip { flex: none; }
+.rp-ctext small, .rp-ref small { flex-basis: 100%; font-size: 12.5px; color: var(--muted); }
+.rp-ref a { color: var(--blue); word-break: break-all; }
+.rp-hist { display: flex; gap: 6px; flex-wrap: wrap; }
+.rp-empty { margin: 8px 0; font-size: 14px; line-height: 1.5; }
+.garden { display: flex; flex-direction: column; gap: 18px; }
+.garden > section { min-width: 0; }
+.gd-sum { gap: 10px; }
+.gd-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.gd-stats > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.gd-stats b { font-size: 28px; font-weight: 700; line-height: 1.1; }
+.gd-stats b small { font-size: 15px; font-weight: 600; color: var(--muted); }
+.gd-stats span { font-size: 12.5px; line-height: 1.35; color: var(--muted); }
+.gd-stats .hot b { color: var(--amber); }
+.gd-empty { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border: 1px dashed var(--line2); border-radius: 12px; font-size: 13.5px; line-height: 1.45; color: var(--muted); }
+.gd-empty svg { flex: none; color: var(--green); }
+.gd-row { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 56px; padding: 10px 0; border: 0; border-top: 1px solid var(--line); background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.gd-row .grow { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.gd-row b { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gd-row .grow > span { font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gd-row .chip { flex: none; max-width: 46%; overflow: hidden; text-overflow: ellipsis; }
+.gd-foot { font-size: 12.5px; }
+.hook-ev { display: flex; flex-direction: column; gap: 4px; }
+.as-prompt { max-height: 260px; overflow: auto; word-break: normal; overflow-wrap: anywhere; }
+#agentSetup .sect-title { margin: 6px 0 0; }

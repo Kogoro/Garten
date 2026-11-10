@@ -5,6 +5,7 @@ import { ReloginSheet } from './sheets';
 import { AccountPage } from './pages/Account';
 import { AdminPage } from './pages/Admin';
 import { DocsPage } from './pages/Docs';
+import { GardenPage } from './pages/Garden';
 import { GlossaryPage } from './pages/Glossary';
 import { InvitePage } from './pages/Invite';
 import { Login } from './pages/Login';
@@ -33,6 +34,7 @@ export default function App() {
       <Route path="/doc/*" element={<DocsPage />} />
       <Route path="/glossary/*" element={<GlossaryPage />} />
       <Route path="/release" element={<ReleasePage />} />
+      <Route path="/garden" element={<GardenPage />} />
       <Route path="/sync" element={<SyncPage />} />
       <Route path="/team" element={<TeamPage />} />
       <Route path="/account" element={<AccountPage />} />

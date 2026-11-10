@@ -226,3 +226,37 @@ for (const [col, ddl] of [['form', 'ALTER TABLE spec_types ADD COLUMN form TEXT'
 // v0.9: feedback author + team switch for feedback e-mails
 if (!db.prepare("SELECT 1 FROM pragma_table_info('feedback') WHERE name='author_id'").get()) db.exec('ALTER TABLE feedback ADD COLUMN author_id TEXT');
 if (!db.prepare("SELECT 1 FROM pragma_table_info('teams') WHERE name='feedback_mail'").get()) db.exec('ALTER TABLE teams ADD COLUMN feedback_mail INTEGER NOT NULL DEFAULT 1');
+
+// v0.10: the gardener loop – implementation reports, decision requests (stored as feedback) and a webhook per team
+db.exec(`
+  CREATE TABLE IF NOT EXISTS reports (
+    id TEXT PRIMARY KEY,
+    team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    spec_id TEXT NOT NULL,
+    spec_version INTEGER NOT NULL,
+    status TEXT NOT NULL,                      -- implemented | partial | blocked | in_progress
+    summary TEXT NOT NULL DEFAULT '',
+    criteria TEXT NOT NULL DEFAULT '[]',       -- [{text, status: met|deviating|open, note}]
+    evidence TEXT NOT NULL DEFAULT '[]',       -- [{kind: commit|pr|test|ci|url|other, ref, note}]
+    deviations TEXT NOT NULL DEFAULT '',
+    author TEXT,
+    author_id TEXT,
+    via TEXT,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS reports_spec ON reports(team_id, spec_id, created_at);
+`);
+const addColumn = (table, col, ddl) => { if (!db.prepare(`SELECT 1 FROM pragma_table_info('${table}') WHERE name=?`).get(col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${ddl}`); };
+addColumn('feedback', 'blocking', 'INTEGER NOT NULL DEFAULT 0'); // decision requests: the agent waits for the answer
+addColumn('feedback', 'options', 'TEXT');                         // decision requests: JSON [{label, detail}]
+addColumn('feedback', 'recommended', 'INTEGER');                  // index into options
+addColumn('feedback', 'answer', 'INTEGER');                       // index of the chosen option, -1 = answered in the reply only
+addColumn('teams', 'hook_url', 'TEXT');
+addColumn('teams', 'hook_secret', 'TEXT');                        // encrypted bearer token
+addColumn('teams', 'hook_headers', 'TEXT');                       // encrypted "Name: value" lines
+addColumn('teams', 'hook_events', "TEXT NOT NULL DEFAULT 'release,answer'");
+addColumn('teams', 'hook_format', "TEXT NOT NULL DEFAULT 'full'"); // full | text (only {"text": …})
+addColumn('teams', 'hook_last_at', 'TEXT');
+addColumn('teams', 'hook_last_ok', 'INTEGER');
+addColumn('teams', 'hook_last_info', 'TEXT');
+addColumn('teams', 'garden_rev', 'INTEGER NOT NULL DEFAULT 0');   // bumped whenever feedback, decisions or reports change

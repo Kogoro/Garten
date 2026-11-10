@@ -6,6 +6,7 @@ import { Bar, Shell } from '../Shell';
 import { Icon, ago, copy, toast, useStore } from '../ui';
 import { FIELD_KINDS, KIND_LABELS } from '@shared/specForm.js';
 import { ROLES, RIGHTS, ROLE_RIGHTS } from './Account';
+import { ROUTINE_HEADERS, ROUTINE_URL_HINT, mcpJson, routinePrompt } from '../agentSetup';
 
 type Store = ReturnType<typeof useStore>;
 
@@ -123,11 +124,83 @@ function FeedbackMailToggle({ t, S, mailEnabled }: { t: any; S: Store; mailEnabl
   );
 }
 
+/** One webhook per team: starts an agent run (e.g. a Claude Code routine) when specs are released or decisions answered. */
+type HookRes = { ok: boolean; text: string; link?: string | null } | null;
+function HookForm({ h, S, reload, res, setRes }: { h: any; S: Store; reload: () => Promise<void>; res: HookRes; setRes: (r: HookRes) => void }) {
+  const online = S.state.online && !S.state.sessionExpired;
+  const [url, setUrl] = useState<string>(h.url);
+  const [format, setFormat] = useState<string>(h.format);
+  const [headers, setHeaders] = useState('');
+  const [token, setToken] = useState('');
+  const [ev, setEv] = useState<string[]>(h.events);
+  const flip = (k: string, on: boolean) => setEv(on ? [...new Set([...ev, k])] : ev.filter((x) => x !== k));
+  const save = guard(async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const hook: any = { url: url.trim(), format, events: ev };
+    if (token.trim()) hook.token = token.trim();
+    if (headers.trim()) hook.headers = headers;
+    setRes(null); await S.teamApi('PATCH', '', { hook }); toast(url.trim() ? 'Trigger saved' : 'Trigger removed'); await reload();
+  });
+  const preset = () => { setFormat('text'); setHeaders(ROUTINE_HEADERS); if (!ev.length) setEv(['release', 'answer']); toast('Filled in for a Claude Code routine – add the URL and the token of your routine'); };
+  const test = guard(async () => {
+    if (!confirm('Send a test call now? With a Claude Code routine this starts a real (short) run and uses one run of your daily allowance.')) return;
+    setRes(null); const r = await S.teamApi('POST', '/hook/test');
+    setRes({ ok: r.ok, text: r.ok ? `The receiver accepted the call (${r.info}).` : `The call failed: ${r.info}`, link: r.hook?.lastUrl });
+    await reload();
+  });
+  const remove = guard(async () => { if (!confirm('Remove the trigger? Agents are then no longer started automatically.')) return; await S.teamApi('PATCH', '', { hook: { url: '' } }); toast('Trigger removed'); await reload(); });
+  const clearHeaders = guard(async () => { await S.teamApi('PATCH', '', { hook: { headers: '' } }); toast('Extra headers removed'); await reload(); });
+  const dirty = url.trim() !== h.url || format !== h.format || !!token.trim() || !!headers.trim() || [...ev].sort().join() !== [...h.events].sort().join();
+  return (
+    <form id="hookForm" className="form" onSubmit={save}>
+      <p className="note">When a spec is released or a decision is answered, Specs calls this address once – after {h.debounceSeconds} s without further changes, so several releases start one run. The agent then reads its work list over MCP.</p>
+      <div className="btns"><button type="button" className="btn small" data-act="hook-preset" onClick={preset}>Fill in for a Claude Code routine</button></div>
+      <label className="sr" htmlFor="h-url">Address to call</label><input className="field mono" id="h-url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder={ROUTINE_URL_HINT} autoComplete="off" autoCapitalize="off" spellCheck={false} />
+      <label className="sr" htmlFor="h-token">Token</label><input className="field" id="h-token" type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder={h.hasToken ? '•••••••• token saved – type to replace' : 'Token (sent as Authorization: Bearer …)'} autoComplete="new-password" />
+      <label className="sr" htmlFor="h-format">What is sent</label>
+      <select className="field" id="h-format" value={format} onChange={(e) => setFormat(e.target.value)}><option value="text">Claude Code routine: {'{ "text": … }'} with a summary</option><option value="full">Full JSON: event, released specs, answered decisions, text</option></select>
+      <label className="sr" htmlFor="h-headers">Extra headers</label>
+      <textarea className="field mono hook-headers" id="h-headers" value={headers} onChange={(e) => setHeaders(e.target.value)} placeholder={h.headerNames.length ? `Saved: ${h.headerNames.join(', ')} – type to replace all` : 'Extra headers, one per line (optional)\nName: value'} autoCapitalize="off" spellCheck={false} />
+      <div className="hook-ev"><label className="check"><input type="checkbox" id="h-ev-release" checked={ev.includes('release')} onChange={(e) => flip('release', e.target.checked)} /> Call when a spec is released</label>
+        <label className="check"><input type="checkbox" id="h-ev-answer" checked={ev.includes('answer')} onChange={(e) => flip('answer', e.target.checked)} /> Call when a decision is answered</label></div>
+      <span id="hookStatus" className={h.lastOk === false ? 'err-text' : 'muted'} style={{ fontSize: 13 }}>{!h.url ? 'No trigger yet – agents only work when someone starts them.' : h.lastAt ? <>{h.lastOk ? 'Last call accepted' : 'Last call failed'} {ago(Date.parse(h.lastAt))} · {h.lastInfo}{h.lastUrl && <> · <a href={h.lastUrl} target="_blank" rel="noreferrer noopener">Open the run</a></>}</> : 'Saved – not called yet.'}</span>
+      {res && <span id="hookRes" className={res.ok ? '' : 'err-text'} style={{ fontSize: 13, ...(res.ok ? { color: 'var(--green)' } : {}) }}>{res.text}{res.link && <> <a href={res.link} target="_blank" rel="noreferrer noopener">Open the run</a></>}</span>}
+      <div className="btns"><button className="btn primary" type="submit" disabled={!online || !dirty}>Save</button><button type="button" className="btn" data-act="hook-test" disabled={!online || !h.url || dirty} onClick={test}>Send test</button></div>
+      {h.url && <div className="btns">{h.headerNames.length > 0 && <button type="button" className="btn small" data-act="hook-clear-headers" disabled={!online} onClick={clearHeaders}>Remove extra headers</button>}<button type="button" className="btn small" data-act="hook-remove" style={{ color: 'var(--red)', borderColor: 'var(--red-line)' }} disabled={!online} onClick={remove}>Remove trigger</button></div>}
+      <p className="note" style={{ fontSize: 12 }}>Token and headers are stored encrypted and never shown again. {h.allowLocal ? 'Local addresses are allowed on this server.' : 'Only public https:// addresses are called.'}</p>
+    </form>
+  );
+}
+
+function AgentSetup({ teamName, mcpUrl }: { teamName: string; mcpUrl: string }) {
+  const nav = useNavigate();
+  const local = /^https?:\/\/(localhost|127\.|\[::1\])/.test(mcpUrl);
+  const prompt = routinePrompt(teamName), json = mcpJson(mcpUrl);
+  return (
+    <div className="form" id="agentSetup">
+      <p className="note">An agent needs three things: this server over MCP, a token of a person, and a standing instruction. With Claude Code on the web this is a <b style={{ color: 'var(--text)' }}>routine</b> – the trigger above starts it.</p>
+      <div className="sect-title"><span>1 · MCP address</span></div>
+      <div className="code" id="as-mcp">{mcpUrl}</div>
+      {local && <p className="note rp-warn" id="as-local">This address is only reachable on this computer. A cloud agent needs a public https:// address – run <span className="mono">scripts/go-public.sh</span> (see the README).</p>}
+      <div className="btns"><button type="button" className="btn small" onClick={() => copy(mcpUrl)}>Copy address</button><button type="button" className="btn small" data-act="as-token" onClick={() => nav('/account')}>Create a token…</button></div>
+      <p className="note">The token needs the access “Read &amp; write drafts (you approve)”. Without it the agent can read specs but not ask, report or leave feedback. It acts with your rights in this team and can never approve or release.</p>
+      <div className="sect-title"><span>2 · Connection in the agent’s repository (<span className="mono">.mcp.json</span>)</span></div>
+      <div className="code" id="as-json">{json}</div>
+      <div className="btns"><button type="button" className="btn small" onClick={() => copy(json)}>Copy .mcp.json</button></div>
+      <p className="note">Set <span className="mono">SPECS_TOKEN</span> as an environment variable of the agent’s environment – never commit the token. Alternatively add the address as a custom connector in claude.ai; then you sign in instead of using a token.</p>
+      <div className="sect-title"><span>3 · Instruction for the routine</span></div>
+      <div className="code as-prompt" id="as-prompt">{prompt}</div>
+      <div className="btns"><button type="button" className="btn small" data-act="as-copy-prompt" onClick={() => copy(prompt)}>Copy instruction</button></div>
+    </div>
+  );
+}
+
 export function TeamPage() {
   const S = useStore(); const nav = useNavigate();
   const { info: d, reload, setInfo } = useTeamInfo();
   const [invite, setInvite] = useState<any>(null);
   const [gitRes, setGitRes] = useState<{ ok: boolean; text: string } | null>(null);
+  const [hookRes, setHookRes] = useState<HookRes>(null);
   const [tsheet, setTsheet] = useState<null | { type?: any }>(null);
   const t = S.team();
   const admin = S.can('admin');
@@ -177,6 +250,10 @@ export function TeamPage() {
             {admin && !x.builtin && <div className="typeacts"><button className="btn small" data-act="stype-edit" onClick={() => setTsheet({ type: x })}>Edit</button><button className="btn small" data-act="stype-delete" style={{ color: 'var(--red)', borderColor: 'var(--red-line)' }} onClick={guard(async () => { if (!confirm(`Delete the spec type “${x.key}”?`)) return; await S.teamApi('DELETE', `/spec-types/${x.key}`); await S.refreshTypes(); await reload(); })}>Delete</button></div>}</div>) : <div className="muted">Loading…</div>}</section>
 
         <section className="card"><div className="card-head"><h2><Icon name="git" size={16} /> Git connection</h2></div>{d?.git ? <GitForm key={JSON.stringify(d.git)} g={d.git} S={S} reload={reload} res={gitRes} setRes={setGitRes} /> : <div className="muted">Loading…</div>}</section>
+
+        {admin && <section className="card" id="hookCard"><div className="card-head"><h2><Icon name="garden" size={16} /> Agent trigger</h2>{d?.hook?.url ? <span className={`chip ${d.hook.lastOk === false ? 'bad' : 'ok'}`}>{d.hook.lastOk === false ? 'failing' : 'on'}</span> : <span className="chip">off</span>}</div>{d?.hook ? <HookForm key={JSON.stringify(d.hook)} h={d.hook} S={S} reload={reload} res={hookRes} setRes={setHookRes} /> : <div className="muted">{online ? 'Loading…' : 'Available when you are online.'}</div>}</section>}
+
+        <section className="card" id="agentCard"><div className="card-head"><h2>Agent setup</h2></div><AgentSetup teamName={t.name} mcpUrl={S.state.mcpUrl} /></section>
 
         <section className="card"><h2>Roles &amp; rights</h2>
           <div className="table-wrap"><table className="matrix"><thead><tr><th></th>{ROLES.map((r) => <th key={r}>{r}</th>)}</tr></thead><tbody>

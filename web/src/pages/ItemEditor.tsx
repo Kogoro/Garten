@@ -9,6 +9,7 @@ import { ConflictSheet, LinkSheet, PathSheet } from '../sheets';
 import { openMenu, useUi } from '../state';
 import type { Item } from '../store/types';
 import { FeedbackSheet } from '../feedback';
+import { ImplChip, ReportSheet, implState } from '../reports';
 import { Icon, toast, useStore } from '../ui';
 
 type Store = ReturnType<typeof useStore>;
@@ -89,7 +90,7 @@ function DocsDd({ i, S, onNew }: { i: Item; S: Store; onNew: () => void }) {
 export function ItemEditor({ item }: { item: Item }) {
   const S = useStore(); const nav = useNavigate(); const ui = useUi();
   const api = useRef<EditorApi | null>(null);
-  const [sheet, setSheet] = useState<null | 'link' | 'ref' | 'newdoc' | 'move' | 'conflict' | 'feedback'>(null);
+  const [sheet, setSheet] = useState<null | 'link' | 'ref' | 'newdoc' | 'move' | 'conflict' | 'feedback' | 'report'>(null);
   const isSpec = item.kind === 'spec';
   const ro = !S.can('write');
   const raw = rawMode(item);
@@ -108,7 +109,9 @@ export function ItemEditor({ item }: { item: Item }) {
     const actions = !S.can('write') ? [] : isSpec ? [{ key: 'delete', label: 'Delete spec', danger: true }]
       : item.core ? [{ key: 'none', label: 'Foundation document – every team has it', disabled: true }]
       : [{ key: 'move', label: 'Move / rename…' }, { key: 'pin', label: item.pinned ? 'Unpin: no longer always available to agents' : 'Pin: always available to agents' }, { key: 'delete', label: 'Delete document', danger: true }];
-    const key = await openMenu(item.id, [...info, ...modeItems, ...typeItem, ...actions]);
+    const impl = isSpec && item.status === 'approved' ? [{ key: 'report', label: `Implementation: ${implState(item, S.latestReport(item.id)).text}` }] : [];
+    const key = await openMenu(item.id, [...info, ...impl, ...modeItems, ...typeItem, ...actions]);
+    if (key === 'report') return setSheet('report');
     if (key === 'type') {
       const k = await openMenu('Spec type', S.specTypes().map((t) => ({ key: t.key, label: t.label, current: t.key === item.specType })));
       if (k && k !== item.specType) { S.edit(item.id, { specType: k }); toast('Type changed – the content stays as it is'); }
@@ -133,7 +136,7 @@ export function ItemEditor({ item }: { item: Item }) {
         {isSpec
           ? <><label className="sr" htmlFor="title">Title</label><input id="title" className="ed-title" placeholder="Spec title" value={item.title} autoComplete="off" title={path} readOnly={ro} onChange={(e) => S.edit(item.id, { title: e.target.value })} /></>
           : <h1 className="ed-title" title={path} style={item.core ? undefined : { fontFamily: 'var(--mono)', fontSize: 15 }}>{CORE_LABEL[item.id] ?? item.id}</h1>}
-        <span id="chips" className="barchips">{isSpec && <TypeChip s={item} S={S} />}<StatusChip i={item} S={S} /><AgentChip s={item} S={S} /></span>
+        <span id="chips" className="barchips">{isSpec && <TypeChip s={item} S={S} />}<StatusChip i={item} S={S} /><AgentChip s={item} S={S} />{isSpec && item.status === 'approved' && <button type="button" className="chipbtn" data-act="report" onClick={() => setSheet('report')}><ImplChip spec={item} always /></button>}</span>
         <span id="docsSlot"><DocsDd i={item} S={S} onNew={() => setSheet('newdoc')} /></span>
         {isSpec && <button type="button" className={`fbbtn${S.feedbackCount(item.id) ? ' has' : ''}`} data-act="feedback" aria-label={`Feedback: ${S.feedbackCount(item.id)} open`} title="Feedback from agents and colleagues" onClick={() => setSheet('feedback')}><Icon name="warn" size={14} /><span className="lbl">Feedback</span>{S.feedbackCount(item.id) > 0 && <span className="cnt">{S.feedbackCount(item.id)}</span>}</button>}
         <SaveInd i={item} S={S} />
@@ -167,6 +170,7 @@ export function ItemEditor({ item }: { item: Item }) {
       {sheet === 'newdoc' && <PathSheet kind="newdoc" linkTo={item.id} onClose={() => setSheet(null)} />}
       {sheet === 'move' && <PathSheet kind="move" from={item.id} value={item.id} onClose={() => setSheet(null)} />}
       {sheet === 'feedback' && <FeedbackSheet specId={item.id} version={item.version} onClose={() => setSheet(null)} />}
+      {sheet === 'report' && <ReportSheet specId={item.id} onClose={() => setSheet(null)} />}
       {sheet === 'conflict' && <ConflictSheet id={item.id} onClose={() => setSheet(null)} />}
     </div>
   );

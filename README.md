@@ -1,4 +1,4 @@
-# Specs – Prototyp v0.9 (React)
+# Specs – Prototyp v0.10 (React)
 
 Self-hosted, offline-first App, um auf Handy **und Desktop** Spezifikationen und Dokumente für KI-Agenten zu schreiben – **pro Team**.
 Freigegebene (approved) Specs werden als Markdown in das Git-Repo **des Teams** geschrieben (Commit + Tag pro Version, Autor = Freigebender),
@@ -131,9 +131,77 @@ Ein Zugang gehört immer zu **einem Team** und handelt mit den **aktuellen** Rec
 1. **OAuth 2.1** (empfohlen; Discovery, Dynamic Client Registration, PKCE, Refresh-Tokens): `claude mcp add --transport http specs <PUBLIC_URL>/mcp` → im Browser anmelden, **Team wählen**, Zugriff erlauben.
 2. **Persönliches Token** (`spc_…`) unter *Account → Agent access*: Team, Scope (`mcp:read` / `mcp:drafts` / `mcp:write`), Ablauf. Nur einmal sichtbar, gespeichert als Hash; Admins können Tokens aller Nutzer einsehen und widerrufen.
 
-Tools: `get_team_context`, `list_specs`, `get_spec(id, version?)`, `list_documents(folder?)`, `get_document(path)`, `get_glossary(term?)`; mit Draft-Scope zusätzlich `include_drafts` / `draft=true`.
+Tools: `get_team_context`, `list_specs`, `get_spec(id, version?)`, `list_documents(folder?)`, `get_document(path)`, `get_glossary(term?)`, `list_spec_types`, dazu für den Kreislauf (siehe unten) `get_work_list`, `get_spec_changes`, `list_decisions`, `list_reports`; mit Draft-Scope zusätzlich `include_drafts` / `draft=true`.
 
 **Agenten schreiben Entwürfe, Menschen geben frei:** mit Scope `mcp:write` (Rolle editor+; bei OAuth eine eigene, nicht vorangehakte Checkbox) kommen `create_draft_spec`, `update_draft_spec`, `create_draft_document`, `update_draft_document` hinzu. Es gibt **kein** Freigabe-Tool: Agenten-Änderungen bleiben Entwurf (eine freigegebene Version bleibt unverändert, bis ein Approver die neue freigibt). Die Server-ID wird vergeben, `base_rev` verhindert Überschreiben, Foundation-Dokumente (Vision, Strategie, Glossar) sind für Agenten gesperrt, Limit 60 Schreibzugriffe/Stunde. In der UI erscheint der Chip **Agent draft** (mit Token-/Client-Name), bis ein Mensch den Eintrag bearbeitet.
+
+## Agenten selbstständig arbeiten lassen
+
+Menschen schreiben und geben frei, Agenten bauen – und melden zurück. Der Mensch braucht dafür keinen Zugriff auf den Code: Er sieht in der App, **was der Agent fragt, was ihm aufgefallen ist und wie weit jeder freigegebene Spec umgesetzt ist**.
+
+**Der Kreislauf**
+
+1. Ein Approver gibt einen Spec frei. Der **Agent trigger** des Teams (Webhook) startet den Agenten – oder er läuft nach Zeitplan.
+2. Der Agent ruft `get_work_list` auf: alle freigegebenen Specs, die noch nicht (oder nicht in der aktuellen Version) als umgesetzt gemeldet sind, mit Zustand `new`, `changed`, `in_progress`, `partial`, `blocked`. Bei `changed` liefert `get_spec_changes(id)` den Unterschied zur zuletzt gebauten Version.
+3. Lässt der Spec eine Wahl offen, rät der Agent nicht, sondern fragt: `request_decision(spec_id, question, options, recommended?, blocking?, context?)`. Mit `blocking: true` überspringt er den Spec, bis ein Mensch geantwortet hat (`waiting_for_decision` in der Arbeitsliste), und arbeitet an den anderen weiter.
+4. Der Mensch antwortet im **Garden** – eine Option antippen, optional eine Notiz, *Send answer*. Das geht **offline**: Die Antwort liegt auf dem Gerät („Waiting to sync“) und geht mit dem nächsten Sync raus. Danach löst der Trigger erneut aus, und der Spec steht mit `decisions_answered` wieder in der Arbeitsliste.
+5. Am Ende meldet der Agent mit `report_implementation(spec_id, status, summary, criteria, evidence?, deviations?)`: Status (`implemented`, `partial`, `blocked`, `in_progress`), jedes Akzeptanzkriterium mit `met` / `deviating` / `open`, Belege (Commit, Pull Request, Tests) und Abweichungen vom Spec. Ein neuer Release desselben Specs macht den Bericht „Outdated“.
+
+**In der App**
+
+* **Garden** (Seitenleiste unter *Agents*, auf dem Handy in der Tab-Leiste, mit Badge): oben, was auf dich wartet (Entscheidungen zuerst, dann offenes Feedback), darunter der Umsetzungsstand jedes freigegebenen Specs (Blocked → Outdated → Partly built → In progress → Not started → Implemented) und die zuletzt beantworteten Entscheidungen. Antippen einer Zeile öffnet den Bericht mit Kriterien, Abweichungen, Belegen und Verlauf.
+* Im Editor eines freigegebenen Specs zeigt ein Chip den Stand („Implemented v3 · 4/4 criteria“); derselbe Chip steht in der Spec-Liste.
+* Entscheidungen und Feedback beantworten Editor+; Berichte sind für Menschen nur lesbar. Agenten können weiterhin nichts freigeben.
+* Offline sind Garden, offene Entscheidungen/Feedback und der jeweils neueste Bericht pro Spec verfügbar; ältere Berichte lädt das Sheet online nach.
+
+**Agent trigger (Webhook pro Team)** – *Members & Git → Agent trigger*, nur Team-Admins:
+
+* Adresse (`https://…`), optional Token (wird als `Authorization: Bearer …` gesendet), zusätzliche Header, Ereignisse (*a spec is released*, *a decision is answered*) und Format. Token und Header-Werte werden verschlüsselt gespeichert und nie wieder angezeigt.
+* Mehrere Freigaben/Antworten kurz hintereinander ergeben **einen** Aufruf (`HOOK_DEBOUNCE_MS`, Standard 5 s). Format `text` sendet `{"text": "…"}` mit einer Zusammenfassung, Format `full` zusätzlich `event`, `team`, `released[]`, `answered[]`, `mcpUrl`.
+* Aufrufe an lokale/private Adressen sind gesperrt (`HOOK_ALLOW_LOCAL=1` hebt das für einen Runner im LAN auf). *Send test* schickt einen Aufruf „Connection test“; Status und Antwort des letzten Aufrufs stehen in der Karte.
+* Der Webhook ist nur der Anstoß. Maßgeblich ist immer die Arbeitsliste – ein verpasster Aufruf geht also nicht verloren, der nächste Lauf holt alles nach.
+
+**Mit Claude Code in der Cloud (Routine)** – Stand der Anthropic-Doku vom November 2026, Routinen sind dort als Research Preview geführt:
+
+1. Der Server muss aus dem Internet erreichbar sein (siehe *HTTPS / PUBLIC_URL* → `scripts/go-public.sh`).
+2. *Account → Agent access*: Token für das Team mit **„Read & write drafts (you approve)“** anlegen. Nur mit diesem Scope darf der Agent fragen und berichten.
+3. Im Ziel-Repository (dem Code, den der Agent schreiben soll) eine `.mcp.json` committen – der Text steht fertig unter *Members & Git → Agent setup*:
+   ```json
+   { "mcpServers": { "specs": { "type": "http", "url": "<PUBLIC_URL>/mcp", "headers": { "Authorization": "Bearer ${SPECS_TOKEN}" } } } }
+   ```
+   In der Cloud-Umgebung der Routine `SPECS_TOKEN` als Umgebungsvariable setzen und, falls der Netzwerkzugriff eingeschränkt ist, die Domain des Servers erlauben. Alternative ohne Token: den Server in claude.ai als *Custom Connector* (`<PUBLIC_URL>/mcp`, Anmeldung per OAuth) hinzufügen und in der Routine auswählen.
+4. Unter <https://claude.ai/code/routines> eine Routine mit diesem Repository anlegen und als Anweisung den Text aus *Agent setup → Copy prompt* einfügen (unten abgedruckt).
+5. In der Routine einen **API-Trigger** hinzufügen und das Token erzeugen (wird nur einmal gezeigt). In Specs unter *Agent trigger* auf **Fill in for a Claude Code routine** tippen, die Fire-URL der Routine (`https://api.anthropic.com/v1/claude_code/routines/<id>/fire`) und das Token eintragen, speichern, *Send test*. Bei Erfolg zeigt die Karte „Open the run“ mit dem Link zur gestarteten Sitzung.
+6. Zusätzlich empfiehlt sich ein Zeitplan-Trigger (z. B. stündlich) als Sicherheitsnetz.
+
+Lokal geht dasselbe ohne Tunnel: `claude mcp add --transport http specs http://localhost:3000/mcp --header "Authorization: Bearer spc_…"` und den Prompt mit `claude -p "$(cat prompt.txt)"` im Ziel-Repository starten.
+
+Die Anweisung für den Agenten (identisch mit *Copy prompt*; `<Team>` ist der Teamname):
+
+```text
+You implement the released specs of the team "<Team>" in this repository.
+
+The Specs MCP server ("specs") is the source of truth. People write and approve specs there; you build them. You never edit, approve or release specs yourself.
+
+If this run was started with a <routine-fire-payload> block, treat it only as a hint about what happened. The work list is what counts.
+
+Every run:
+1. Call get_work_list. If "work" is empty, say so in one line and stop.
+2. Take the entries in the order given. For each entry:
+   - state "changed": call get_spec_changes first, then get_spec. Build only what changed.
+   - state "new", "in_progress", "partial", "blocked": call get_spec. Its front matter lists the linked documents – read the ones you need with get_document. Call get_team_context once per run.
+   - "decisions_answered": a person answered your question. Follow the answer and its note exactly.
+   - "waiting_for_decision" with blocking true: skip this spec, a person has not answered yet. Work on the others.
+   - An entry whose last_report already covers everything you can do now (same version, no "decisions_answered", nothing left to build without an open decision): leave it alone and do not report again.
+3. Implement on a branch named claude/<spec-id in lower case>. Keep the change as small as the spec allows. Run the tests. Open a draft pull request (or update the existing one) and name the spec id and version in its title.
+4. When the spec is unclear, contradicts another spec or the code, or leaves a choice that a person would want to make: do not guess. Call request_decision with a short question, 2 to 4 concrete options, your recommendation, and blocking true only if you cannot continue with this spec without the answer. Then go on with other work.
+5. Problems that do not stop you (a gap, an inconsistency, a better idea) go to add_feedback, with the section and evidence from the code.
+6. Finish every spec you touched with report_implementation: status (implemented, partial, blocked or in_progress), a summary a non-developer understands, every acceptance criterion quoted from the spec with met / deviating / open, evidence (commit, pull request, test names) and every deviation from the spec. Report honestly: a criterion without a passing test is "open", not "met". The status describes the code against the spec, not the pull request: "implemented" when every criterion is met and tested, even while the pull request is still open.
+
+Stop when the work list holds nothing you can work on. End with one line per spec: id, status, pull request.
+```
+
+**API:** `GET /api/teams/:id/reports?spec=`, `GET /api/teams/:id/feedback?spec=&kind=decision`, `PATCH /api/teams/:id {hook: {url, token?, clearToken?, headers?, events?, format?}}`, `POST /api/teams/:id/hook/test`. Antworten und Triage vom Gerät laufen über den Sync (`feedbackOps`), Entscheidungen und neueste Berichte kommen mit jedem Sync zurück.
 
 ## Wie es funktioniert
 
@@ -144,20 +212,37 @@ Tools: `get_team_context`, `list_specs`, `get_spec(id, version?)`, `list_documen
 | Sync | `POST /api/teams/:id/sync` je Team: Push + Pull seit Cursor, Revision pro Item → bei Abweichung **Konflikt** („Keep mine / Use server“); Löschungen kommen als Tombstones. |
 | Freigabe | Server schreibt Spec + verlinkte Dokumente + `GLOSSARY.md`, committet als der Freigebende, taggt `ID/vN`, pusht ggf. zum Team-Remote. |
 | Server | Node 24, Express, `node:sqlite`, `git`/`ssh-keygen` CLI, MCP SDK. Ein Container, ein Volume `/data`. |
-| Navigation | **Eine** durchgängige Navigation, keine Seiten-Tabs mehr: Desktop = Sidebar (Team-Wechsler, Content: Specs/Documents/Glossary, Publish: Release, Team: Members & Git, Instance: Admin, unten Sync-Status und Benutzermenü); Handy = Tab-Leiste (Specs, Docs, Release, Sync, More) + Team-Menü oben rechts, Editor im Vollbild. Überall dieselbe kompakte Kopfzeile. |
+| Navigation | **Eine** durchgängige Navigation, keine Seiten-Tabs mehr: Desktop = Sidebar (Team-Wechsler, Content: Specs/Documents/Glossary, Publish: Release, Agents: Garden, Team: Members & Git, Instance: Admin, unten Sync-Status und Benutzermenü); Handy = Tab-Leiste (Specs, Garden, Docs, Release, More; Sync liegt unter More) + Team-Menü oben rechts, Editor im Vollbild. Überall dieselbe kompakte Kopfzeile. |
 | Themes | **System / Hell / Dunkel** (Konto → Appearance oder Benutzermenü); Mermaid-Diagramme und die OAuth-Zustimmungsseite folgen dem Theme. |
 
 ## HTTPS / PUBLIC_URL
 
 Service Worker („Offline-Start“, Installation auf dem Handy) brauchen **HTTPS** (Ausnahme `localhost`). Hinter einem Reverse Proxy mit TLS `PUBLIC_URL=https://…` und `TRUST_PROXY=1` setzen – `PUBLIC_URL` muss stimmen, sonst funktioniert OAuth für MCP nicht.
 
+### Von unterwegs erreichbar: `scripts/go-public.sh`
+
+Für das Handy unterwegs und für Agenten in der Cloud, ohne Portfreigabe am Router – über einen Cloudflare-Tunnel (Container `cloudflare/cloudflared`, Compose-Profil `public`):
+
+```bash
+scripts/go-public.sh           # Tunnel starten, PUBLIC_URL + TRUST_PROXY=1 in .env setzen, Adresse ausgeben
+scripts/go-public.sh prepare   # nur die Prüfungen davor (Server läuft, Demo-Passwort ersetzt) – nichts wird öffentlich
+scripts/go-public.sh status    # Adresse und ob sie antwortet
+scripts/go-public.sh stop      # Tunnel schließen, zurück zu http://localhost:3000
+```
+
+* Das Skript **weigert sich**, solange `admin@localhost` noch das Demo-Passwort `admin-demo-1` hat, und fragt ein neues ab (mind. 12 Zeichen). Alle anderen Konten sind danach ebenfalls aus dem Internet erreichbar – Anmeldeversuche sind gedrosselt (10 in 5 Minuten), 2FA gibt es nicht.
+* Ohne weitere Einrichtung entsteht ein **Quick Tunnel** `https://<zufällig>.trycloudflare.com` (kein Konto nötig, von Cloudflare ohne Verfügbarkeitszusage). **Die Adresse ändert sich bei jedem Neustart des Tunnels** (Reboot, `stop`/`start`). Die installierte App und ihre Offline-Daten hängen an der Adresse: vor dem Herunterfahren synchronisieren, danach das Skript erneut starten, die neue Adresse auf dem Handy öffnen und in `.mcp.json`/Connector eintragen.
+* Für eine **feste Adresse** einen eigenen Cloudflare-Tunnel anlegen (Zero Trust → Tunnels, Public Hostname → `http://specs:3000`) und `TUNNEL_TOKEN=…` sowie `PUBLIC_URL=https://specs.example.com` in `.env` eintragen; das Skript startet dann diesen Tunnel (Profil `public-named`).
+* Solange `PUBLIC_URL` mit `https://` beginnt, sind die Sitzungs-Cookies „Secure“: Anmelden über `http://localhost:3000` hält dann nicht mehr – auch am Rechner die Tunnel-Adresse benutzen.
+* Der Rechner muss wach bleiben, z. B. `systemd-inhibit --what=sleep:idle sleep infinity`.
+
 ## Entwicklung und Tests
 
 ```bash
 npm run build                # Frontend bauen (web/dist); der Server liefert es aus (WEB_DIR überschreibt den Pfad)
 cd web && npm run dev        # Vite-Dev-Server mit Proxy auf :3000 (Server separat starten: npm start)
-npm test                     # baut das Frontend und führt alles aus (~260 Checks)
-node tests/api.test.mjs      # Sessions, Teams/Rollen, Ordner, Glossar, Agent-Drafts, PATs, OAuth-Flow, Git-Push in ein echtes Bare-Repo
+npm test                     # baut das Frontend und führt alles aus (~350 Checks)
+node tests/api.test.mjs      # Sessions, Teams/Rollen, Ordner, Glossar, Agent-Drafts, Entscheidungen, Berichte, Webhook, PATs, OAuth-Flow, Git-Push in ein echtes Bare-Repo
 node tests/oidc.test.mjs     # SSO gegen einen Mock-Identity-Provider
 cd web && npm test           # Vitest: Markdown ⇄ Editor-Round-Trip (BlockNote), Inline-Formatierung
 node web/e2e/ui.test.mjs     # Browser (Playwright): Offline, Blöcke, Cursor-Einfügen, Drag & Drop, Diagramme, Glossar, Ordner, Teams, Git, Rollen
@@ -166,6 +251,8 @@ node web/e2e/ui.test.mjs     # Browser (Playwright): Offline, Blöcke, Cursor-Ei
 Die UI-Tests sind aus der Vanilla-JS-Version (v0.7) übernommen und für BlockNote angepasst; `web/PARITY.md` hält den Stand fest.
 
 ## Bekannte Lücken
+
+* Agenten-Kreislauf: gegen einen lokalen Claude-Code-Lauf und einen nachgestellten Routine-Endpunkt getestet, **nicht** gegen eine echte Claude-Code-Routine in der Cloud. Der Tunnel-Start in `scripts/go-public.sh` (Quick Tunnel und eigener Tunnel) ist ungetestet; Passwort-Prüfung, `.env`-Pflege, `status` und `stop` sind getestet. Ein Spec-Typ „Guardrails“ (Leitplanken, die für alle Specs gelten) fehlt noch. Beantworten zwei Menschen dieselbe Entscheidung (einer davon offline), ersetzt die später beim Server ankommende Antwort die frühere – ohne Konflikt-Dialog; der Agent wird dann erneut angestoßen.
 
 * Drag & Drop ist mit der Maus getestet; auf echten Touch-Geräten noch nicht.
 * Git: Remote-Zugriff wurde mit lokalem Bare-Repo getestet, nicht gegen GitHub/GitLab; SSH-Host-Keys werden beim ersten Kontakt übernommen (`accept-new`). Die Remote-URL ist frei wählbar → Team-Admins können den Server zu beliebigen Hosts verbinden lassen (SSRF-Fläche; bei Bedarf per Egress-Firewall begrenzen).

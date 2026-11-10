@@ -12,11 +12,13 @@ import { oidcRouter } from './oidc.js';
 import { bootstrapAdmin } from './auth.js';
 import * as store from './store.js';
 import { initAutoPush } from './gitremote.js';
+import { initHooks } from './hooks.js';
 import { seedDemo } from './seed.js';
 
 const defaultTeam = await bootstrapAdmin();
 store.ensureFoundation(defaultTeam);
 initAutoPush();
+initHooks();
 if (SEED_DEMO && store.allSpecs(defaultTeam.id).length === 0 && store.allDocs(defaultTeam.id).every((d) => store.isCoreDoc(d.id) && !store.hasContentDoc(d))) {
   await seedDemo(defaultTeam);
   console.log('seeded demo data');

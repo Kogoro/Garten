@@ -14,7 +14,9 @@ import { testRemote, pushTeam, generateSshKey } from './gitremote.js';
 import { mailEnabled, mailInfo, sendMail, mailError, invitationMail } from './mailer.js';
 import { createInvite, listInvites, revokeInvite, inviteByToken, registerFromInvite, acceptForUser, declineForUser, invitesForEmail } from './invites.js';
 import { listGlobalTerms, createGlobalTerm, updateGlobalTerm, deleteGlobalTerm, importGlobalTerms, GlossaryError } from './globalGlossary.js';
-import { addFeedback, listFeedback, setFeedback, openCounts } from './feedback.js';
+import { addFeedback, listFeedback, setFeedback, openCounts, applyFeedbackOps, gardenFeedback, gardenRev } from './feedback.js';
+import { listReports, latestReports } from './reports.js';
+import { publicHook, saveHook, testHook } from './hooks.js';
 import { listTypes, createType, updateType, deleteType, TypeError_ } from './specTypes.js';
 import * as store from './store.js';
 
@@ -65,7 +67,7 @@ async function applyChange(ch, team, user, role) {
 const order = (c) => (c.delete ? (c.kind === 'folder' ? 3 : 2) : c.kind === 'folder' ? -1 : c.kind === 'doc' ? 0 : 1); // folders/docs first, deletions last
 
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
-const teamView = (team, role) => ({ id: team.id, key: team.key, name: team.name, role, foundationAuto: !!team.row.foundation_auto, feedbackMail: !!team.row.feedback_mail, mailEnabled, git: publicGit(team) });
+const teamView = (team, role) => ({ id: team.id, key: team.key, name: team.name, role, foundationAuto: !!team.row.foundation_auto, feedbackMail: !!team.row.feedback_mail, mailEnabled, git: publicGit(team), ...(role === 'admin' ? { hook: publicHook(team) } : {}) });
 
 // keeps one admin from using the invite form as a mail cannon
 const inviteLog = new Map();
@@ -153,17 +155,29 @@ export function apiRouter() {
 
   // one round trip: push local changes, pull everything newer than `since`
   team.post('/sync', requireTeam('read'), wrap(async (req, res) => {
-    const { since = 0, changes = [] } = req.body ?? {};
+    const { since = 0, changes = [], feedbackOps, gardenRev: have } = req.body ?? {};
     if (!Array.isArray(changes)) return res.status(400).json({ error: 'changes must be an array' });
     const results = [];
     for (const ch of [...changes].sort((a, b) => order(a) - order(b))) results.push(await applyChange(ch, req.team, req.user, req.role));
-    res.json({ results, items: store.itemsSince(req.team.id, Number(since) || 0), cursor: store.maxSeq(req.team.id), me: me(req.user), project: PROJECT_NAME, mcpUrl: `${PUBLIC_URL}/mcp`, specTypes: listTypes(req.team.id), feedbackOpen: openCounts(req.team.id) });
+    // decisions and triage made offline travel with the sync
+    const t = req.team.id;
+    const fbResults = !Array.isArray(feedbackOps) || !feedbackOps.length ? []
+      : perms(req.role).includes('write') ? applyFeedbackOps(t, feedbackOps, req.user)
+        : feedbackOps.map((op) => ({ id: op?.id, ok: false, error: `Your role (${req.role}) cannot answer or triage.` }));
+    const rev = gardenRev(t);
+    res.json({
+      results, fbResults, items: store.itemsSince(t, Number(since) || 0), cursor: store.maxSeq(t), me: me(req.user), project: PROJECT_NAME, mcpUrl: `${PUBLIC_URL}/mcp`, specTypes: listTypes(t), feedbackOpen: openCounts(t),
+      ...(have === rev ? {} : { garden: { rev, feedback: gardenFeedback(t), reports: latestReports(t) } }), // what the garden view needs offline; only sent when it changed
+    });
   }));
 
   // feedback on specs: everyone reads, editors+ leave and triage it
-  team.get('/feedback', requireTeam('read'), (req, res) => res.json({ feedback: listFeedback(req.team.id, { specId: req.query.spec, status: req.query.status }) }));
+  team.get('/feedback', requireTeam('read'), (req, res) => res.json({ feedback: listFeedback(req.team.id, { specId: req.query.spec, status: req.query.status, kind: req.query.kind }) }));
   team.post('/feedback', requireTeam('write'), wrap(async (req, res) => res.json({ feedback: addFeedback(req.team.id, req.body ?? {}, { id: req.user.id, name: req.user.name, via: null }) })));
   team.patch('/feedback/:id', requireTeam('write'), wrap(async (req, res) => res.json({ feedback: setFeedback(req.team.id, req.params.id, req.body ?? {}, req.user) })));
+
+  // implementation reports: agents write them through MCP, everyone in the team reads them
+  team.get('/reports', requireTeam('read'), (req, res) => res.json({ reports: listReports(req.team.id, { specId: req.query.spec ? String(req.query.spec) : undefined }) }));
 
   team.get('/', requireTeam(), (req, res) => res.json({ team: teamView(req.team, req.role) }));
   team.patch('/', requireTeam('admin'), wrap(async (req, res) => {
@@ -174,8 +188,10 @@ export function apiRouter() {
       if (t.row.foundation_auto) await store.startupSweep(); // catch up on documents edited while auto-release was off
     }
     if (req.body?.feedbackMail !== undefined) t = setFeedbackMail(t.id, !!req.body.feedbackMail);
+    if (req.body?.hook !== undefined) t = saveHook(t.id, req.body.hook ?? {});
     res.json({ team: teamView(t, req.role) });
   }));
+  team.post('/hook/test', requireTeam('admin'), wrap(async (req, res) => res.json(await testHook(req.team.id))));
   team.post('/leave', requireTeam(), wrap(async (req, res) => {
     if (req.user.admin && !members(req.team.id).some((m) => m.id === req.user.id)) throw new AuthError('Instance admins are not members – nothing to leave');
     removeMember(req.team.id, req.user.id);

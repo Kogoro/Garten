@@ -2,6 +2,7 @@
 //   node tests/api.test.mjs            (starts its own server)
 import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
+import { createServer as createHttpServer } from 'node:http';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -13,7 +14,7 @@ import { parseGlossaryFile } from '../shared/glossaryImport.js';
 
 const tmp = mkdtempSync(path.join(process.env.TEST_TMP || tmpdir(), 'specs-remote-'));
 const smtp = await startSmtpSink();
-const srv = await startServer({ GIT_ALLOW_LOCAL: '1', FOUNDATION_DEBOUNCE_MS: '150', FEEDBACK_MAIL_DEBOUNCE_MS: '300', MAX_TEAMS_PER_USER: '2', SMTP_URL: `smtp://127.0.0.1:${smtp.port}`, SMTP_FROM: 'Specs <specs@example.test>' });
+const srv = await startServer({ GIT_ALLOW_LOCAL: '1', FOUNDATION_DEBOUNCE_MS: '150', FEEDBACK_MAIL_DEBOUNCE_MS: '300', HOOK_DEBOUNCE_MS: '250', HOOK_ALLOW_LOCAL: '1', MAX_TEAMS_PER_USER: '2', SMTP_URL: `smtp://127.0.0.1:${smtp.port}`, SMTP_FROM: 'Specs <specs@example.test>' });
 const BASE = srv.base;
 const uniq = Date.now().toString(36);
 let n = 0;
@@ -122,7 +123,7 @@ try {
   const draftTok = (await editor.c.post('/api/me/tokens', { name: 'drafts', scopes: ['mcp:read', 'mcp:drafts'], teamId: T1 })).data;
 
   let c0; let c = await mcp(readTok.token);
-  assert.deepEqual(await toolNames(c), ['get_document', 'get_glossary', 'get_spec', 'get_team_context', 'list_documents', 'list_spec_types', 'list_specs']);
+  assert.deepEqual(await toolNames(c), ['get_document', 'get_glossary', 'get_spec', 'get_spec_changes', 'get_team_context', 'get_work_list', 'list_decisions', 'list_documents', 'list_reports', 'list_spec_types', 'list_specs']);
   assert.equal(await hasParam(c, 'list_specs', 'include_drafts'), false); ok('read token: no draft parameters exposed');
   assert.ok(JSON.parse((await call(c, 'list_specs')).text).find((s) => s.id === id && s.approved_by === 'approver user'));
   assert.match((await call(c, 'get_spec', { id })).text, /```mermaid\nflowchart LR/); ok('agent receives released spec incl. mermaid block');
@@ -505,6 +506,140 @@ try {
     await fa.close();
   }
 
+  // ---------------------------------------------------------------- the gardener loop: work list, decisions, implementation reports, webhook
+  {
+    const hits = [];
+    const sink = createHttpServer((req, res) => {
+      let b = ''; req.on('data', (d) => (b += d)); req.on('end', () => {
+        hits.push({ url: req.url, headers: req.headers, body: JSON.parse(b || '{}') });
+        if (req.url === '/fail') { res.writeHead(401, { 'content-type': 'application/json' }); return res.end('{"error":"bad token"}'); }
+        res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ type: 'routine_fire', claude_code_session_id: 'session_1', claude_code_session_url: 'https://claude.ai/code/session_1' }));
+      });
+    });
+    await new Promise((r) => sink.listen(0, '127.0.0.1', r));
+    const sinkUrl = `http://127.0.0.1:${sink.address().port}`;
+    const waitHits = async (count, ms = 4000) => { const t0 = Date.now(); while (hits.length < count && Date.now() - t0 < ms) await new Promise((r) => setTimeout(r, 50)); return hits.length; };
+    const gEd = await mk('editor', 'g'); const gAp = await mk('approver', 'g'); const gView = await mk('viewer', 'g');
+    const agTok = (await gEd.c.post('/api/me/tokens', { name: 'Builder agent', scopes: ['mcp:read', 'mcp:drafts', 'mcp:write'], teamId: T1 })).data;
+    const roTok2 = (await gView.c.post('/api/me/tokens', { name: 'ro', scopes: ['mcp:read'], teamId: T1 })).data;
+    const ag = await mcp(agTok.token); const ro = await mcp(roTok2.token);
+    const roNames = await toolNames(ro); const agNames = await toolNames(ag);
+    assert.ok(['get_work_list', 'get_spec_changes', 'list_reports', 'list_decisions'].every((x) => roNames.includes(x)) && !roNames.includes('report_implementation') && !roNames.includes('request_decision'));
+    assert.ok(agNames.includes('report_implementation') && agNames.includes('request_decision')); ok('everyone reads the work list, reports and decisions; only writers report and ask');
+    const syncUrl = `/api/teams/${T1}/sync`;
+    const gid = `G${uniq.toUpperCase()}`;
+    const release = async (body) => {
+      const cur = (await gEd.c.sync([], 0)).data.items.find((x) => x.id === gid);
+      const rr = await gAp.c.push([{ id: gid, kind: 'spec', baseRev: cur?.rev ?? 0, approve: true, fields: { title: 'Invoice export', body } }]);
+      assert.equal(rr[0].item.status, 'approved', JSON.stringify(rr)); return rr[0].item;
+    };
+    await release('## GOAL\nExport invoices\n\n## ACCEPTANCE CRITERIA\n- [ ] CSV export\n- [ ] PDF export\n');
+    const work = async (c = ro) => JSON.parse((await call(c, 'get_work_list')).text);
+    let w = (await work()).work.find((x) => x.spec_id === gid);
+    assert.equal(w.state, 'new'); assert.equal(w.version, 1); ok('a released spec without a report is new work');
+    const draftId = JSON.parse((await call(ag, 'create_draft_spec', { title: 'Not released', body: '## GOAL\nx' })).text).id;
+    assert.match((await call(ag, 'report_implementation', { spec_id: draftId, status: 'implemented', summary: 'x' })).text, /not released/); ok('reports are only accepted for released specs');
+
+    // decisions: an agent asks, a person answers (also offline, through the sync)
+    const q = { spec_id: gid, question: 'Which delimiter for the CSV export?', options: [{ label: 'Comma' }, { label: 'Semicolon', detail: 'Opens directly in a German Excel' }], recommended: 1, context: 'src/export.ts has no setting for it', section: '## ACCEPTANCE CRITERIA' };
+    const d1 = JSON.parse((await call(ag, 'request_decision', q)).text);
+    assert.equal(d1.status, 'open'); assert.equal(d1.blocking, true); assert.equal(d1.duplicate, false);
+    assert.equal(JSON.parse((await call(ag, 'request_decision', { ...q, question: 'which delimiter  for the CSV export?' })).text).id, d1.id); ok('an agent asks for a decision; the same open question is not recorded twice');
+    const refused = async (args) => { try { return (await ag.callTool({ name: 'request_decision', arguments: args })).isError === true; } catch { return true; } };
+    assert.ok(await refused({ ...q, question: 'q2', options: [{ label: 'only one' }] })); assert.ok(await refused({ ...q, question: 'q3', recommended: 5 })); assert.ok(await refused({ ...q, question: 'q4', options: [{ label: 'A' }, { label: 'a ' }] })); ok('a decision needs 2–6 distinct options and a valid recommendation');
+    assert.ok(!JSON.parse((await call(ag, 'list_feedback', { spec_id: gid })).text).some((f) => f.id === d1.id));
+    let dl = JSON.parse((await call(ro, 'list_decisions', { spec_id: gid })).text);
+    assert.equal(dl.length, 1); assert.equal(dl[0].status, 'open'); assert.equal(dl[0].options[1].recommended, true); assert.equal(dl[0].answer, undefined); ok('decisions are listed separately from feedback, with options and the recommendation');
+    w = (await work()).work.find((x) => x.spec_id === gid); assert.equal(w.waiting_for_decision[0].id, d1.id); assert.equal(w.waiting_for_decision[0].blocking, true);
+    const s1 = (await gEd.c.post(syncUrl, { since: 1e9, changes: [] })).data;
+    const gd = s1.garden.feedback.find((f) => f.id === d1.id);
+    assert.equal(gd.kind, 'decision'); assert.equal(gd.options.length, 2); assert.equal(gd.recommended, 1); assert.equal(s1.feedbackOpen[gid], 1);
+    assert.equal((await gEd.c.post(syncUrl, { since: 1e9, changes: [], gardenRev: s1.garden.rev })).data.garden, undefined); ok('open decisions travel with the sync for offline use, and only when something changed');
+    const vr = (await gView.c.post(syncUrl, { since: 1e9, changes: [], feedbackOps: [{ id: d1.id, answer: 0 }] })).data;
+    assert.equal(vr.fbResults[0].ok, false); assert.equal((await gView.c.req('PATCH', `/api/teams/${T1}/feedback/${d1.id}`, { answer: 0 })).status, 403); ok('viewers cannot answer decisions');
+    assert.equal((await gEd.c.req('PATCH', `/api/teams/${T1}/feedback/${d1.id}`, { answer: 9 })).status, 400);
+    assert.equal((await gEd.c.req('PATCH', `/api/teams/${T1}/feedback/${d1.id}`, { answer: -1 })).status, 400);
+    assert.equal((await gEd.c.req('PATCH', `/api/teams/${T1}/feedback/${d1.id}`, { status: 'answered' })).status, 400);
+    assert.equal((await gEd.c.req('PATCH', `/api/teams/${T1}/feedback/${d1.id}`, { status: 'accepted' })).status, 400); ok('an answer must be one of the options, or an own answer in words');
+    const s2 = (await gEd.c.post(syncUrl, { since: 1e9, changes: [], gardenRev: s1.garden.rev, feedbackOps: [{ id: d1.id, answer: 1, reply: 'Our customers use a German Excel.' }, { id: 'nope', status: 'done' }] })).data;
+    assert.deepEqual(s2.fbResults.map((x) => x.ok), [true, false]);
+    const ga = s2.garden.feedback.find((f) => f.id === d1.id); assert.equal(ga.status, 'answered'); assert.equal(ga.answer, 1); assert.match(ga.resolvedBy, /editor user/); assert.equal(s2.feedbackOpen[gid], undefined); ok('answers given offline arrive with the next sync; a refused one does not block the others');
+    dl = JSON.parse((await call(ag, 'list_decisions', { id: d1.id })).text);
+    assert.equal(dl[0].status, 'answered'); assert.deepEqual(dl[0].answer, { option: 1, label: 'Semicolon' }); assert.match(dl[0].note, /German Excel/); ok('the agent reads the answer (list_decisions)');
+    w = (await work(ag)).work.find((x) => x.spec_id === gid); assert.equal(w.decisions_answered[0].answer, 'Semicolon'); assert.equal(w.waiting_for_decision, undefined);
+    assert.match((await call(ag, 'withdraw_feedback', { id: d1.id })).text, /already answered/); ok('an answered decision shows up in the work list and can no longer be withdrawn');
+    const d2 = JSON.parse((await call(ag, 'request_decision', { spec_id: gid, question: 'Paper size of the PDF?', options: ['A4', 'Letter'], blocking: false })).text);
+    assert.equal(d2.blocking, false);
+    const own = (await gEd.c.req('PATCH', `/api/teams/${T1}/feedback/${d2.id}`, { answer: -1, reply: 'Take it from the customer locale.' })).data.feedback;
+    assert.equal(own.status, 'answered'); assert.equal(own.answer, -1);
+    assert.deepEqual(JSON.parse((await call(ag, 'list_decisions', { id: d2.id })).text)[0].answer, { option: null, label: null });
+    const reopened = (await gEd.c.req('PATCH', `/api/teams/${T1}/feedback/${d2.id}`, { status: 'open' })).data.feedback;
+    assert.equal(reopened.status, 'open'); assert.equal(reopened.answer, null);
+    assert.equal(JSON.parse((await call(ag, 'withdraw_feedback', { id: d2.id })).text).status, 'withdrawn');
+    assert.equal((await gEd.c.req('PATCH', `/api/teams/${T1}/feedback/${d2.id}`, { answer: 0 })).status, 409); ok('own answers in words, reopening and withdrawing open questions work; a withdrawn question cannot be answered');
+
+    // implementation reports
+    const crit = [{ text: 'CSV export', status: 'met' }, { text: 'PDF export', status: 'open', note: 'needs a PDF library' }];
+    assert.match((await call(ag, 'report_implementation', { spec_id: gid, status: 'implemented', summary: 'CSV done', criteria: crit })).text, /partial/); ok('a report with open criteria cannot claim "implemented"');
+    assert.equal((await call(ag, 'report_implementation', { spec_id: gid, status: 'partial', summary: 'x', version: 7 })).isError, true);
+    const r1 = JSON.parse((await call(ag, 'report_implementation', { spec_id: gid, status: 'partial', summary: 'CSV export works, PDF is open.', criteria: crit, evidence: [{ kind: 'commit', ref: 'abc1234', note: 'export module' }], deviations: 'Dates are ISO, not localized.' })).text);
+    assert.equal(r1.status, 'partial'); assert.equal(r1.version, 1);
+    const reps = (await gView.c.get(`/api/teams/${T1}/reports?spec=${gid}`)).data.reports;
+    assert.equal(reps.length, 1); assert.equal(reps[0].criteria[1].status, 'open'); assert.equal(reps[0].evidence[0].ref, 'abc1234'); assert.match(reps[0].via, /Builder agent/); assert.match(reps[0].deviations, /ISO/); ok('an agent reports criteria, evidence and deviations; everyone in the team can read the report');
+    w = (await work()).work.find((x) => x.spec_id === gid); assert.equal(w.state, 'partial'); assert.equal(w.last_report.status, 'partial');
+    await call(ag, 'report_implementation', { spec_id: gid, status: 'implemented', summary: 'CSV and PDF export are done.', criteria: crit.map((c) => ({ text: c.text, status: 'met' })), evidence: [{ kind: 'pr', ref: 'https://git.example/pr/7' }] });
+    const wl = await work(); assert.equal(wl.work.find((x) => x.spec_id === gid), undefined); assert.ok(wl.up_to_date >= 1);
+    const s3 = (await gEd.c.post(syncUrl, { since: 1e9, changes: [] })).data;
+    assert.equal(s3.garden.reports[gid].status, 'implemented'); assert.equal(s3.garden.reports[gid].specVersion, 1); ok('a spec with an "implemented" report for its current version leaves the work list; the latest report travels with the sync');
+    assert.equal(JSON.parse((await call(ro, 'list_reports', { spec_id: gid })).text).length, 2);
+    // a new release makes it work again, and shows what changed
+    await release('## GOAL\nExport invoices\n\n## ACCEPTANCE CRITERIA\n- [ ] CSV export\n- [ ] PDF export\n- [ ] XLSX export\n\n## OUT OF SCOPE\nPrinting\n');
+    w = (await work()).work.find((x) => x.spec_id === gid); assert.equal(w.state, 'changed'); assert.equal(w.changed_from, 1); assert.equal(w.version, 2);
+    const ch = JSON.parse((await call(ro, 'get_spec_changes', { id: gid })).text);
+    assert.equal(ch.from, 1); assert.equal(ch.to, 2); assert.deepEqual(ch.sections_changed, [{ section: 'ACCEPTANCE CRITERIA', change: 'changed' }, { section: 'OUT OF SCOPE', change: 'added' }]); assert.match(ch.diff, /\+- \[ \] XLSX export/);
+    assert.equal((await call(ro, 'get_spec_changes', { id: gid, from: 2, to: 2 })).isError, true); assert.equal((await call(ro, 'get_spec_changes', { id: 'NOPE-9' })).isError, true); ok('a newer release puts the spec back on the work list as changed, with the changed sections and a diff');
+
+    // webhook: tells an agent runner about releases and answers
+    const hookOf = async (c = admin) => (await c.get(`/api/teams/${T1}`)).data.team.hook;
+    assert.equal((await gEd.c.req('PATCH', `/api/teams/${T1}`, { hook: { url: `${sinkUrl}/fire` } })).status, 403); assert.equal(await hookOf(gEd.c), undefined); ok('only team admins see and change the webhook');
+    assert.equal((await admin.post(`/api/teams/${T1}/hook/test`)).status, 400);
+    assert.equal((await admin.req('PATCH', `/api/teams/${T1}`, { hook: { url: `${sinkUrl}/fire`, headers: 'Host: evil' } })).status, 400);
+    assert.equal((await admin.req('PATCH', `/api/teams/${T1}`, { hook: { url: `${sinkUrl}/fire`, headers: 'no colon here' } })).status, 400);
+    assert.equal((await admin.req('PATCH', `/api/teams/${T1}`, { hook: { url: 'ftp://x.example/y' } })).status, 400);
+    assert.equal((await admin.req('PATCH', `/api/teams/${T1}`, { hook: { url: `${sinkUrl}/fire`, format: 'xml' } })).status, 400); ok('invalid webhook settings are refused');
+    const saved = (await admin.req('PATCH', `/api/teams/${T1}`, { hook: { url: `${sinkUrl}/fire`, token: 'sk-hook-SECRET42', headers: 'anthropic-beta: experimental-cc-routine-2026-04-01\nanthropic-version: 2023-06-01', format: 'text', events: ['release', 'answer'] } })).data.team.hook;
+    assert.equal(saved.hasToken, true); assert.deepEqual(saved.headerNames, ['anthropic-beta', 'anthropic-version']); assert.equal(saved.format, 'text');
+    assert.ok(!JSON.stringify((await admin.get(`/api/teams/${T1}`)).data).includes('SECRET42')); assert.ok(!readFileSync(`${srv.dir}/specs.db`).includes('sk-hook-SECRET42')); ok('the webhook token is write-only and encrypted at rest');
+    const tst = (await admin.post(`/api/teams/${T1}/hook/test`)).data;
+    assert.equal(tst.ok, true); assert.equal(hits.length, 1); assert.equal(hits[0].headers.authorization, 'Bearer sk-hook-SECRET42'); assert.equal(hits[0].headers['anthropic-beta'], 'experimental-cc-routine-2026-04-01');
+    assert.deepEqual(Object.keys(hits[0].body), ['text']); assert.equal(tst.hook.lastOk, true); assert.equal(tst.hook.lastUrl, 'https://claude.ai/code/session_1'); ok('the test call sends token, headers and a text-only body (Claude Code routine format) and records the answer');
+    await release('## GOAL\nExport invoices\n\n## ACCEPTANCE CRITERIA\n- [ ] CSV export\n- [ ] PDF export\n- [ ] XLSX export\n- [ ] Totals row\n');
+    const d3 = JSON.parse((await call(ag, 'request_decision', { spec_id: gid, question: 'Totals per currency?', options: ['Yes', 'No'] })).text);
+    await gEd.c.req('PATCH', `/api/teams/${T1}/feedback/${d3.id}`, { answer: 0 });
+    assert.equal(await waitHits(2), 2); await new Promise((r) => setTimeout(r, 500)); assert.equal(hits.length, 2);
+    assert.match(hits[1].body.text, new RegExp(`${gid} v3: Invoice export`)); assert.match(hits[1].body.text, /Totals per currency\?" → Yes/); assert.match(hits[1].body.text, /get_work_list/); ok('a release and an answer shortly after each other reach the webhook as one call');
+    await admin.req('PATCH', `/api/teams/${T1}`, { hook: { format: 'full', events: ['answer'] } });
+    assert.equal((await hookOf()).hasToken, true);
+    await release('## GOAL\nExport invoices\n\n## ACCEPTANCE CRITERIA\n- [ ] CSV export\n');
+    await gEd.c.req('PATCH', `/api/teams/${T1}/feedback/${d3.id}`, { answer: 1, reply: 'changed my mind' });
+    assert.equal(await waitHits(3), 3);
+    assert.equal(hits[2].body.event, 'answer'); assert.equal(hits[2].body.released.length, 0); assert.equal(hits[2].body.answered[0].answer, 'No'); assert.equal(hits[2].body.team.key, 'SPEC'); assert.match(hits[2].body.mcpUrl, /\/mcp$/); ok('the full format carries structured data; events can be limited; a changed answer is sent again');
+    await admin.req('PATCH', `/api/teams/${T1}`, { hook: { url: `${sinkUrl}/fail` } });
+    const bad = (await admin.post(`/api/teams/${T1}/hook/test`)).data; assert.equal(bad.ok, false); assert.match(bad.hook.lastInfo, /HTTP 401/); assert.equal(bad.hook.lastOk, false); ok('a failing webhook is reported and recorded');
+    const off = (await admin.req('PATCH', `/api/teams/${T1}`, { hook: { url: '' } })).data.team.hook;
+    assert.equal(off.url, ''); assert.equal(off.hasToken, false); assert.deepEqual(off.headerNames, []); ok('removing the webhook URL also removes token and headers');
+    await ag.close(); await ro.close(); sink.close();
+
+    // by default a webhook never points into the server's own network
+    const strict = await startServer({});
+    try {
+      const sa = new Client(strict.base); await sa.login('admin@localhost', 'adminpass1');
+      for (const u of ['http://example.com/hook', 'https://localhost/x', 'https://127.0.0.1/x', 'https://10.1.2.3/x', 'https://192.168.1.10:8443/x', 'https://[::1]/x', 'https://169.254.169.254/latest', 'https://printer.local/x', 'https://user:pw@example.com/x'])
+        assert.equal((await sa.req('PATCH', `/api/teams/${sa.tid}`, { hook: { url: u } })).status, 400, u);
+      assert.equal((await sa.req('PATCH', `/api/teams/${sa.tid}`, { hook: { url: 'https://hooks.example.com/x' } })).status, 200); ok('webhooks must be https and must not target local or private addresses');
+    } finally { strict.stop(); }
+  }
+
   // ---------------------------------------------------------------- Git connection per team
   const remote = path.join(tmp, 'remote.git');
   git(tmp, 'init', '--bare', '-b', 'main', remote);
@@ -557,7 +692,7 @@ try {
   assert.ok(!JSON.stringify((await admin.get(`/api/teams/${T1}`)).data).includes('PRIVATE'));
 
   // git authorship
-  assert.match(git(`${srv.dir}/repos/${T1}`, 'log', '--format=%an|%s', '--no-merges', '-n', '8'), /approver user\|Release T/); ok('git commit is authored by the approver');
+  assert.match(git(`${srv.dir}/repos/${T1}`, 'log', '--format=%an|%s', '--no-merges', '-n', '8'), /approver user\|Release /); ok('git commit is authored by the approver');
 
   console.log(`\n${n} checks passed`);
 } finally {

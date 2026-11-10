@@ -9,7 +9,7 @@ export function useTeamInfo() {
   const load = useCallback(async () => {
     try {
       const [t, m, ty] = await Promise.all([S.teamApi('GET', ''), S.teamApi('GET', '/members'), S.teamApi('GET', '/spec-types')]);
-      if (tid === S.state.teamId) setInfo({ git: t.team.git, members: m.members, invites: m.invites, mailEnabled: t.team.mailEnabled, types: ty.types });
+      if (tid === S.state.teamId) setInfo({ git: t.team.git, members: m.members, invites: m.invites, mailEnabled: t.team.mailEnabled, hook: t.team.hook ?? null, types: ty.types });
     } catch (e: any) { setInfo({ git: null, members: [], invites: [], types: [] }); toast(e.message); }
   }, [tid]);
   useEffect(() => { setInfo(null); load(); }, [load]);

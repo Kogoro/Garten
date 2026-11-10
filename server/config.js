@@ -47,6 +47,10 @@ export const MAX_TEAMS_PER_USER = Number(env('MAX_TEAMS_PER_USER', '5'));
 export const INVITE_TTL_DAYS = Number(env('INVITE_TTL_DAYS', '7'));
 /** Foundation documents (vision, strategy, glossary …) go live this long after the last edit when auto-release is on. */
 export const FEEDBACK_MAIL_DEBOUNCE_MS = Number(env('FEEDBACK_MAIL_DEBOUNCE_MS', '120000')); // new feedback is mailed to approvers/admins as one digest after this quiet period
+/** Releases and answered decisions are collected for this long, then sent to the team's webhook in one call. */
+export const HOOK_DEBOUNCE_MS = Number(env('HOOK_DEBOUNCE_MS', '5000'));
+/** Allow webhooks to plain http:// and private addresses (tests, an agent runner in your LAN). Off by default. */
+export const HOOK_ALLOW_LOCAL = flag('HOOK_ALLOW_LOCAL', false);
 export const FOUNDATION_DEBOUNCE_MS = Number(env('FOUNDATION_DEBOUNCE_MS', '15000'));
 
 // ---- e-mail (invitations). Without SMTP_URL nothing is sent and admins copy the invitation link instead.
