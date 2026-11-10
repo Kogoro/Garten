@@ -1,28 +1,11 @@
-# React rewrite – parity checklist (branch `react-rewrite`)
+# React rewrite – parity status (branch `react-rewrite`, v0.8.0)
 
-Reference: the vanilla app in `public/` (v0.7.0, frozen on `main`) and its 99 UI checks in `tests/ui.test.mjs`.
-Strategy: same routes (hash), same CSS class names / aria labels, so the existing Playwright checks can be re-pointed at the React build with few changes.
+Reference: the vanilla app (v0.7.0, on `main`) and its 99 UI checks. The React build passes the ported suite
+(`node web/e2e/ui.test.mjs`, 98 checks; the removed one asserted the old custom drop-line element) plus API (150), OIDC (13) and unit tests (10).
 
-Run: `cd web && npm run build && node e2e/smoke.mjs` · unit tests: `npm test` · dev: `npm run dev` (proxy to :3000).
+All areas are ported: login, shell/navigation, spec list + editor (BlockNote), documents (folders, foundation), glossary master/detail
+(+ global import/update, file import), release, sync, account (tokens, OAuth), team (members, invites, git, spec types), admin, invite page,
+no-team page, PWA (offline shell, Mermaid, editor precached).
 
-| Area | Status |
-|---|---|
-| Shared modules (`shared/`: glossary, import parser, spec types, block model) used by server + web | done |
-| Offline store + sync engine (IndexedDB, outbox, conflicts) – typed port | done (ported 1:1, not yet UI-tested) |
-| Login, sync pill, shell (sidebar / tabbar) | done (team switcher, account menu, theme menu open) |
-| Spec list (search, status + type filter, chips, agent chip) | done |
-| Spec editor: BlockNote blocks, slash menu, Markdown view, requirement/diagram/endpoint/definition blocks | done (spike level) |
-| Markdown round trip (bit-identical to the vanilla serializer) | done, unit-tested (`src/editor/convert.test.ts`) |
-| Endpoint block with tabs (Description / Request / Responses) | done |
-| Diagram block Diagram / Code / Split (bundled Mermaid, lazy chunk) | done |
-| Editor chrome: approve button, docs dropdown (link documents), item menu (move/delete), `@` doc reference, conflict banner/sheet | todo |
-| Documents page (foundation docs, folder tree, folder actions, move/rename) | todo |
-| Glossary master/detail (folders, aliases, refs, import from global, update from global) | todo |
-| Release page, Sync page | todo |
-| Account (tokens, OAuth connections, theme), Team page (members, invites, git, spec types), Admin (users, teams, global glossary + file import, mail) | todo |
-| Invite landing page, no-team page, OIDC error display | todo |
-| PWA: service worker + manifest (offline shell) | todo |
-| Spec-type forms with tabs (new capability) | todo |
-| Port Playwright suite, remove `public/` + legacy `/shared` route | todo |
-
-Known editor gaps vs. vanilla: code-block info strings after the language are dropped; numbered lists are stored as bullets; drag handle comes from BlockNote.
+Open ideas (not part of parity): spec-type forms with tabs per section, visual Mermaid editor, real-device touch testing,
+smaller bundle (BlockNote locales / Mantine).

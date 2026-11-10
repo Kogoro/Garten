@@ -1,5 +1,8 @@
 node_modules
+web/node_modules
+web/dist
 data
 .git
 *.log
 tests
+web/e2e

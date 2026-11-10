@@ -1,12 +1,14 @@
 {
   "name": "specs",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "private": true,
   "type": "module",
   "description": "Self-hosted, offline-first specification authoring for AI agents (MCP + Git)",
   "scripts": {
     "start": "node server/index.js",
-    "test": "node tests/api.test.mjs && node tests/oidc.test.mjs && node tests/ui.test.mjs"
+    "pretest": "npm --prefix web run build",
+    "build": "npm --prefix web ci && npm --prefix web run build",
+    "test": "node tests/api.test.mjs && node tests/oidc.test.mjs && npm --prefix web test && node web/e2e/ui.test.mjs"
   },
   "engines": {
     "node": ">=22.13"
@@ -18,7 +20,6 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
-    "mermaid": "^11.12.0",
     "playwright": "^1.56.1"
   }
 }

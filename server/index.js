@@ -59,22 +59,14 @@ app.all('/mcp', (_req, res) =>
   res.status(405).json({ jsonrpc: '2.0', error: { code: -32000, message: 'Method not allowed (stateless server: use POST)' }, id: null }),
 );
 
-// ---- static app
+// ---- static app: the React build (web/dist, or WEB_DIR)
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-const vendorDirs = [process.env.VENDOR_DIR, path.join(root, 'vendor'), path.join(root, 'node_modules/mermaid/dist')].filter(Boolean);
-app.get('/vendor/mermaid.min.js', (_req, res, next) => {
-  const dir = vendorDirs.find((d) => existsSync(path.join(d, 'mermaid.min.js')));
-  if (!dir) return next();
-  res.set('Cache-Control', 'public, max-age=86400');
-  res.sendFile(path.join(dir, 'mermaid.min.js'));
-});
-app.use('/shared', express.static(path.join(root, 'shared'))); // modules the legacy app shares with the server
-// the React build (web/dist, or WEB_DIR) wins over the legacy vanilla app in public/
-const webDir = [process.env.WEB_DIR, path.join(root, 'web/dist'), path.join(root, 'public')].filter(Boolean).find((d) => existsSync(path.join(d, 'index.html')));
-app.use(
+const webDir = [process.env.WEB_DIR, path.join(root, 'web/dist')].filter(Boolean).find((d) => existsSync(path.join(d, 'index.html')));
+if (!webDir) console.warn('No web build found – run "npm run build" (web/dist) or set WEB_DIR.');
+else app.use(
   express.static(webDir, {
     setHeaders: (res, file) => {
-      if (/sw\.js$|index\.html$/.test(file)) res.setHeader('Cache-Control', 'no-cache');
+      if (/(^|\/)(sw\.js|index\.html|workbox-[^/]*\.js)$/.test(file)) res.setHeader('Cache-Control', 'no-cache');
     },
   }),
 );

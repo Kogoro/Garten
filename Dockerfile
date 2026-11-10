@@ -1,8 +1,11 @@
-# --- build stage: only used to pick the Mermaid bundle out of devDependencies (123 MB unpacked)
+# --- build stage: the React app (Vite) – only its output ships in the runtime image
 FROM node:24-alpine AS build
-WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci --ignore-scripts
+WORKDIR /app/web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
+COPY web ./
+COPY shared ../shared
+RUN npm run build
 
 # --- runtime
 FROM node:24-alpine
@@ -11,10 +14,9 @@ RUN apk add --no-cache git openssh-client \
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
-COPY --from=build /app/node_modules/mermaid/dist/mermaid.min.js ./vendor/mermaid.min.js
 COPY server ./server
 COPY shared ./shared
-COPY public ./public
+COPY --from=build /app/web/dist ./web/dist
 RUN mkdir -p /data && chown node:node /data
 ENV NODE_ENV=production DATA_DIR=/data PORT=3000 NODE_NO_WARNINGS=1
 USER node

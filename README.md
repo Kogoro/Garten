@@ -1,4 +1,4 @@
-# Specs – Prototyp v0.7
+# Specs – Prototyp v0.8 (React)
 
 Self-hosted, offline-first App, um auf Handy **und Desktop** Spezifikationen und Dokumente für KI-Agenten zu schreiben – **pro Team**.
 Freigegebene (approved) Specs werden als Markdown in das Git-Repo **des Teams** geschrieben (Commit + Tag pro Version, Autor = Freigebender),
@@ -76,11 +76,11 @@ Tokens und Private Keys werden mit AES-256-GCM verschlüsselt gespeichert (`SECR
 
 ## Editor
 
-* **Blöcke** (Text, Überschriften, Requirement `R1…`, Checkliste, Liste, **Definition**, Zitat, Code, **Diagramm**, **API-Endpoint**, Trennlinie), gespeichert als normales Markdown; Umschalten *Blocks ⇄ Markdown* jederzeit.
+* **Blöcke** (Text, Überschriften, Requirement `R1…`, Checkliste, Liste, **Definition**, Zitat, Code, **Diagramm**, **API-Endpoint**, Trennlinie), gespeichert als normales Markdown; Umschalten *Blocks ⇄ Markdown* jederzeit (Overflow-Menü). Der Editor basiert seit v0.8 auf **BlockNote** (React, ProseMirror) mit eigenen Blöcken; Markdown bleibt das einzige Speicherformat (Inline: **fett**, *kursiv*, `code`, ~~durchgestrichen~~, Links).
 * **Einfügen am Cursor:** Toolbar/Menü fügen den Block dort ein, wo der Cursor steht – mitten im Text wird der Block geteilt (Kopf | neuer Block | Rest), ein leerer Textblock wird ersetzt. `/` in einem leeren Block öffnet das Block-Menü.
-* **Drag & Drop:** am Griff ⋮⋮ ziehen (Maus, Stift, Touch; Auto-Scroll am Rand); ohne Ziehen öffnet der Griff das Block-Menü. Tastatur: `Alt+↑/↓`.
-* **API-Endpoint-Block** (` ```endpoint GET /pfad `): beliebig oft wiederholbar, mit Methode, Pfad, Beschreibung sowie optionalen Abschnitten *Request* / *Responses*; im Markdown als `Request:` / `Responses:` lesbar für Agenten. Der Typ *API* startet mit einem Endpoint.
-* **Diagramme:** ` ```mermaid `-Blöcke mit Umschalter **Diagramm | Code | Split** (auch für Leser) und Vorlagen; Mermaid wird lokal ausgeliefert und vom Service Worker gecacht (rendert offline). Andere Textformate (`plantuml`, `d2`, `dot`, `yaml` …) gehen als Code-Block unverändert an den Agenten.
+* **Drag & Drop:** am Griff ⋮⋮ ziehen (BlockNote-Seitenmenü); ein Klick ohne Ziehen öffnet das Block-Menü. `@` im Text öffnet die Dokument-Auswahl (verlinkt das Dokument mit dem Spec).
+* **API-Endpoint-Block** (` ```endpoint GET /pfad `): beliebig oft wiederholbar, als Formular mit **Tabs** *Description / Request / Responses* (Methode, Pfad); im Markdown als `Request:` / `Responses:` lesbar für Agenten. Der Typ *API* startet mit einem Endpoint.
+* **Diagramme:** ` ```mermaid `-Blöcke mit Umschalter **Diagramm | Code | Split** (auch für Leser) und Vorlagen; Mermaid ist im Build enthalten (Lazy-Chunk) und wird vom Service Worker vorab gecacht (rendert offline). Andere Textformate (`plantuml`, `d2`, `dot`, `yaml` …) gehen als Code-Block unverändert an den Agenten.
 
 ## Glossar: Definitionen, Verweise, globales Glossar
 
@@ -119,7 +119,8 @@ Tools: `get_team_context`, `list_specs`, `get_spec(id, version?)`, `list_documen
 
 | Teil | Umsetzung |
 |---|---|
-| Offline-first | Service Worker (App-Shell + Mermaid) + IndexedDB (pro Team). Login-Zustand ist gecacht. Änderungen landen lokal; „Waiting to sync“ ist die Outbox, auch für Löschen/Verschieben/Freigeben. |
+| Frontend | React 19 + TypeScript (Vite) in `web/`; Zustand `zustand`, Router `react-router` (Hash-Routen), PWA via `vite-plugin-pwa` (Workbox). Gemeinsamer Code mit dem Server (Glossar-Parser, Block-Modell, Spec-Typen) in `shared/`. |
+| Offline-first | Service Worker (App-Shell + Mermaid + Editor, vorab gecacht) + IndexedDB (pro Team). Login-Zustand ist gecacht. Änderungen landen lokal; „Waiting to sync“ ist die Outbox, auch für Löschen/Verschieben/Freigeben. |
 | Sync | `POST /api/teams/:id/sync` je Team: Push + Pull seit Cursor, Revision pro Item → bei Abweichung **Konflikt** („Keep mine / Use server“); Löschungen kommen als Tombstones. |
 | Freigabe | Server schreibt Spec + verlinkte Dokumente + `GLOSSARY.md`, committet als der Freigebende, taggt `ID/vN`, pusht ggf. zum Team-Remote. |
 | Server | Node 24, Express, `node:sqlite`, `git`/`ssh-keygen` CLI, MCP SDK. Ein Container, ein Volume `/data`. |
@@ -130,14 +131,19 @@ Tools: `get_team_context`, `list_specs`, `get_spec(id, version?)`, `list_documen
 
 Service Worker („Offline-Start“, Installation auf dem Handy) brauchen **HTTPS** (Ausnahme `localhost`). Hinter einem Reverse Proxy mit TLS `PUBLIC_URL=https://…` und `TRUST_PROXY=1` setzen – `PUBLIC_URL` muss stimmen, sonst funktioniert OAuth für MCP nicht.
 
-## Tests
+## Entwicklung und Tests
 
 ```bash
-npm test                    # startet je einen eigenen Server (mit eingebautem SMTP-Testserver); ~240 Checks
-node tests/api.test.mjs     # Sessions, Teams/Rollen, Ordner, Glossar, Löschen/Verschieben, PATs, OAuth-Flow, Git-Push in ein echtes Bare-Repo
-node tests/oidc.test.mjs    # SSO gegen einen Mock-Identity-Provider
-node tests/ui.test.mjs      # Browser (Playwright): Offline, Blöcke, Cursor-Einfügen, Drag & Drop, Diagramme, Glossar, Ordner, Teams, Git, Rollen
+npm run build                # Frontend bauen (web/dist); der Server liefert es aus (WEB_DIR überschreibt den Pfad)
+cd web && npm run dev        # Vite-Dev-Server mit Proxy auf :3000 (Server separat starten: npm start)
+npm test                     # baut das Frontend und führt alles aus (~260 Checks)
+node tests/api.test.mjs      # Sessions, Teams/Rollen, Ordner, Glossar, Agent-Drafts, PATs, OAuth-Flow, Git-Push in ein echtes Bare-Repo
+node tests/oidc.test.mjs     # SSO gegen einen Mock-Identity-Provider
+cd web && npm test           # Vitest: Markdown ⇄ Editor-Round-Trip (BlockNote), Inline-Formatierung
+node web/e2e/ui.test.mjs     # Browser (Playwright): Offline, Blöcke, Cursor-Einfügen, Drag & Drop, Diagramme, Glossar, Ordner, Teams, Git, Rollen
 ```
+
+Die UI-Tests sind aus der Vanilla-JS-Version (v0.7) übernommen und für BlockNote angepasst; `web/PARITY.md` hält den Stand fest.
 
 ## Bekannte Lücken
 
@@ -146,4 +152,5 @@ node tests/ui.test.mjs      # Browser (Playwright): Offline, Blöcke, Cursor-Ein
 * Der zentrale Glossar-Export enthält nur Begriffe aus freigegebenen, verlinkten Dateien.
 * Rechte gelten pro Team, nicht pro Spec. Der Team-Schlüssel lässt sich nach dem Anlegen nicht ändern. Spec-Typen haben nur Vorlagen und (für API) den Endpoint-Block. Das globale Glossar wird beim Import kopiert, nicht live vererbt. Es gibt nur Einladungs-Mails (keine Passwort-Reset-Mail, keine Benachrichtigungen); Zustellung ist „fire and forget“ ohne Bounce-Auswertung.
 * v0.3 → v0.4: das Schema wird automatisch migriert (Ordner als Objekte, Foundation-Dokumente, Einladungen). Bereits vorhandene `glossary.md`/`vision.md` werden angeheftet, nicht überschrieben.
-* Nur OIDC als SSO; keine 2FA, Konfliktlösung auf Dokument-Ebene (kein Textmerge); Diagramme nur Mermaid; ein visueller (WYSIWYG-)Mermaid-Editor ist noch nicht gebaut (siehe Untersuchung in den Release-Notes dieser Version: machbar über Mermaids eigenen Parser, zunächst für Flowchart/Sequence).
+* Nur OIDC als SSO; keine 2FA, Konfliktlösung auf Dokument-Ebene (kein Textmerge); Diagramme nur Mermaid; ein visueller (WYSIWYG-)Mermaid-Editor ist noch nicht gebaut (machbar über Mermaids eigenen Parser, zunächst für Flowchart/Sequence).
+* v0.8: Code-Blöcke verlieren Info-Strings hinter der Sprache; nummerierte Listen werden als Aufzählung gespeichert; das Ziehen zeigt BlockNotes eigenen Drop-Indikator. Mobil/Touch ist noch nicht auf echten Geräten getestet.

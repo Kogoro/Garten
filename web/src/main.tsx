@@ -7,6 +7,7 @@ import * as S from './store/core';
 import { applyTheme } from './ui';
 
 applyTheme();
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 S.init().finally(() => {
   createRoot(document.getElementById('root')!).render(<StrictMode><HashRouter><App /></HashRouter></StrictMode>);
 });

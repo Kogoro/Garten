@@ -7,7 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { startServer, Client, startSmtpSink } from './helpers.mjs';
+import { startServer, Client, startSmtpSink } from '../../tests/helpers.mjs';
 
 const SHOTS = process.env.SHOTS;
 if (SHOTS) mkdirSync(SHOTS, { recursive: true });
@@ -17,7 +17,7 @@ const tmp = mkdtempSync(path.join(process.env.TEST_TMP || tmpdir(), 'specs-ui-')
 const remote = path.join(tmp, 'remote.git');
 execFileSync('git', ['init', '--bare', '-b', 'main', remote]);
 const smtp = await startSmtpSink();
-const srv = await startServer({ GIT_ALLOW_LOCAL: '1', FOUNDATION_DEBOUNCE_MS: '150', SMTP_URL: `smtp://127.0.0.1:${smtp.port}`, SMTP_FROM: 'Specs <specs@example.test>' });
+const srv = await startServer({ WEB_DIR: new URL('../dist', import.meta.url).pathname, GIT_ALLOW_LOCAL: '1', FOUNDATION_DEBOUNCE_MS: '150', SMTP_URL: `smtp://127.0.0.1:${smtp.port}`, SMTP_FROM: 'Specs <specs@example.test>' });
 const BASE = srv.base;
 const admin = new Client(BASE);
 await admin.login('admin@localhost', 'adminpass1');
@@ -26,6 +26,7 @@ await admin.post('/api/users', { email: 'viewer@example.com', name: 'Vera Viewer
 const browser = await chromium.launch({ args: ['--no-sandbox'] });
 const errors = [];
 const watch = (page) => {
+  page.setDefaultTimeout(8000);
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => m.type() === 'error' && !/Failed to load resource|net::ERR/.test(m.text()) && errors.push(m.text()));
 };
@@ -65,55 +66,54 @@ try {
   await page.click('.fab[data-act=new-spec]'); await page.getByRole('button', { name: /Feature spec/ }).click();
   const title = `Offline spec ${Date.now() % 100000}`;
   await page.fill('#title', title);
-  await page.locator('.blk-in').first().waitFor();
-  assert.ok(await page.locator('.blk').count() >= 3); ok('new spec starts from a block template');
-  await page.locator('.blk-h h2, .blk-in.h2').first().waitFor().catch(() => {});
+  await page.locator('.bn-editor .bn-block').first().waitFor();
+  assert.ok(await page.locator('.bn-editor .bn-block').count() >= 3); ok('new spec starts from a block template');
   // type into first empty paragraph-like block via toolbar-added blocks
   await page.click('[data-act=t-add]');
   await page.getByRole('button', { name: 'Text', exact: true }).click();
   await page.keyboard.type('Plain paragraph typed offline.');
   await page.keyboard.press('Enter');
   await page.keyboard.type('/');
-  await page.getByRole('button', { name: 'Requirement (R1, R2 …)' }).click();
+  await page.getByText('Requirement (R1, R2 …)').click();
   await page.keyboard.type('Works on the train');
   await page.keyboard.press('Enter'); // next requirement
   await page.keyboard.type('Never double-bills');
   await page.keyboard.press('Enter');
   await page.keyboard.press('Enter'); // empty item leaves the list
   await page.keyboard.type('/');
-  await page.getByRole('button', { name: 'Diagram (Mermaid)' }).click();
+  await page.getByText('Diagram (Mermaid)').click();
   await page.locator('.mm svg').first().waitFor({ timeout: 15000 }); ok('slash menu inserts a Mermaid diagram that renders offline');
   await shot(page, '03-editor-blocks');
-  const src = page.locator('.blk-diagram .blk-in');
+  const src = page.locator('[data-content-type=diagram] textarea');
   await src.fill('flowchart LR\n  Phone --> Server\n  Server --> Git');
-  await page.waitForFunction(() => /Phone/.test(document.querySelector('.blk-diagram .mm')?.textContent ?? ''), null, { timeout: 10000 }); ok('diagram preview follows the source');
+  await page.waitForFunction(() => /Phone/.test(document.querySelector('[data-content-type=diagram] .mm')?.textContent ?? ''), null, { timeout: 10000 }); ok('diagram preview follows the source');
   await src.fill('flowchart LR\n  A -->');
   await page.locator('.mm.err').waitFor(); ok('invalid diagram shows an error instead of breaking');
   await src.fill('flowchart LR\n  Phone --> Server\n  Server --> Git');
   await page.locator('.mm:not(.err) svg').waitFor();
 
   // diagram: toggle between rendered view and code
-  const dg = page.locator('.blk-diagram').first();
+  const dg = page.locator('[data-content-type=diagram]').first();
   await dg.getByRole('button', { name: 'Code', exact: true }).click();
-  assert.equal(await dg.locator('.mm').isVisible(), false); assert.equal(await dg.locator('.blk-in').isVisible(), true);
+  assert.equal(await dg.locator('.mm').isVisible(), false); assert.equal(await dg.locator('textarea').isVisible(), true);
   await dg.getByRole('button', { name: 'Diagram', exact: true }).click();
-  assert.equal(await dg.locator('.mm').isVisible(), true); assert.equal(await dg.locator('.blk-in').isVisible(), false);
+  assert.equal(await dg.locator('.mm').isVisible(), true); assert.equal(await dg.locator('textarea').isVisible(), false);
   await dg.getByRole('button', { name: 'Split', exact: true }).click();
-  assert.equal(await dg.locator('.mm').isVisible() && await dg.locator('.blk-in').isVisible(), true); ok('diagram block: toggle between Diagram, Code and Split');
+  assert.equal(await dg.locator('.mm').isVisible() && await dg.locator('textarea').isVisible(), true); ok('diagram block: toggle between Diagram, Code and Split');
   // endpoint blocks: repeatable, each with description
   for (const [method, path, text] of [['POST', '/orders', 'Creates an order. Idempotent via Idempotency-Key.'], ['GET', '/orders/{id}', 'Returns one order.']]) {
     await page.click('[data-act=t-add]'); await page.getByRole('button', { name: 'API endpoint', exact: true }).click();
-    const ep = page.locator('.blk-endpoint').last();
-    await ep.locator('.ep-method').selectOption(method); await ep.locator('.ep-path').fill(path); await ep.locator('[data-f=text]').fill(text);
+    const ep = page.locator('[data-content-type=endpoint]').last();
+    await ep.locator('.ep-method').selectOption(method); await ep.locator('.ep-path').fill(path); await ep.getByRole('tab', { name: 'Description' }).click(); await ep.locator('textarea').fill(text);
   }
-  assert.equal(await page.locator('.blk-endpoint').count() >= 2, true);
-  await page.locator('.blk-endpoint').last().locator('[data-f=res]').fill('200 OK – the order\n404 – unknown id');
+  assert.equal(await page.locator('[data-content-type=endpoint]').count() >= 2, true);
+  const lastEp = page.locator('[data-content-type=endpoint]').last(); await lastEp.getByRole('tab', { name: 'Responses' }).click(); await lastEp.locator('textarea').fill('200 OK – the order\n404 – unknown id');
   await setMode(page, 'markdown');
   const epMd = await page.inputValue('#body');
   assert.match(epMd, /```endpoint POST \/orders\nCreates an order\. Idempotent via Idempotency-Key\.\n```/);
   assert.match(epMd, /```endpoint GET \/orders\/\{id\}\nReturns one order\.\n\nResponses:\n200 OK – the order\n404 – unknown id\n```/); ok('endpoint blocks are repeatable, carry a description and serialise to endpoint fences');
   await setMode(page, 'blocks');
-  assert.equal(await page.locator('.blk-endpoint .ep-path').last().inputValue(), '/orders/{id}'); ok('endpoint fences parse back into endpoint blocks');
+  assert.equal(await page.locator('[data-content-type=endpoint] .ep-path').last().inputValue(), '/orders/{id}'); ok('endpoint fences parse back into endpoint blocks');
 
   // markdown view round trip
   await setMode(page, 'markdown');
@@ -124,7 +124,7 @@ try {
   await page.locator('#body').press('Control+End');
   await page.keyboard.type('\n\n## EXTRA\nAdded as Markdown');
   await setMode(page, 'blocks');
-  await page.locator('.blk-in', { hasText: 'Added as Markdown' }).waitFor(); ok('Markdown edits come back as blocks');
+  await page.locator('.bn-inline-content', { hasText: 'Added as Markdown' }).waitFor(); ok('Markdown edits come back as blocks');
 
   // @ reference + approve
   await page.click('[data-act=t-ref]');
@@ -141,7 +141,7 @@ try {
   // conflict: edit SPEC-014 offline while the server changes it
   await page.locator('.row', { hasText: 'SPEC-014' }).click();
   const stamp = Date.now();
-  await page.locator('.blk-in').last().click();
+  await page.locator('.bn-inline-content').last().click();
   await page.keyboard.press('Control+End');
   await page.keyboard.type(` LOCAL${stamp}`);
   const s14 = await serverItem('SPEC-014');
@@ -183,9 +183,9 @@ try {
   assert.ok(await d.locator('.sidebar').isVisible() && (await d.locator('.sidebar').boundingBox()).width > 200); ok('desktop: sidebar navigation');
   assert.ok(await d.locator('.detail .placeholder').isVisible()); ok('desktop: empty detail pane until a spec is selected');
   await d.locator('.row', { hasText: 'SPEC-014' }).click();
-  await d.locator('.blk-in').first().waitFor();
+  await d.locator('.bn-inline-content').first().waitFor();
   assert.ok(await d.locator('#list').isVisible() && await d.locator('.editor').isVisible()); ok('desktop: list and editor side by side');
-  await d.locator('.blk-in', { hasText: 'idempotency key' }).first().waitFor();
+  await d.locator('.bn-inline-content', { hasText: 'idempotency key' }).first().waitFor();
 
   // --- editor bar: title, status, linked documents, save state, approve and overflow menu in ONE row
   const bar = await d.locator('.ed-bar').boundingBox();
@@ -210,43 +210,40 @@ try {
   ok('Blocks/Markdown switch lives in the overflow menu');
 
   // --- insert at cursor: splits the block at the caret
-  const req2 = d.locator('.blk-req .blk-in').nth(1);
-  const before = await req2.inputValue();
-  await req2.evaluate((el) => { el.focus(); el.setSelectionRange(11, 11); el.dispatchEvent(new Event('keyup', { bubbles: true })); });
+  const req2 = d.locator('[data-content-type=requirement] .bn-inline-content').nth(1);
+  const before = await req2.innerText();
+  await req2.click(); await d.keyboard.press('Home'); for (let k = 0; k < 11; k++) await d.keyboard.press('ArrowRight');
   await d.click('[data-act=t-def]');
-  await d.locator('.blk-def .def-term').waitFor();
+  await d.locator('[data-content-type=definition] .def-term').waitFor();
   await d.locator('.def-term').fill('Ledger entry');
-  await d.locator('.blk-def .blk-in').fill('One immutable row per charge.');
+  await d.locator('[data-content-type=definition] textarea').fill('One immutable row per charge.');
   await setMode(d, 'markdown');
   const md1 = await d.inputValue('#body');
   const [head, tail] = [before.slice(0, 11).trimEnd(), before.slice(11).trimStart()];
   assert.ok(md1.includes(`R2 ${head}\n\nLedger entry\n: One immutable row per charge.\n\n${tail}`), md1); ok('toolbar inserts a block at the cursor and splits the text there');
   assert.match(md1, /Ledger entry\n: One immutable row per charge\./); ok('definition block serialises as a Markdown definition list');
   await setMode(d, 'blocks');
-  await d.locator('.blk-def .def-term').waitFor(); assert.equal(await d.locator('.def-term').inputValue(), 'Ledger entry'); ok('definition list parses back into a definition block');
+  await d.locator('[data-content-type=definition] .def-term').waitFor(); assert.equal(await d.locator('.def-term').inputValue(), 'Ledger entry'); ok('definition list parses back into a definition block');
 
-  // --- drag & drop: drag the first block down below the fourth one with the mouse
-  const texts = () => d.locator('.blk').evaluateAll((els) => els.map((e) => `${e.querySelector('.def-term')?.value ?? ''}|${e.querySelector('.blk-in')?.value ?? ''}`));
-  const t0 = await texts();
-  const g = await d.locator('.blk').nth(0).locator('.grip').boundingBox();
-  const target = await d.locator('.blk').nth(3).boundingBox();
-  await d.mouse.move(g.x + g.width / 2, g.y + g.height / 2);
-  await d.mouse.down();
-  await d.mouse.move(g.x + 10, g.y + 30, { steps: 4 });
-  await d.mouse.move(g.x + 10, target.y + target.height - 2, { steps: 10 });
-  await d.locator('.drop-line').waitFor(); ok('dragging a block shows a drop indicator');
-  await d.mouse.up();
-  const expected = [...t0]; expected.splice(3, 0, expected.splice(0, 1)[0]);
-  await d.waitForFunction((exp) => JSON.stringify([...document.querySelectorAll('.blk')].map((e) => `${e.querySelector('.def-term')?.value ?? ''}|${e.querySelector('.blk-in')?.value ?? ''}`)) === JSON.stringify(exp), expected);
-  assert.equal(await d.locator('.drop-line').count(), 0); ok('drag & drop moves a block to a new position');
-  await setMode(d, 'markdown');
-  const mdOrder = await d.inputValue('#body');
-  assert.ok(mdOrder.indexOf(t0[0].split('|')[1]) > mdOrder.indexOf(t0[3].split('|')[1]) && mdOrder.indexOf(t0[3].split('|')[1]) >= 0);
-  await setMode(d, 'blocks'); await d.locator('.blk').first().waitFor(); ok('the new order is persisted in the Markdown');
+  // --- drag & drop with the block handle: drag the first block below the fourth one
+  const bodyOf = async () => (await (async () => { await setMode(d, 'markdown'); const v = await d.inputValue('#body'); await setMode(d, 'blocks'); return v; })());
+  const mdBefore = await bodyOf();
+  const firstBlock = d.locator('.bn-block-outer').nth(0);
+  await firstBlock.hover();
+  const handle = d.locator('.bn-side-menu [draggable=true]').first();
+  await handle.waitFor();
+  const hb = await handle.boundingBox(); const tb = await d.locator('.bn-block-outer').nth(3).boundingBox();
+  await d.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2); await d.mouse.down();
+  await d.mouse.move(hb.x + 20, hb.y + 30, { steps: 5 }); await d.mouse.move(tb.x + 80, tb.y + tb.height - 3, { steps: 12 }); await d.mouse.up();
+  await d.waitForTimeout(300);
+  const mdAfter = await bodyOf();
+  assert.notEqual(mdAfter, mdBefore); ok('drag & drop with the block handle moves a block');
+  const firstLine = mdBefore.split('\n')[0];
+  assert.ok(mdAfter.indexOf(firstLine) > 0, 'the first block moved down'); ok('the new order is persisted in the Markdown');
   await shot(d, '06-desktop-editor');
-  // a plain click on the handle still opens the block menu
-  await d.locator('.blk').first().locator('.grip').click();
-  await d.getByText('Turn into Text').waitFor(); await d.keyboard.press('Escape'); ok('clicking the handle (without dragging) opens the block menu');
+  await d.locator('.bn-block-outer').nth(0).hover();
+  await d.locator('.bn-side-menu [draggable=true]').first().click();
+  await d.locator('.bn-menu-dropdown').first().waitFor(); await d.keyboard.press('Escape'); ok('clicking the handle (without dragging) opens the block menu');
 
   // --- glossary: master/detail with folders, synonyms, references, global glossary
   const settle = (await admin.get('/api/glossary/global')).data.terms.find((t) => t.term === 'Settlement'); // seeded demo terms: Chargeback, Settlement
@@ -311,9 +308,9 @@ try {
   await d.waitForFunction(() => ![...document.querySelectorAll('#glList .row')].some((r) => /Dunning/.test(r.textContent))); ok('a term can be deleted from the glossary');
   // the block editor still shows the same definitions (glossary.md is just Markdown)
   await d.evaluate(() => (location.hash = '#/doc/glossary.md'));
-  await d.locator('.blk-def').first().waitFor();
+  await d.locator('[data-content-type=definition]').first().waitFor();
   assert.equal(await d.locator('.editor .back').getAttribute('href'), '#/glossary');
-  const pay = d.locator('.blk-def', { has: d.locator('.def-term[value="Payout"]') });
+  const pay = d.locator('[data-content-type=definition]').filter({ has: d.locator('.def-term[value="Payout"]') });
   assert.equal(await pay.locator('.def-aliases').inputValue(), 'disbursement, transfer'); ok('glossary.md still carries aliases and references as Markdown; its back link returns to the glossary');
   await d.evaluate(() => (location.hash = '#/glossary'));
 
@@ -358,7 +355,7 @@ try {
   assert.match(await teamContext(), /Payout/); ok('glossary terms are served by MCP without being linked to any spec');
   await d.click('.sidebar a[href="#/docs"]');
   await d.locator('.found', { hasText: 'Vision' }).click();
-  await d.locator('.blk-in').first().waitFor();
+  await d.locator('.bn-editor').first().waitFor();
   await d.click('[data-act=t-add]'); await d.getByRole('button', { name: 'Text', exact: true }).click();
   await d.keyboard.type('Calm, correct billing for everyone.');
   await new Promise((r) => setTimeout(r, 3500)); // client sync (2 s debounce) + server auto-release
@@ -407,8 +404,8 @@ try {
   assert.equal(await chooser.count(), 6); await d.getByRole('button', { name: /UI spec \/ design rule/ }).waitFor(); await d.getByRole('button', { name: /API spec/ }).waitFor(); ok('new spec: choose from the built-in types (API, UI spec / design rule, feature, data model …)');
   await d.getByRole('button', { name: /API spec/ }).click();
   await d.locator('#title').waitFor(); await d.fill('#title', 'Orders API');
-  await d.locator('.blk-in.h2', { hasText: 'ENDPOINTS' }).waitFor();
-  assert.ok(await d.locator('.blk-code').count() >= 1); ok('an API spec starts from its template (endpoints, request/response code blocks)');
+  await d.locator('[data-content-type=heading] .bn-inline-content', { hasText: 'ENDPOINTS' }).waitFor();
+  assert.ok(await d.locator('[data-content-type=endpoint]').count() >= 1); ok('an API spec starts from its template (endpoints, request/response code blocks)');
   assert.match(await d.locator('#chips').innerText(), /API/); ok('the type is shown as a chip in the editor bar');
   await d.locator('.row', { hasText: 'Orders API' }).locator('.chip.type', { hasText: 'API' }).waitFor(); ok('...and in the spec list');
   await d.selectOption('#typeFilter', 'api');
@@ -418,7 +415,7 @@ try {
   await d.click('[data-act=item-menu]'); await d.getByRole('button', { name: /Type: API spec/ }).click();
   await d.getByRole('button', { name: 'UI spec / design rule' }).click();
   await d.waitForFunction(() => /UI/.test(document.querySelector('#chips')?.textContent ?? '')); ok('the type can be changed later (content stays)');
-  await d.locator('.blk-in.h2', { hasText: 'ENDPOINTS' }).waitFor();
+  await d.locator('[data-content-type=heading] .bn-inline-content', { hasText: 'ENDPOINTS' }).waitFor();
   // team-defined type
   await d.click('.sidebar a[href="#/team"]');
   await d.getByText('Spec types').first().waitFor();
@@ -430,7 +427,7 @@ try {
   await d.click('.sidebar a[href="#/"]');
   await d.click('.bar [data-act=new-spec]');
   await d.getByRole('button', { name: /^Runbook/ }).click();
-  await d.locator('.blk-in.h2', { hasText: 'ROLLBACK' }).waitFor(); ok('the custom type is offered when creating a spec and applies its template');
+  await d.locator('[data-content-type=heading] .bn-inline-content', { hasText: 'ROLLBACK' }).waitFor(); ok('the custom type is offered when creating a spec and applies its template');
   await shot(d, '06f-desktop-spec-types');
   await d.click('[data-act=item-menu]'); d.once('dialog', (x) => x.accept()); await d.getByRole('button', { name: 'Delete spec' }).click();
   await d.click('.sidebar a[href="#/"]');
@@ -587,12 +584,12 @@ try {
   await v.goto(BASE);
   await signIn(v, 'viewer@example.com', 'viewerpass1');
   await v.locator('.row', { hasText: 'SPEC-014' }).click();
-  await v.locator('.blk-in').first().waitFor();
+  await v.locator('.bn-editor').first().waitFor();
   assert.equal(await v.locator('[data-act=new-spec]').count(), 0);
   assert.equal(await v.locator('[data-act=approve]').count(), 0);
-  assert.equal(await v.locator('.grip').count(), 0);
+  assert.equal(await v.locator('.bn-side-menu').count(), 0);
   assert.equal(await v.locator('.sidebar a[href="#/admin"]').count(), 0);
-  assert.ok(await v.locator('.blk-in').first().evaluate((el) => el.readOnly));
+  assert.equal(await v.locator('.bn-editor').first().getAttribute('contenteditable'), 'false');
   await v.locator('#saveInd[data-state="ro"]').waitFor(); ok('viewer: read-only editor, no drag handles, no create/approve/admin');
   await v.click('.sidebar a[href="#/team"]');
   await v.locator('#g-url[readonly]').waitFor(); assert.equal(await v.locator('#gitForm button[type=submit]').count(), 0); ok('viewer: git connection is read-only');

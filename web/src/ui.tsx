@@ -48,3 +48,7 @@ export function applyTheme() {
 export function setTheme(pref: string) { try { pref === 'system' ? localStorage.removeItem(KEY) : localStorage.setItem(KEY, pref); } catch { /* private mode */ } applyTheme(); }
 
 export const Page = ({ children }: { children: ReactNode }) => <div className="scroll"><div className="page">{children}</div></div>;
+
+export async function copy(text: string) {
+  try { await navigator.clipboard.writeText(text); toast('Copied'); } catch { toast('Copy not available here — select the text instead'); }
+}
