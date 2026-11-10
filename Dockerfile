@@ -13,6 +13,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 COPY --from=build /app/node_modules/mermaid/dist/mermaid.min.js ./vendor/mermaid.min.js
 COPY server ./server
+COPY shared ./shared
 COPY public ./public
 RUN mkdir -p /data && chown node:node /data
 ENV NODE_ENV=production DATA_DIR=/data PORT=3000 NODE_NO_WARNINGS=1

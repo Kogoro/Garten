@@ -6,7 +6,7 @@ import { getUser, roleIn, perms } from './auth.js';
 import { getTeam } from './teams.js';
 import { listTypes, isKnownType } from './specTypes.js';
 import { glossaryEntries, CORE_DOCS } from './store.js';
-import { hasContent } from '../public/glossary.js';
+import { hasContent } from '../shared/glossary.js';
 
 const text = (t) => ({ content: [{ type: 'text', text: t }] });
 const fail = (t) => ({ content: [{ type: 'text', text: t }], isError: true });

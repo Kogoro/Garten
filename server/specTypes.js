@@ -1,5 +1,5 @@
 import { db } from './db.js';
-import { BUILTIN_TYPES, builtinKeys, DEFAULT_TYPE } from '../public/spectypes.js';
+import { BUILTIN_TYPES, builtinKeys, DEFAULT_TYPE } from '../shared/spectypes.js';
 
 export class TypeError_ extends Error {
   constructor(message, status = 400) { super(message); this.status = status; }

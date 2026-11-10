@@ -68,8 +68,11 @@ app.get('/vendor/mermaid.min.js', (_req, res, next) => {
   res.set('Cache-Control', 'public, max-age=86400');
   res.sendFile(path.join(dir, 'mermaid.min.js'));
 });
+app.use('/shared', express.static(path.join(root, 'shared'))); // modules the legacy app shares with the server
+// the React build (web/dist, or WEB_DIR) wins over the legacy vanilla app in public/
+const webDir = [process.env.WEB_DIR, path.join(root, 'web/dist'), path.join(root, 'public')].filter(Boolean).find((d) => existsSync(path.join(d, 'index.html')));
 app.use(
-  express.static(path.join(root, 'public'), {
+  express.static(webDir, {
     setHeaders: (res, file) => {
       if (/sw\.js$|index\.html$/.test(file)) res.setHeader('Cache-Control', 'no-cache');
     },

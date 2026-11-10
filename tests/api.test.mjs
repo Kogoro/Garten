@@ -9,7 +9,7 @@ import path from 'node:path';
 import { Client as McpClient } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { startServer, Client, startSmtpSink } from './helpers.mjs';
-import { parseGlossaryFile } from '../public/glossaryImport.js';
+import { parseGlossaryFile } from '../shared/glossaryImport.js';
 
 const tmp = mkdtempSync(path.join(process.env.TEST_TMP || tmpdir(), 'specs-remote-'));
 const smtp = await startSmtpSink();

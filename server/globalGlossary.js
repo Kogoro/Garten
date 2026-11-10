@@ -2,7 +2,7 @@
 // their source and revision, so an "update available" hint can be shown when the global term changes).
 import { randomUUID } from 'node:crypto';
 import { db } from './db.js';
-import { splitList } from '../public/glossary.js';
+import { splitList } from '../shared/glossary.js';
 
 export class GlossaryError extends Error {
   constructor(message, status = 400) { super(message); this.status = status; }

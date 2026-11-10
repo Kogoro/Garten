@@ -3,10 +3,10 @@ import { EventEmitter } from 'node:events';
 import { DATA_DIR } from './config.js';
 import { db } from './db.js';
 import { Repo } from './git.js';
-import { parseDefinitions, glossaryMarkdown, hasContent } from '../public/glossary.js';
+import { parseDefinitions, glossaryMarkdown, hasContent } from '../shared/glossary.js';
 import { getTeam, listTeams } from './teams.js';
 import { isKnownType } from './specTypes.js';
-import { DEFAULT_TYPE } from '../public/spectypes.js';
+import { DEFAULT_TYPE } from '../shared/spectypes.js';
 import { FOUNDATION_DEBOUNCE_MS } from './config.js';
 
 export const events = new EventEmitter();
