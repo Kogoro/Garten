@@ -36,6 +36,11 @@ export const BUILTIN_TYPES = [
     template: '## PARTNER SYSTEM\n\n## FLOWS\n\n```mermaid\nsequenceDiagram\n  participant A as Us\n  participant B as Partner\n  A->>B: request\n  B-->>A: response\n```\n\n## CONTRACT\n\n## FAILURE HANDLING\n',
   },
   {
+    key: 'adr', label: 'ADR (decision record)', short: 'ADR',
+    description: 'One architecture decision in the classic record format: status, context, options, decision and consequences.',
+    template: '',
+  },
+  {
     key: 'architecture', label: 'Architecture spec', short: 'Architecture',
     description: 'A design decision or system structure: context, drivers, decision, components, alternatives, consequences and risks.',
     template: '',
@@ -71,6 +76,19 @@ const FORMS = {
     fields: [
       F('attribute', 'QUALITY ATTRIBUTE', 'select', { options: ['Performance', 'Availability', 'Reliability', 'Security', 'Scalability', 'Cost', 'Usability', 'Compliance', 'Other'] }),
       F('targets', 'TARGETS', 'list', { help: 'Measurable, e.g. “p95 latency < 300 ms at 200 rps”.' }), F('measurement', 'MEASUREMENT', 'longtext'), F('tradeoffs', 'TRADE-OFFS', 'longtext'),
+    ],
+  },
+  adr: {
+    view: 'form',
+    fields: [
+      F('status', 'STATUS', 'select', { options: ['Proposed', 'Accepted', 'Deprecated', 'Superseded', 'Rejected'] }),
+      F('deciders', 'DECIDERS', 'text', { help: 'Who made or must approve the decision.' }),
+      F('context', 'CONTEXT', 'longtext', { help: 'The forces at play and the problem to solve.' }),
+      F('drivers', 'DECISION DRIVERS', 'list'),
+      F('options', 'CONSIDERED OPTIONS', 'list', { help: 'Option – short pros and cons.' }),
+      F('decision', 'DECISION', 'longtext', { help: 'The chosen option and why.' }),
+      F('positive', 'POSITIVE CONSEQUENCES', 'list'), F('negative', 'NEGATIVE CONSEQUENCES', 'list'),
+      F('links', 'LINKS', 'list', { help: 'Related ADRs, specs, tickets (e.g. “Supersedes ADR-004”).' }),
     ],
   },
   architecture: {

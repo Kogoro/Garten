@@ -244,7 +244,7 @@ try {
   // ---------------------------------------------------------------- spec types: API spec, UI spec / design rule, feature spec, custom types
   const stUrl = `/api/teams/${T1}/spec-types`;
   const types0 = (await admin.get(stUrl)).data.types;
-  assert.deepEqual(types0.filter((t) => t.builtin).map((t) => t.key), ['feature', 'api', 'ui', 'data', 'nfr', 'integration', 'architecture']);
+  assert.deepEqual(types0.filter((t) => t.builtin).map((t) => t.key), ['feature', 'api', 'ui', 'data', 'nfr', 'integration', 'adr', 'architecture']);
   assert.match(types0.find((t) => t.key === 'api').template, /## ENDPOINTS/); assert.match(types0.find((t) => t.key === 'ui').label, /design rule/i); ok('every team has the built-in spec types, each with a starting template');
   assert.equal((await viewer.c.post(stUrl, { label: 'Runbook', template: '## STEPS\n' })).status, 403); ok('only team admins define spec types');
   const rb = await admin.post(stUrl, { label: 'Runbook', description: 'Operational procedure', template: '## TRIGGER\n\n## STEPS\n' });
