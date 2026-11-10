@@ -8,7 +8,7 @@ import { db } from './db.js';
 import { listConnections, revokeConnection } from './oauth.js';
 import { PROJECT_NAME, PUBLIC_URL, OIDC, ALLOW_TEAM_CREATION, MAX_TEAMS_PER_USER } from './config.js';
 import {
-  createTeam, renameTeam, setFoundationAuto, deleteTeamRows, listTeams, teamsCreatedBy, publicGit, saveGitSettings, getTeam, TeamError,
+  createTeam, renameTeam, setFoundationAuto, setFeedbackMail, deleteTeamRows, listTeams, teamsCreatedBy, publicGit, saveGitSettings, getTeam, TeamError,
 } from './teams.js';
 import { testRemote, pushTeam, generateSshKey } from './gitremote.js';
 import { mailEnabled, mailInfo, sendMail, mailError, invitationMail } from './mailer.js';
@@ -65,7 +65,7 @@ async function applyChange(ch, team, user, role) {
 const order = (c) => (c.delete ? (c.kind === 'folder' ? 3 : 2) : c.kind === 'folder' ? -1 : c.kind === 'doc' ? 0 : 1); // folders/docs first, deletions last
 
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
-const teamView = (team, role) => ({ id: team.id, key: team.key, name: team.name, role, foundationAuto: !!team.row.foundation_auto, mailEnabled, git: publicGit(team) });
+const teamView = (team, role) => ({ id: team.id, key: team.key, name: team.name, role, foundationAuto: !!team.row.foundation_auto, feedbackMail: !!team.row.feedback_mail, mailEnabled, git: publicGit(team) });
 
 // keeps one admin from using the invite form as a mail cannon
 const inviteLog = new Map();
@@ -162,7 +162,7 @@ export function apiRouter() {
 
   // feedback on specs: everyone reads, editors+ leave and triage it
   team.get('/feedback', requireTeam('read'), (req, res) => res.json({ feedback: listFeedback(req.team.id, { specId: req.query.spec, status: req.query.status }) }));
-  team.post('/feedback', requireTeam('write'), wrap(async (req, res) => res.json({ feedback: addFeedback(req.team.id, req.body ?? {}, { name: req.user.name, via: null }) })));
+  team.post('/feedback', requireTeam('write'), wrap(async (req, res) => res.json({ feedback: addFeedback(req.team.id, req.body ?? {}, { id: req.user.id, name: req.user.name, via: null }) })));
   team.patch('/feedback/:id', requireTeam('write'), wrap(async (req, res) => res.json({ feedback: setFeedback(req.team.id, req.params.id, req.body ?? {}, req.user) })));
 
   team.get('/', requireTeam(), (req, res) => res.json({ team: teamView(req.team, req.role) }));
@@ -173,6 +173,7 @@ export function apiRouter() {
       t = setFoundationAuto(t.id, !!req.body.foundationAuto);
       if (t.row.foundation_auto) await store.startupSweep(); // catch up on documents edited while auto-release was off
     }
+    if (req.body?.feedbackMail !== undefined) t = setFeedbackMail(t.id, !!req.body.feedbackMail);
     res.json({ team: teamView(t, req.role) });
   }));
   team.post('/leave', requireTeam(), wrap(async (req, res) => {

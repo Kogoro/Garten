@@ -222,3 +222,7 @@ db.exec(`
 for (const [col, ddl] of [['form', 'ALTER TABLE spec_types ADD COLUMN form TEXT'], ['view', "ALTER TABLE spec_types ADD COLUMN view TEXT NOT NULL DEFAULT 'editor'"]]) {
   if (!db.prepare("SELECT 1 FROM pragma_table_info('spec_types') WHERE name=?").get(col)) db.exec(ddl);
 }
+
+// v0.9: feedback author + team switch for feedback e-mails
+if (!db.prepare("SELECT 1 FROM pragma_table_info('feedback') WHERE name='author_id'").get()) db.exec('ALTER TABLE feedback ADD COLUMN author_id TEXT');
+if (!db.prepare("SELECT 1 FROM pragma_table_info('teams') WHERE name='feedback_mail'").get()) db.exec('ALTER TABLE teams ADD COLUMN feedback_mail INTEGER NOT NULL DEFAULT 1');

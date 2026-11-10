@@ -13,7 +13,7 @@ import { parseGlossaryFile } from '../shared/glossaryImport.js';
 
 const tmp = mkdtempSync(path.join(process.env.TEST_TMP || tmpdir(), 'specs-remote-'));
 const smtp = await startSmtpSink();
-const srv = await startServer({ GIT_ALLOW_LOCAL: '1', FOUNDATION_DEBOUNCE_MS: '150', MAX_TEAMS_PER_USER: '2', SMTP_URL: `smtp://127.0.0.1:${smtp.port}`, SMTP_FROM: 'Specs <specs@example.test>' });
+const srv = await startServer({ GIT_ALLOW_LOCAL: '1', FOUNDATION_DEBOUNCE_MS: '150', FEEDBACK_MAIL_DEBOUNCE_MS: '300', MAX_TEAMS_PER_USER: '2', SMTP_URL: `smtp://127.0.0.1:${smtp.port}`, SMTP_FROM: 'Specs <specs@example.test>' });
 const BASE = srv.base;
 const uniq = Date.now().toString(36);
 let n = 0;
@@ -481,6 +481,27 @@ try {
     assert.equal(again[0].status, 'accepted'); assert.match(again[0].reply, /fixing the spec/); assert.equal(JSON.parse((await call(fa, 'list_feedback', { status: 'open' })).text).length, 0); ok('the agent sees the decision and the reply (list_feedback)');
     assert.equal(JSON.parse((await call(fa, 'add_feedback', { spec_id: sid, kind: 'conflict', section: '## ENDPOINTS', text: 'POST /webhooks/keys/rotate is implemented as PUT in src/hooks.ts' })).text).duplicate, false); ok('after triage the same finding can be raised again');
     assert.equal((await fbEd.c.sync([], 0)).data.feedbackOpen[sid], 1);
+    // e-mail digest to approvers and admins (not to the author), switchable per team
+    const waitMail = async (pred, ms = 4000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { const m = smtp.mails.find(pred); if (m) return m; await new Promise((r) => setTimeout(r, 100)); } return null; };
+    const fbAppr = await mk('approver', 'fbm');
+    await call(fa, 'add_feedback', { spec_id: sid, kind: 'gap', text: 'digest probe' });
+    const digest = await waitMail((m) => /new feedback/.test(m.subject) && m.to.includes(fbAppr.email));
+    assert.ok(digest, 'digest mail'); assert.match(digest.raw, /SPEC-012/); assert.ok(!digest.to.includes(fbEd.email)); ok('new feedback is e-mailed to approvers and admins as one digest');
+    await call(fa, 'add_feedback', { spec_id: sid, kind: 'question', text: 'second finding' }); await call(fa, 'add_feedback', { spec_id: sid, kind: 'gap', text: 'third finding' });
+    await waitMail((m) => /2 new feedback/.test(m.subject) && m.to.includes(fbAppr.email)); assert.ok(smtp.mails.some((m) => /2 new feedback/.test(m.subject))); ok('several findings in a short time arrive in a single mail');
+    assert.equal((await admin.req('PATCH', `/api/teams/${T1}`, { feedbackMail: false })).data.team.feedbackMail, false);
+    const nMails = smtp.mails.length;
+    const quiet = JSON.parse((await call(fa, 'add_feedback', { spec_id: sid, kind: 'suggestion', text: 'no mail for this one' })).text);
+    await new Promise((r) => setTimeout(r, 900)); assert.equal(smtp.mails.length, nMails); ok('team admins can switch the feedback e-mails off');
+    await admin.req('PATCH', `/api/teams/${T1}`, { feedbackMail: true });
+    // withdrawing: only your own, only while open
+    const other = await mk('editor', 'fb2'); const otherTok = (await other.c.post('/api/me/tokens', { name: 'Other agent', scopes: ['mcp:read', 'mcp:drafts', 'mcp:write'], teamId: T1 })).data; const fo = await mcp(otherTok.token);
+    assert.equal((await call(fo, 'withdraw_feedback', { id: quiet.id })).isError, true); ok('an agent cannot withdraw feedback of someone else');
+    const wd = JSON.parse((await call(fa, 'withdraw_feedback', { id: quiet.id })).text); assert.equal(wd.status, 'withdrawn');
+    assert.equal(JSON.parse((await call(fa, 'list_feedback', { status: 'withdrawn' })).text).length, 1);
+    const oc = (await fbEd.c.sync([], 0)).data.feedbackOpen[sid]; assert.equal(oc, 4); ok('an agent can withdraw its own open feedback; withdrawn entries do not count as open');
+    assert.match((await call(fa, 'withdraw_feedback', { id: f1.id })).text, /already accepted/); ok('feedback a person decided about cannot be withdrawn');
+    await fo.close();
     await fa.close();
   }
 

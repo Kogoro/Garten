@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FormError, Sheet } from '../dialogs';
 import { guard, useTeamInfo } from '../hooks';
@@ -115,6 +115,14 @@ function GitForm({ g, S, reload, res, setRes }: { g: any; S: Store; reload: () =
   );
 }
 
+function FeedbackMailToggle({ t, S, mailEnabled }: { t: any; S: Store; mailEnabled: boolean }) {
+  const [on, setOn] = useState(!!t.feedbackMail);
+  useEffect(() => setOn(!!t.feedbackMail), [t.feedbackMail]);
+  return (
+    <label className="check"><input type="checkbox" id="fb-mail" disabled={!mailEnabled} checked={on} onChange={guard(async (e) => { const v = e.target.checked; setOn(v); await S.teamApi('PATCH', '', { feedbackMail: v }); await S.refreshMe(); toast(v ? 'Approvers and admins get an e-mail about new feedback' : 'Feedback e-mails are off'); })} /> E-mail approvers and admins when agents leave new feedback (one digest after a quiet period){!mailEnabled ? ' – needs a mail server' : ''}</label>
+  );
+}
+
 export function TeamPage() {
   const S = useStore(); const nav = useNavigate();
   const { info: d, reload, setInfo } = useTeamInfo();
@@ -142,7 +150,8 @@ export function TeamPage() {
           {admin && <>
             <form id="teamNameForm" className="form" onSubmit={guard(async (e: FormEvent<HTMLFormElement>) => { e.preventDefault(); await S.teamApi('PATCH', '', { name: new FormData(e.currentTarget).get('name') }); await S.refreshMe(); toast('Renamed'); })}><label className="sr" htmlFor="tm-name">Team name</label><div className="btns"><input className="field" id="tm-name" name="name" defaultValue={t.name} key={t.name} maxLength={80} style={{ flex: 3 }} /><button className="btn" type="submit" disabled={!online}>Rename</button></div></form>
             <label className="check"><input type="checkbox" id="found-auto" checked={!!t.foundationAuto} onChange={guard(async (e) => { await S.teamApi('PATCH', '', { foundationAuto: e.target.checked }); await S.refreshMe(); toast(e.target.checked ? 'Foundation documents go live automatically' : 'Foundation documents now need approval'); })} /> Publish foundation documents (vision, strategy, glossary …) automatically after edits</label>
-            <p className="note" style={{ marginTop: -6 }}>Off: they reach agents only after an approver presses “Publish now”.</p></>}
+            <p className="note" style={{ marginTop: -6 }}>Off: they reach agents only after an approver presses “Publish now”.</p>
+            <FeedbackMailToggle t={t} S={S} mailEnabled={!!d?.mailEnabled} /></>}
           <div className="btns"><button className="btn small" data-act="leave-team" onClick={guard(async () => { if (!confirm(`Leave ${t.name}? You lose access to its specs and your agent tokens for it stop working.`)) return; await S.leaveTeam(); nav('/'); toast('You left the team'); })}>Leave team</button></div></section>
 
         <section className="card"><div className="card-head"><h2>Members</h2><small className="muted">{d ? d.members.length : '…'}</small></div>

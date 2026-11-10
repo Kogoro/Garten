@@ -4,7 +4,7 @@ import { z } from 'zod';
 import * as store from './store.js';
 import { getUser, roleIn, perms } from './auth.js';
 import { getTeam } from './teams.js';
-import { addFeedback, listFeedback, KINDS } from './feedback.js';
+import { addFeedback, listFeedback, withdrawFeedback, KINDS } from './feedback.js';
 import { listTypes, isKnownType } from './specTypes.js';
 import { glossaryEntries, CORE_DOCS } from './store.js';
 import { hasContent } from '../shared/glossary.js';
@@ -131,7 +131,7 @@ function buildServer(team, canDrafts, writer) {
 
   // ---- writing DRAFTS (scope mcp:write). Agents can never approve or release: a person reviews and approves in the app.
   if (writer) {
-    const by = { name: writer.user.name, via: writer.via };
+    const by = { id: writer.user.id, name: writer.user.name, via: writer.via };
     const REVIEW = 'This is a DRAFT. It is not visible to released-only readers until a person reviews and approves it in the Specs app.';
     const guard = () => {
       const now = Date.now();
@@ -167,8 +167,14 @@ function buildServer(team, canDrafts, writer) {
     );
 
     server.registerTool(
+      'withdraw_feedback',
+      { description: 'Take back feedback you left yourself while it is still open (for example because you were wrong). Feedback a person already accepted, dismissed or finished cannot be withdrawn.', inputSchema: { id: z.string() } },
+      run(async ({ id }) => { const f = withdrawFeedback(t, id, by); return { id: f.id, status: f.status }; }),
+    );
+
+    server.registerTool(
       'list_feedback',
-      { description: 'Feedback already left on specs, with its status and the reply of the person who triaged it. Check before adding more.', inputSchema: { spec_id: z.string().optional(), status: z.enum(['open', 'accepted', 'dismissed', 'done']).optional() } },
+      { description: 'Feedback already left on specs, with its status and the reply of the person who triaged it. Check before adding more.', inputSchema: { spec_id: z.string().optional(), status: z.enum(['open', 'accepted', 'dismissed', 'done', 'withdrawn']).optional() } },
       run(async ({ spec_id, status }) => listFeedback(t, { specId: spec_id, status }).map((f) => ({ id: f.id, spec: f.specId, version: f.specVersion, kind: f.kind, section: f.section, text: f.text, status: f.status, reply: f.reply || undefined }))),
     );
 

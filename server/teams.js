@@ -43,6 +43,10 @@ export function setFoundationAuto(id, on) {
   db.prepare('UPDATE teams SET foundation_auto=? WHERE id=?').run(on ? 1 : 0, id);
   return getTeam(id);
 }
+export function setFeedbackMail(id, on) {
+  db.prepare('UPDATE teams SET feedback_mail=? WHERE id=?').run(on ? 1 : 0, id);
+  return getTeam(id);
+}
 /** Removes a team and everything that belongs to it (the Git repository directory is removed by the caller). */
 export function deleteTeamRows(id) {
   for (const t of ['items', 'pats', 'oauth_tokens', 'oauth_codes']) db.prepare(`DELETE FROM ${t} WHERE team_id=?`).run(id);

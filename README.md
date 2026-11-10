@@ -67,7 +67,9 @@ Ein Spec-Typ kann seinen Inhalt als **Formular** beschreiben statt als freien Ed
 Agenten widersprechen oder fragen nach, **ohne den Spec zu ändern**: mit Scope `mcp:write` gibt es `add_feedback(spec_id, kind, text, section?, evidence?)` (`kind`: concern, conflict, question, suggestion, gap) und `list_feedback(spec_id?, status?)`. Gleiche offene Einträge (gleicher Abschnitt und Text) werden zusammengeführt, pro Spec sind höchstens 50 offen.
 
 * **In der App:** Der Button *Feedback* in der Editor-Leiste (Badge mit der Zahl offener Einträge), ein Chip „N feedback“ in der Spec-Liste und ein Hinweis auf der Release-Seite. Das Feedback-Sheet zeigt Art, Abschnitt, Text, Beleg (`evidence`), Absender (Token/Client) und die Version, auf die es sich bezieht. Editor+ können **Accept / Dismiss / Reopen / Mark done** und antworten; auch Menschen können Feedback anlegen.
-* **Der Agent sieht die Entscheidung:** `list_feedback` liefert Status und Antwort, so wiederholt er sich nicht.
+* **Der Agent sieht die Entscheidung:** `list_feedback` liefert Status und Antwort, so wiederholt er sich nicht. Mit `withdraw_feedback(id)` nimmt er eigenes, noch offenes Feedback zurück (nie das anderer, nie nach einer Entscheidung).
+* **Accept & add to spec:** übernimmt den Befund als Checklisten-Punkt unter `## REVIEW NOTES` im Spec (eine ungeprüfte Änderung am Arbeitsstand, die du verfeinern kannst); „Accept“ allein ändert den Spec nicht.
+* **E-Mail-Digest:** Bei neuem Feedback bekommen Approver und Admins des Teams (nicht der Absender) eine gesammelte Mail nach einer Ruhephase (`FEEDBACK_MAIL_DEBOUNCE_MS`, Standard 2 min), sofern `SMTP_URL` gesetzt ist. Team-Admins schalten das unter *Members & Git* ab. Zusätzlich zeigt die Seitenleiste die Zahl offener Einträge.
 * **API:** `GET/POST /api/teams/:id/feedback`, `PATCH …/feedback/:fid` (Rechte: lesen = alle, anlegen/bearbeiten = editor+); die offenen Zähler kommen mit jedem Sync.
 
 ## Foundation-Dokumente: Vision, Strategie, Glossar

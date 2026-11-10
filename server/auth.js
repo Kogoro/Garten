@@ -39,7 +39,7 @@ export function teamsFor(user) {
 }
 export const meSummary = (u) => ({
   id: u.id, name: u.name, email: u.email, admin: u.admin,
-  teams: teamsFor(u).map(({ team, role }) => ({ id: team.id, key: team.key, name: team.name, role, foundationAuto: !!team.row.foundation_auto, perms: perms(role), mcpScopes: allowedScopes(role) })),
+  teams: teamsFor(u).map(({ team, role }) => ({ id: team.id, key: team.key, name: team.name, role, foundationAuto: !!team.row.foundation_auto, feedbackMail: !!team.row.feedback_mail, perms: perms(role), mcpScopes: allowedScopes(role) })),
 });
 
 export function members(teamId) {

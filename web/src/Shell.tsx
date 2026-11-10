@@ -98,7 +98,7 @@ export function Shell({ master, detail, single, active }: { master: ReactNode; d
       <aside className="sidebar" id="sidebar">
         <button type="button" className="ws" aria-label="Switch team" onClick={m.workspace}><span className="ws-av">{initial(m.teamName)}</span><b>{m.teamName}</b><Icon name="chevron" size={14} />{m.invites > 0 && <span className="navitem badge" style={{ marginLeft: 6 }}>{m.invites}</span>}</button>
         <div className="navlabel">Content</div>
-        {link('/', 'Specs', 'specs', nSpecs ? <span className="muted" style={{ marginLeft: 'auto', fontSize: 12 }}>{nSpecs}</span> : null)}{link('/docs', 'Documents', 'docs')}{link('/glossary', 'Glossary', 'glossary')}
+        {link('/', 'Specs', 'specs', <>{S.feedbackTotal() > 0 && <span className="chip warn" style={{ marginLeft: 'auto' }} title="Open feedback">{S.feedbackTotal()} feedback</span>}{nSpecs ? <span className="muted" style={{ marginLeft: S.feedbackTotal() > 0 ? 8 : 'auto', fontSize: 12 }}>{nSpecs}</span> : null}</>)}{link('/docs', 'Documents', 'docs')}{link('/glossary', 'Glossary', 'glossary')}
         <div className="navlabel">Publish</div>
         {link('/release', 'Release', 'release')}
         <div className="navlabel">Team</div>

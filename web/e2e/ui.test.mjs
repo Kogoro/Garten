@@ -223,6 +223,16 @@ try {
   await d.locator('.sheet').getByRole('button', { name: /^All/ }).click(); await d.locator('.fb-item .fb-reply', { hasText: 'Good catch' }).waitFor(); ok('a person accepts feedback with a reply; it leaves the open list');
   await d.keyboard.press('Escape');
   await d.waitForFunction(() => !document.querySelector('.fbbtn.has'), null, { timeout: 10000 }); ok('the badge disappears once nothing is open');
+  // accept a finding and take it into the spec as a review note (checklist item)
+  const fb2 = await admin.post(`/api/teams/${admin.tid}/feedback`, { specId: 'SPEC-014', kind: 'question', section: '## ACCEPTANCE CRITERIA', text: 'What happens when the key store is unavailable?' });
+  assert.equal(fb2.status, 200);
+  await d.evaluate(() => dispatchEvent(new Event('online')));
+  await d.locator('.fbbtn.has').waitFor({ timeout: 10000 });
+  await d.click('[data-act=feedback]'); await d.locator('.fb-item', { hasText: 'key store is unavailable' }).waitFor();
+  await d.click('[data-act=fb-accept-note]'); await d.getByText('No open feedback.').waitFor(); await d.keyboard.press('Escape');
+  await setMode(d, 'markdown');
+  assert.match(await d.inputValue('#body'), /## REVIEW NOTES\n\n- \[ \] question \(ACCEPTANCE CRITERIA\): What happens when the key store is unavailable\?/); ok('"Accept & add to spec" turns a finding into a checklist item under REVIEW NOTES (an unreleased edit)');
+  await setMode(d, 'blocks');
 
   // --- insert at cursor: splits the block at the caret
   const req2 = d.locator('[data-content-type=requirement] .bn-inline-content').nth(1);
@@ -516,6 +526,9 @@ try {
   // --- team page: members + git connection per team
   await d.click('.sidebar a[href="#/team"]');
   await d.getByText('Git connection').first().waitFor();
+  await d.locator('#fb-mail:checked').waitFor(); await d.uncheck('#fb-mail');
+  await d.waitForFunction(async () => true); assert.equal((await admin.get(`/api/teams/${admin.tid}`)).data.team.feedbackMail, false); await d.check('#fb-mail');
+  await d.waitForFunction(() => document.querySelector('#fb-mail')?.checked); ok('team admins switch the feedback e-mails on and off');
   await d.fill('#g-url', remote); await d.fill('#g-branch', 'main'); await d.fill('#g-root', 'specs');
   await d.click('#gitForm button[type=submit]');
   await d.waitForFunction((u) => document.querySelector('#g-url')?.value === u, remote);

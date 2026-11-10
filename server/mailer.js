@@ -44,3 +44,15 @@ export function invitationMail({ teamName, inviterName, role, link, expiresAt, u
 <p style="color:#58636F;font-size:13px">Or open: <a href="${esc(link)}">${esc(link)}</a><br>The link works once and expires in ${days} day${days === 1 ? '' : 's'}. If you did not expect this e-mail you can ignore it.</p></div>`;
   return { subject: `${who} invited you to ${team}`, text, html };
 }
+
+export function feedbackMail({ teamName, items, link }) {
+  const team = clean(teamName);
+  const n = items.length;
+  const subject = `${n} new feedback on specs in ${team}`;
+  const line = (f) => `• ${f.specId} – ${f.kind}${f.section ? ` (${clean(f.section)})` : ''}: ${clean(f.text).slice(0, 240)}${f.via ? ` [${clean(f.via)}]` : ''}`;
+  const text = `${n} new feedback entr${n === 1 ? 'y' : 'ies'} in “${team}”:\n\n${items.map(line).join('\n')}\n\nOpen the specs to read and triage it: ${link}\n\nYou get this because you are an approver or admin of the team. Team admins can switch these e-mails off on the team page.\n`;
+  const html = `<div style="font-family:system-ui,sans-serif;font-size:15px;line-height:1.5;color:#14181C"><p>${n} new feedback entr${n === 1 ? 'y' : 'ies'} in “${esc(team)}”:</p><ul>${items.map((f) => `<li><b>${esc(f.specId)}</b> – ${esc(f.kind)}${f.section ? ` (${esc(f.section)})` : ''}: ${esc(clean(f.text).slice(0, 240))}${f.via ? ` <span style="color:#58636F">[${esc(f.via)}]</span>` : ''}</li>`).join('')}</ul>
+<p><a href="${esc(link)}" style="display:inline-block;padding:10px 18px;border-radius:8px;background:#0B7A52;color:#fff;text-decoration:none;font-weight:600">Open and triage</a></p>
+<p style="color:#58636F;font-size:13px">You get this because you are an approver or admin of the team. Team admins can switch these e-mails off on the team page.</p></div>`;
+  return { subject, text, html };
+}
