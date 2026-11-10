@@ -24,7 +24,7 @@ export async function seedDemo(team) {
 
   store.saveItem(t, {
     id: 'SPEC-012', kind: 'spec', specType: 'api', title: 'Webhook signature rotation', links: ['adr/webhook-keys.md'],
-    body: '## GOAL\nRotate webhook signing keys without dropping events.\n\n## REQUIREMENTS\nR1 Accept signatures from `current` and `previous` keys during rotation.\nR2 Rotation window is configurable, default 24h.\n\n## ACCEPTANCE CRITERIA\n- [ ] Events signed with the previous key are accepted\n- [ ] Events signed with a revoked key are rejected\n',
+    body: '## OVERVIEW\n\nRotate webhook signing keys without dropping events.\n\n## AUTHENTICATION\n\nBearer token\n\n## ENDPOINTS\n\n```endpoint POST /webhooks/keys/rotate\nStarts a rotation: a new signing key becomes `current`, the old one stays valid as `previous` for the rotation window.\n\nRequest:\n{ "window_hours": 24 }\n\nResponses:\n202 Rotation started\n409 A rotation is already running\n```\n\n## DATA TYPES\n\n## ERRORS\n\n- 409 – a rotation is already running\n\n## REQUIREMENTS\n\nR1 Accept signatures from `current` and `previous` keys during rotation.\nR2 Rotation window is configurable, default 24h.\n\n## ACCEPTANCE CRITERIA\n\n- [ ] Events signed with the previous key are accepted\n- [ ] Events signed with a revoked key are rejected\n',
   }, 0);
   await store.releaseSpec(team, 'SPEC-012');
 
