@@ -11,6 +11,7 @@ export const state: any = {
   cursors: {} as Record<string, number>,
   authConfig: null as any,
   project: 'specs',
+  feedback: {} as Record<string, Record<string, number>>, // open feedback per team and spec (from the last sync)
   mcpUrl: `${location.origin}/mcp`,
   online: navigator.onLine,
   syncing: false,
@@ -43,6 +44,7 @@ export async function init() {
   state.lastSync = (await idb.get('meta', 'lastSync')) ?? null;
   state.globalTerms = (await idb.get('meta', 'globalTerms')) ?? [];
   state.types = (await idb.get('meta', 'types')) ?? {};
+  state.feedback = {};
   pickTeam((await idb.get('meta', 'teamId')) ?? null);
   addEventListener('online', () => ((state.online = true), emit(), sync()));
   addEventListener('offline', () => ((state.online = false), emit()));
@@ -434,6 +436,7 @@ async function syncTeam(tid: string) {
     if (map.has(r.id)) await persist(map.get(r.id)!);
   }
   if (data.specTypes) state.types[tid] = data.specTypes;
+  state.feedback[tid] = data.feedbackOpen ?? {};
   state.cursors[tid] = data.cursor;
   if (data.me) { state.me = data.me; await meta('me', data.me); }
   state.project = data.project;
@@ -531,3 +534,7 @@ export function importGlobalTerms(ids: string[]) {
   upsertGlossaryTerms(picked.map((g: any) => ({ term: g.term, definition: g.definition, aliases: g.aliases, see: g.see, source: `global:${g.id}@${g.rev}` })));
   return picked.length;
 }
+
+/** Open feedback entries on a spec (counts come with every sync). */
+export const feedbackCount = (specId: string): number => state.feedback?.[state.teamId]?.[specId] ?? 0;
+export const feedbackTotal = (): number => Object.values<number>(state.feedback?.[state.teamId] ?? {}).reduce((a, b) => a + b, 0);

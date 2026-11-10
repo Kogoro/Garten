@@ -4,6 +4,7 @@ import { z } from 'zod';
 import * as store from './store.js';
 import { getUser, roleIn, perms } from './auth.js';
 import { getTeam } from './teams.js';
+import { addFeedback, listFeedback, KINDS } from './feedback.js';
 import { listTypes, isKnownType } from './specTypes.js';
 import { glossaryEntries, CORE_DOCS } from './store.js';
 import { hasContent } from '../shared/glossary.js';
@@ -27,7 +28,7 @@ function buildServer(team, canDrafts, writer) {
       instructions:
         `Specifications of the team "${team.name}". Call get_team_context first: it returns the team's vision, strategy and glossary ` +
         'whenever they have content. Then use list_specs / get_spec for the approved specifications and get_document for their linked documents.' +
-        (writer ? ' You may create and edit DRAFTS (create_draft_spec, update_draft_spec, create_draft_document, update_draft_document); you can never approve or publish – a person reviews your drafts in the Specs app.' : ''),
+        (writer ? ' You may create and edit DRAFTS (create_draft_spec, update_draft_spec, create_draft_document, update_draft_document); you can never approve or publish – a person reviews your drafts in the Specs app. If you disagree with a spec or find it conflicts with the code, do not edit it: use add_feedback (check list_feedback first).' : ''),
     },
   );
 
@@ -148,6 +149,28 @@ function buildServer(team, canDrafts, writer) {
       if (missing.length) throw new store.ApiError(`These documents do not exist: ${missing.join(', ')}. Create them with create_draft_document first.`);
     };
     const body = z.string().max(100_000).describe('Markdown (for typed specs follow list_spec_types). Requirements as "R1 text" lines, tasks as "- [ ] text", diagrams as ```mermaid fences, API endpoints as ```endpoint GET /path fences, definitions as "Term" + ": definition" lines.');
+
+    server.registerTool(
+      'add_feedback',
+      {
+        description: 'Leave feedback on a specification (architecture concerns, conflicts with the code, questions, suggestions, missing information). It does NOT change the spec: a person reads and triages it in the Specs app. Use it instead of editing a released spec you disagree with. Duplicates of an open entry are merged.',
+        inputSchema: {
+          spec_id: z.string(), kind: z.enum(KINDS).describe('concern = risk or doubt · conflict = contradicts code or another spec · question · suggestion · gap = information is missing'),
+          text: z.string().min(1).max(4000), section: z.string().max(80).optional().describe('Section or field the feedback is about, e.g. "## DECISION"'),
+          evidence: z.string().max(1000).optional().describe('File path, commit, line or quote that supports it'),
+        },
+      },
+      run(async ({ spec_id, kind, text: tx, section, evidence }) => {
+        const f = addFeedback(t, { specId: spec_id, kind, text: tx, section, evidence }, by);
+        return { id: f.id, status: f.status, duplicate: !!f.duplicate, note: 'Recorded. A person will triage it; it does not change the spec.' };
+      }),
+    );
+
+    server.registerTool(
+      'list_feedback',
+      { description: 'Feedback already left on specs, with its status and the reply of the person who triaged it. Check before adding more.', inputSchema: { spec_id: z.string().optional(), status: z.enum(['open', 'accepted', 'dismissed', 'done']).optional() } },
+      run(async ({ spec_id, status }) => listFeedback(t, { specId: spec_id, status }).map((f) => ({ id: f.id, spec: f.specId, version: f.specVersion, kind: f.kind, section: f.section, text: f.text, status: f.status, reply: f.reply || undefined }))),
+    );
 
     server.registerTool(
       'create_draft_spec',

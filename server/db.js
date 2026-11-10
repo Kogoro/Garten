@@ -185,6 +185,25 @@ db.exec(`
     created_at TEXT NOT NULL,
     PRIMARY KEY (team_id, key)
   );
+  -- feedback on specs (left by agents or people, triaged by people); never changes the spec itself
+  CREATE TABLE IF NOT EXISTS feedback (
+    id TEXT PRIMARY KEY,
+    team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    spec_id TEXT NOT NULL,
+    spec_version INTEGER NOT NULL DEFAULT 0,
+    kind TEXT NOT NULL,
+    section TEXT NOT NULL DEFAULT '',
+    text TEXT NOT NULL,
+    evidence TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'open',
+    author TEXT,
+    via TEXT,
+    created_at TEXT NOT NULL,
+    resolved_by TEXT,
+    resolved_at TEXT,
+    reply TEXT
+  );
+  CREATE INDEX IF NOT EXISTS feedback_spec ON feedback(team_id, spec_id, status);
   CREATE TABLE IF NOT EXISTS invites (
     id TEXT PRIMARY KEY,
     team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,

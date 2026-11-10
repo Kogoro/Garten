@@ -46,12 +46,12 @@ export function ReleasePage() {
           <div className="sect-title"><span>Released specs</span><small>{released.length} approved</small></div>
           {released.length ? released.map((s) => (
             <div className="rel" key={s.id}><div className="grow"><b><TypeChip s={s} S={S} /> {s.title}{S.hasUnreleased(s) && <span className="chip warn" style={{ marginLeft: 4 }}>edited since release</span>}</b>
-              <span><span className="mono">{s.id}</span> · v{s.version}{s.releasedBy ? ` by ${s.releasedBy}` : ''} · {s.links.length} document{s.links.length === 1 ? '' : 's'} · {s.fetchedAt ? `fetched ${ago(Date.parse(s.fetchedAt))}` : 'never fetched'}</span></div>
+              <span><span className="mono">{s.id}</span>{S.feedbackCount(s.id) > 0 && <> · <b style={{ color: 'var(--amber)' }}>{S.feedbackCount(s.id)} open feedback</b></>} · v{s.version}{s.releasedBy ? ` by ${s.releasedBy}` : ''} · {s.links.length} document{s.links.length === 1 ? '' : 's'} · {s.fetchedAt ? `fetched ${ago(Date.parse(s.fetchedAt))}` : 'never fetched'}</span></div>
               {S.can('approve') && (s.revoke ? <button className="btn small" onClick={() => S.cancelRevoke(s.id)}>Undo revoke</button> : <button className="btn small" data-act="revoke" onClick={() => { if (confirm(`Revoke ${s.id}? Agents will no longer see it.`)) S.requestRevoke(s.id); }}>Revoke</button>)}
             </div>)) : <div className="empty" style={{ padding: '16px 0' }}>Nothing released yet. Approve a spec in the editor.</div>}
         </section>
         <section><div className="sect-title"><span>What the agent can call</span></div>
-          <div className="code">{'get_team_context()            # vision, strategy, glossary\nlist_specs()\nget_spec("SPEC-012", version?)\nlist_documents(folder?)\nget_document("adr/ADR-007.md")\nget_glossary(term?)\n# tokens with draft access also get: include_drafts / draft=true\n# tokens with write access can also create and update DRAFTS (create_draft_spec, update_draft_spec,\n#   create_draft_document, update_draft_document) – a person approves them here'}</div></section>
+          <div className="code">{'get_team_context()            # vision, strategy, glossary\nlist_specs()\nget_spec("SPEC-012", version?)\nlist_documents(folder?)\nget_document("adr/ADR-007.md")\nget_glossary(term?)\n# tokens with draft access also get: include_drafts / draft=true\n# tokens with write access can also leave feedback (add_feedback, list_feedback) and create and update DRAFTS (create_draft_spec, update_draft_spec,\n#   create_draft_document, update_draft_document) – a person approves them here'}</div></section>
       </div></div>
     </>} />
   );

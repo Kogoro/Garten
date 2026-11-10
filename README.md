@@ -62,6 +62,14 @@ Ein Spec-Typ kann seinen Inhalt als **Formular** beschreiben statt als freien Ed
 * **Eigene Formular-Typen:** Team-Admins definieren unter *Members & Git → Spec types* Felder (Name, Typ, Auswahl-Optionen, Hinweis, Tab), Tabs und ob Specs als Formular öffnen. „Start from“ übernimmt ein eingebautes Formular als Vorlage.
 * **Für Agenten:** `list_spec_types` liefert je Typ die Abschnitte mit Art (`kind`), Optionen und Hinweisen – so schreiben Agenten Drafts, die im Formular sauber ankommen.
 
+## Feedback des Agenten zu Specs
+
+Agenten widersprechen oder fragen nach, **ohne den Spec zu ändern**: mit Scope `mcp:write` gibt es `add_feedback(spec_id, kind, text, section?, evidence?)` (`kind`: concern, conflict, question, suggestion, gap) und `list_feedback(spec_id?, status?)`. Gleiche offene Einträge (gleicher Abschnitt und Text) werden zusammengeführt, pro Spec sind höchstens 50 offen.
+
+* **In der App:** Der Button *Feedback* in der Editor-Leiste (Badge mit der Zahl offener Einträge), ein Chip „N feedback“ in der Spec-Liste und ein Hinweis auf der Release-Seite. Das Feedback-Sheet zeigt Art, Abschnitt, Text, Beleg (`evidence`), Absender (Token/Client) und die Version, auf die es sich bezieht. Editor+ können **Accept / Dismiss / Reopen / Mark done** und antworten; auch Menschen können Feedback anlegen.
+* **Der Agent sieht die Entscheidung:** `list_feedback` liefert Status und Antwort, so wiederholt er sich nicht.
+* **API:** `GET/POST /api/teams/:id/feedback`, `PATCH …/feedback/:fid` (Rechte: lesen = alle, anlegen/bearbeiten = editor+); die offenen Zähler kommen mit jedem Sync.
+
 ## Foundation-Dokumente: Vision, Strategie, Glossar
 
 Jedes Team hat immer **`vision.md`, `strategy.md` und `glossary.md`** (werden mit dem Team angelegt, lassen sich nicht löschen). Beliebige weitere Dokumente lassen sich als Foundation-Dokument **anheften** (⋯-Menü → *Pin*).

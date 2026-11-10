@@ -209,6 +209,21 @@ try {
   await d.getByRole('button', { name: 'Editor: Blocks' }).waitFor(); await d.getByRole('button', { name: 'Editor: Markdown' }).waitFor(); await d.keyboard.press('Escape');
   ok('Blocks/Markdown switch lives in the overflow menu');
 
+  // --- feedback on a spec: left by an agent / colleague, triaged in the editor
+  const fbRes = await admin.post(`/api/teams/${admin.tid}/feedback`, { specId: 'SPEC-014', kind: 'concern', section: '## REQUIREMENTS', text: 'R3 (keys expire) conflicts with the retry window in ADR-007.', evidence: 'docs/adr/ADR-007.md' });
+  assert.equal(fbRes.status, 200);
+  await d.evaluate(() => dispatchEvent(new Event('online')));
+  await d.locator('.fbbtn.has .cnt', { hasText: '1' }).waitFor({ timeout: 10000 });
+  await d.locator('#list .row', { hasText: 'SPEC-014' }).locator('.chip', { hasText: '1 feedback' }).waitFor(); ok('open feedback shows up as a badge in the editor bar and in the spec list');
+  await d.click('[data-act=feedback]');
+  await d.locator('.fb-item', { hasText: 'conflicts with the retry window' }).waitFor();
+  assert.ok(await d.locator('.fb-item .fb-evidence', { hasText: 'ADR-007.md' }).isVisible()); ok('the feedback sheet shows kind, section, text and evidence');
+  await d.fill('.fb-item input', 'Good catch – extending the window in ADR-007.'); await d.click('[data-act=fb-accept]');
+  await d.getByText('No open feedback.').waitFor();
+  await d.locator('.sheet').getByRole('button', { name: /^All/ }).click(); await d.locator('.fb-item .fb-reply', { hasText: 'Good catch' }).waitFor(); ok('a person accepts feedback with a reply; it leaves the open list');
+  await d.keyboard.press('Escape');
+  await d.waitForFunction(() => !document.querySelector('.fbbtn.has'), null, { timeout: 10000 }); ok('the badge disappears once nothing is open');
+
   // --- insert at cursor: splits the block at the caret
   const req2 = d.locator('[data-content-type=requirement] .bn-inline-content').nth(1);
   const before = await req2.innerText();

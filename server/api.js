@@ -14,6 +14,7 @@ import { testRemote, pushTeam, generateSshKey } from './gitremote.js';
 import { mailEnabled, mailInfo, sendMail, mailError, invitationMail } from './mailer.js';
 import { createInvite, listInvites, revokeInvite, inviteByToken, registerFromInvite, acceptForUser, declineForUser, invitesForEmail } from './invites.js';
 import { listGlobalTerms, createGlobalTerm, updateGlobalTerm, deleteGlobalTerm, importGlobalTerms, GlossaryError } from './globalGlossary.js';
+import { addFeedback, listFeedback, setFeedback, openCounts } from './feedback.js';
 import { listTypes, createType, updateType, deleteType, TypeError_ } from './specTypes.js';
 import * as store from './store.js';
 
@@ -156,8 +157,13 @@ export function apiRouter() {
     if (!Array.isArray(changes)) return res.status(400).json({ error: 'changes must be an array' });
     const results = [];
     for (const ch of [...changes].sort((a, b) => order(a) - order(b))) results.push(await applyChange(ch, req.team, req.user, req.role));
-    res.json({ results, items: store.itemsSince(req.team.id, Number(since) || 0), cursor: store.maxSeq(req.team.id), me: me(req.user), project: PROJECT_NAME, mcpUrl: `${PUBLIC_URL}/mcp`, specTypes: listTypes(req.team.id) });
+    res.json({ results, items: store.itemsSince(req.team.id, Number(since) || 0), cursor: store.maxSeq(req.team.id), me: me(req.user), project: PROJECT_NAME, mcpUrl: `${PUBLIC_URL}/mcp`, specTypes: listTypes(req.team.id), feedbackOpen: openCounts(req.team.id) });
   }));
+
+  // feedback on specs: everyone reads, editors+ leave and triage it
+  team.get('/feedback', requireTeam('read'), (req, res) => res.json({ feedback: listFeedback(req.team.id, { specId: req.query.spec, status: req.query.status }) }));
+  team.post('/feedback', requireTeam('write'), wrap(async (req, res) => res.json({ feedback: addFeedback(req.team.id, req.body ?? {}, { name: req.user.name, via: null }) })));
+  team.patch('/feedback/:id', requireTeam('write'), wrap(async (req, res) => res.json({ feedback: setFeedback(req.team.id, req.params.id, req.body ?? {}, req.user) })));
 
   team.get('/', requireTeam(), (req, res) => res.json({ team: teamView(req.team, req.role) }));
   team.patch('/', requireTeam('admin'), wrap(async (req, res) => {

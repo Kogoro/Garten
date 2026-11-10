@@ -452,6 +452,38 @@ try {
   const wcl = await mcp(wtk.token); const wnames = await toolNames(wcl); await wcl.close();
   assert.ok(!wnames.includes('create_draft_spec') && !wnames.includes('get_spec') === false); ok('write tools disappear when the role is downgraded');
 
+  // ---------------------------------------------------------------- feedback on specs (agents leave it, people triage it)
+  {
+    const fbEd = await mk('editor', 'fb'); const fbViewer = await mk('viewer', 'fb');
+    const fbTok = (await fbEd.c.post('/api/me/tokens', { name: 'Reviewer agent', scopes: ['mcp:read', 'mcp:drafts', 'mcp:write'], teamId: T1 })).data;
+    const roTok = (await fbViewer.c.post('/api/me/tokens', { name: 'ro', scopes: ['mcp:read'], teamId: T1 })).data;
+    const ro = await mcp(roTok.token); const roNames = await toolNames(ro); await ro.close();
+    assert.ok(!roNames.includes('add_feedback') && !roNames.includes('list_feedback'));
+    const fa = await mcp(fbTok.token); assert.ok((await toolNames(fa)).includes('add_feedback')); ok('feedback tools exist only for tokens with write access');
+    const sid = 'SPEC-012';
+    const revBefore = (await fbEd.c.sync([], 0)).data.items.find((x) => x.id === sid).rev;
+    const f1 = JSON.parse((await call(fa, 'add_feedback', { spec_id: sid, kind: 'conflict', section: '## ENDPOINTS', text: 'POST /webhooks/keys/rotate is implemented as PUT in src/hooks.ts', evidence: 'src/hooks.ts:42' })).text);
+    assert.equal(f1.status, 'open'); assert.equal(f1.duplicate, false);
+    const f1b = JSON.parse((await call(fa, 'add_feedback', { spec_id: sid, kind: 'conflict', section: '## endpoints', text: 'POST /webhooks/keys/rotate  is implemented as PUT in src/hooks.ts' })).text);
+    assert.equal(f1b.duplicate, true); assert.equal(f1b.id, f1.id); ok('an agent leaves feedback; the same open feedback is merged instead of repeated');
+    assert.equal((await call(fa, 'add_feedback', { spec_id: 'NOPE-1', kind: 'question', text: 'x' })).isError, true);
+    assert.equal((await call(fa, 'add_feedback', { spec_id: sid, kind: 'question', text: '   ' })).isError, true);
+    await assert.rejects(async () => { const r = await fa.callTool({ name: 'add_feedback', arguments: { spec_id: sid, kind: 'rant', text: 'x' } }); if (r.isError) throw new Error('rejected'); }); ok('unknown spec, empty text and unknown kinds are refused');
+    const afterSync = (await fbEd.c.sync([], 0)).data;
+    assert.equal(afterSync.feedbackOpen[sid], 1); assert.equal(afterSync.items.find((x) => x.id === sid).rev, revBefore); ok('feedback never changes the spec; open counts travel with the sync');
+    const listed = (await fbViewer.c.get(`/api/teams/${T1}/feedback?spec=${sid}`)).data.feedback;
+    assert.equal(listed.length, 1); assert.match(listed[0].via, /Reviewer agent/); assert.match(listed[0].author, /editor user/); assert.equal(listed[0].evidence, 'src/hooks.ts:42'); ok('everyone in the team can read feedback');
+    assert.equal((await fbViewer.c.req('PATCH', `/api/teams/${T1}/feedback/${f1.id}`, { status: 'accepted' })).status, 403); ok('viewers cannot triage feedback');
+    assert.equal((await fbEd.c.req('PATCH', `/api/teams/${T1}/feedback/${f1.id}`, { status: 'bogus' })).status, 400);
+    const tri = (await fbEd.c.req('PATCH', `/api/teams/${T1}/feedback/${f1.id}`, { status: 'accepted', reply: 'Right – fixing the spec to PUT.' })).data.feedback;
+    assert.equal(tri.status, 'accepted'); assert.match(tri.resolvedBy, /editor user/); ok('a person accepts feedback and replies');
+    const again = JSON.parse((await call(fa, 'list_feedback', { spec_id: sid })).text);
+    assert.equal(again[0].status, 'accepted'); assert.match(again[0].reply, /fixing the spec/); assert.equal(JSON.parse((await call(fa, 'list_feedback', { status: 'open' })).text).length, 0); ok('the agent sees the decision and the reply (list_feedback)');
+    assert.equal(JSON.parse((await call(fa, 'add_feedback', { spec_id: sid, kind: 'conflict', section: '## ENDPOINTS', text: 'POST /webhooks/keys/rotate is implemented as PUT in src/hooks.ts' })).text).duplicate, false); ok('after triage the same finding can be raised again');
+    assert.equal((await fbEd.c.sync([], 0)).data.feedbackOpen[sid], 1);
+    await fa.close();
+  }
+
   // ---------------------------------------------------------------- Git connection per team
   const remote = path.join(tmp, 'remote.git');
   git(tmp, 'init', '--bare', '-b', 'main', remote);

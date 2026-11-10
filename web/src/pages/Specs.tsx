@@ -39,7 +39,7 @@ function SpecList({ selected }: { selected?: string }) {
           <Link key={s.id} className={`row ${selected === s.id ? 'active' : ''}`} to={`/spec/${encodeURIComponent(s.id)}`}>
             <div className="row-top"><span className="row-id">{s.id}</span><ItemSync i={s} S={S} /></div>
             <div className="row-title">{s.title || <span className="muted">Untitled spec</span>}</div>
-            <div className="row-meta"><TypeChip s={s} S={S} /><StatusChip i={s} S={S} /><AgentChip s={s} S={S} /><span>{s.links.length} document{s.links.length === 1 ? '' : 's'}</span><span>{s.fetchedAt && !S.hasUnreleased(s) ? `Agent fetched ${ago(Date.parse(s.fetchedAt))}` : `Edited ${ago(touched(s))}`}</span></div>
+            <div className="row-meta"><TypeChip s={s} S={S} /><StatusChip i={s} S={S} /><AgentChip s={s} S={S} />{S.feedbackCount(s.id) > 0 && <span className="chip warn" title="Open feedback">{S.feedbackCount(s.id)} feedback</span>}<span>{s.links.length} document{s.links.length === 1 ? '' : 's'}</span><span>{s.fetchedAt && !S.hasUnreleased(s) ? `Agent fetched ${ago(Date.parse(s.fetchedAt))}` : `Edited ${ago(touched(s))}`}</span></div>
           </Link>
         ))}
       </div>

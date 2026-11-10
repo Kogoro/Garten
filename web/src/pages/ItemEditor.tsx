@@ -8,6 +8,7 @@ import { CORE_LABEL, enc, foundState, hasContent, rawMode } from '../lib';
 import { ConflictSheet, LinkSheet, PathSheet } from '../sheets';
 import { openMenu, useUi } from '../state';
 import type { Item } from '../store/types';
+import { FeedbackSheet } from '../feedback';
 import { Icon, toast, useStore } from '../ui';
 
 type Store = ReturnType<typeof useStore>;
@@ -88,7 +89,7 @@ function DocsDd({ i, S, onNew }: { i: Item; S: Store; onNew: () => void }) {
 export function ItemEditor({ item }: { item: Item }) {
   const S = useStore(); const nav = useNavigate(); const ui = useUi();
   const api = useRef<EditorApi | null>(null);
-  const [sheet, setSheet] = useState<null | 'link' | 'ref' | 'newdoc' | 'move' | 'conflict'>(null);
+  const [sheet, setSheet] = useState<null | 'link' | 'ref' | 'newdoc' | 'move' | 'conflict' | 'feedback'>(null);
   const isSpec = item.kind === 'spec';
   const ro = !S.can('write');
   const raw = rawMode(item);
@@ -134,6 +135,7 @@ export function ItemEditor({ item }: { item: Item }) {
           : <h1 className="ed-title" title={path} style={item.core ? undefined : { fontFamily: 'var(--mono)', fontSize: 15 }}>{CORE_LABEL[item.id] ?? item.id}</h1>}
         <span id="chips" className="barchips">{isSpec && <TypeChip s={item} S={S} />}<StatusChip i={item} S={S} /><AgentChip s={item} S={S} /></span>
         <span id="docsSlot"><DocsDd i={item} S={S} onNew={() => setSheet('newdoc')} /></span>
+        {isSpec && <button type="button" className={`fbbtn${S.feedbackCount(item.id) ? ' has' : ''}`} data-act="feedback" aria-label={`Feedback: ${S.feedbackCount(item.id)} open`} title="Feedback from agents and colleagues" onClick={() => setSheet('feedback')}><Icon name="warn" size={14} /><span className="lbl">Feedback</span>{S.feedbackCount(item.id) > 0 && <span className="cnt">{S.feedbackCount(item.id)}</span>}</button>}
         <SaveInd i={item} S={S} />
         <span id="approveSlot"><ApproveButton i={item} S={S} /></span>
         <button type="button" className="icon-btn" data-act="item-menu" aria-label="More actions" aria-haspopup="menu" onClick={itemMenu}><Icon name="more" /></button>
@@ -164,6 +166,7 @@ export function ItemEditor({ item }: { item: Item }) {
       {sheet === 'link' && <LinkSheet specId={item.id} onClose={() => setSheet(null)} />}
       {sheet === 'newdoc' && <PathSheet kind="newdoc" linkTo={item.id} onClose={() => setSheet(null)} />}
       {sheet === 'move' && <PathSheet kind="move" from={item.id} value={item.id} onClose={() => setSheet(null)} />}
+      {sheet === 'feedback' && <FeedbackSheet specId={item.id} version={item.version} onClose={() => setSheet(null)} />}
       {sheet === 'conflict' && <ConflictSheet id={item.id} onClose={() => setSheet(null)} />}
     </div>
   );
