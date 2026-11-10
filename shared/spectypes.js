@@ -35,6 +35,11 @@ export const BUILTIN_TYPES = [
     description: 'How we talk to another system: flows, contract, failure handling and ownership.',
     template: '## PARTNER SYSTEM\n\n## FLOWS\n\n```mermaid\nsequenceDiagram\n  participant A as Us\n  participant B as Partner\n  A->>B: request\n  B-->>A: response\n```\n\n## CONTRACT\n\n## FAILURE HANDLING\n',
   },
+  {
+    key: 'architecture', label: 'Architecture spec', short: 'Architecture',
+    description: 'A design decision or system structure: context, drivers, decision, components, alternatives, consequences and risks.',
+    template: '',
+  },
 ];
 
 const F = (key, label, kind, extra = {}) => ({ key, label, kind, ...extra });
@@ -66,6 +71,22 @@ const FORMS = {
     fields: [
       F('attribute', 'QUALITY ATTRIBUTE', 'select', { options: ['Performance', 'Availability', 'Reliability', 'Security', 'Scalability', 'Cost', 'Usability', 'Compliance', 'Other'] }),
       F('targets', 'TARGETS', 'list', { help: 'Measurable, e.g. “p95 latency < 300 ms at 200 rps”.' }), F('measurement', 'MEASUREMENT', 'longtext'), F('tradeoffs', 'TRADE-OFFS', 'longtext'),
+    ],
+  },
+  architecture: {
+    view: 'form', tabs: [{ key: 'context', label: 'Context' }, { key: 'design', label: 'Design' }, { key: 'consequences', label: 'Consequences' }],
+    fields: [
+      F('status', 'STATUS', 'select', { tab: 'context', options: ['Proposed', 'Accepted', 'Superseded', 'Rejected'] }),
+      F('context', 'CONTEXT', 'longtext', { tab: 'context', help: 'The situation and the problem this design answers.' }),
+      F('drivers', 'QUALITY DRIVERS AND CONSTRAINTS', 'list', { tab: 'context', help: 'What matters most (latency, cost, team skills, compliance …) and what is fixed.' }),
+      F('decision', 'DECISION', 'longtext', { tab: 'design', help: 'What we decided, in one or two paragraphs.' }),
+      F('overview', 'OVERVIEW DIAGRAM', 'diagram', { tab: 'design' }),
+      F('components', 'COMPONENTS AND RESPONSIBILITIES', 'list', { tab: 'design', help: 'Component – what it owns, what it talks to.' }),
+      F('alternatives', 'ALTERNATIVES CONSIDERED', 'list', { tab: 'design', help: 'Option – why not.' }),
+      F('consequences', 'CONSEQUENCES', 'list', { tab: 'consequences', help: 'Good and bad results of the decision.' }),
+      F('risks', 'RISKS', 'list', { tab: 'consequences' }),
+      F('questions', 'OPEN QUESTIONS', 'list', { tab: 'consequences' }),
+      F('requirements', 'REQUIREMENTS', 'requirements', { tab: 'consequences', help: 'Testable rules that follow from the design.' }),
     ],
   },
   integration: { view: 'editor', fields: [F('partner', 'PARTNER SYSTEM', 'text'), F('flows', 'FLOWS', 'diagram'), F('contract', 'CONTRACT', 'longtext'), F('failures', 'FAILURE HANDLING', 'list')] },

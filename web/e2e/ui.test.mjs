@@ -401,7 +401,7 @@ try {
   await d.click('.sidebar a[href="#/"]');
   await d.click('.bar [data-act=new-spec]');
   const chooser = d.locator('.typelist .typeopt');
-  assert.equal(await chooser.count(), 6); await d.getByRole('button', { name: /UI spec \/ design rule/ }).waitFor(); await d.getByRole('button', { name: /API spec/ }).waitFor(); ok('new spec: choose from the built-in types (API, UI spec / design rule, feature, data model …)');
+  assert.equal(await chooser.count(), 7); await d.getByRole('button', { name: /Architecture spec/ }).waitFor(); await d.getByRole('button', { name: /UI spec \/ design rule/ }).waitFor(); await d.getByRole('button', { name: /API spec/ }).waitFor(); ok('new spec: choose from the built-in types (API, UI spec / design rule, feature, data model …)');
   await d.getByRole('button', { name: /API spec/ }).click();
   await d.locator('#title').waitFor(); await d.fill('#title', 'Orders API');
   await d.locator('[data-testid=spec-form]').waitFor();
