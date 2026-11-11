@@ -258,7 +258,9 @@ try {
   await page.keyboard.press('g'); await page.keyboard.press('y');
   await page.waitForFunction(() => location.hash === '#/sync'); await page.waitForFunction(() => /^Sync · /.test(document.title)); ok('keyboard: "g" then "y" goes to Sync');
   await page.keyboard.press('?'); await page.getByRole('dialog', { name: /Keyboard shortcuts/ }).waitFor(); await page.keyboard.press('Escape'); ok('keyboard: "?" lists the shortcuts');
-  await page.evaluate(() => document.body.focus()); await page.keyboard.press('Tab');
+  // newer Chromium starts sequential focus navigation where the page last was: put the starting point at the top of the document
+  await page.evaluate(() => { document.activeElement?.blur?.(); document.body.tabIndex = -1; document.body.focus(); document.body.removeAttribute('tabindex'); window.scrollTo(0, 0); });
+  await page.keyboard.press('Tab');
   assert.equal(await page.evaluate(() => document.activeElement?.textContent), 'Skip to content'); ok('the first Tab stop is a skip link');
   // phone toolbar: one row, sort and type live in a sheet
   await page.evaluate(() => { location.hash = '#/'; });
