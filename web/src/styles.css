@@ -650,3 +650,10 @@ textarea.field.hook-headers { min-height: 76px; font-size: 12.5px; }
 .lookup-hit .btn { align-self: flex-start; }
 #toast.has-action { pointer-events: auto; display: flex; align-items: center; gap: 12px; }
 .toast-act { min-height: 44px; padding: 0 8px; margin: -10px -8px -10px 0; border: 0; background: none; color: var(--accent, #7bd88f); font: 700 13px var(--sans); }
+
+/* Checks (re-runnable evidence) */
+.rp-chk { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.rp-chk li { display: flex; gap: 10px; align-items: flex-start; }
+.rp-chk .rp-ref { display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.rp-chk small { color: var(--muted); }
+.rp-chk small.mono { font-family: var(--mono); }

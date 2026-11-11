@@ -25,6 +25,7 @@ export const FOLDER_ID = /^(?!.*\.\.)(?=.{1,100}$)[A-Za-z0-9][A-Za-z0-9_.-]*(?:\
 export const CORE_DOCS = {
   'vision.md': '# Vision\n\n## Where are we heading?\n\n## Why does it matter?\n',
   'strategy.md': '# Strategy\n\n## Goals\n\n## Principles and trade-offs\n\n## Out of scope\n',
+  'guardrails.md': '# Guardrails\n\n<!-- Rules every agent follows on every task, unasked. One rule per line, e.g. "- G1: …". When a task would break a rule, the agent stops and asks. -->\n\n## Always\n\n## Never\n',
   'glossary.md': '# Glossary\n\n',
 };
 export const isCoreDoc = (id) => id in CORE_DOCS;

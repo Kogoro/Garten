@@ -271,3 +271,41 @@ db.exec(`CREATE TABLE IF NOT EXISTS hook_outbox (
   created_at TEXT NOT NULL,
   PRIMARY KEY (team_id, kind, key)
 )`);
+
+// v0.12: re-runnable evidence. A check says how a claim of an agent can be verified again (a test, a CI job, a metric, a command);
+// every run of it is kept. Checks belong to a spec and survive new versions, so they can be run after every change.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS checks (
+    id TEXT PRIMARY KEY,
+    team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    spec_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL,                        -- test | ci | metric | command | url | manual
+    how TEXT NOT NULL,                         -- the command, the CI job URL, the metric query, the test selector
+    expect TEXT NOT NULL DEFAULT '',           -- what counts as passing ("exit 0", "p95 < 200 ms", "coverage >= 80 %")
+    criterion TEXT NOT NULL DEFAULT '',        -- the acceptance criterion it proves (quoted from the spec)
+    max_age_days INTEGER NOT NULL DEFAULT 14,  -- a passing result older than this is stale and must be repeated
+    retired INTEGER NOT NULL DEFAULT 0,
+    created_by TEXT,
+    via TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (team_id, spec_id, name)
+  );
+  CREATE TABLE IF NOT EXISTS check_runs (
+    id TEXT PRIMARY KEY,
+    check_id TEXT NOT NULL REFERENCES checks(id) ON DELETE CASCADE,
+    team_id TEXT NOT NULL,
+    spec_id TEXT NOT NULL,
+    spec_version INTEGER NOT NULL,
+    status TEXT NOT NULL,                      -- pass | fail | error
+    value TEXT NOT NULL DEFAULT '',            -- measured value, e.g. "182 ms", "47 passed"
+    detail TEXT NOT NULL DEFAULT '',
+    ref TEXT NOT NULL DEFAULT '',              -- URL of the CI run / log
+    commit_sha TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL,                      -- agent | ci (reported by a pipeline with its own token)
+    run_by TEXT,
+    at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS check_runs_check ON check_runs(check_id, at);
+`);

@@ -5,6 +5,7 @@ import * as store from './store.js';
 import { getUser, roleIn, perms } from './auth.js';
 import { getTeam } from './teams.js';
 import { addFeedback, listFeedback, withdrawFeedback, requestDecision, KINDS, DECISION } from './feedback.js';
+import { registerCheck, retireCheck, recordRun, listChecks, runHistory, CHECK_KINDS, RUN_STATUSES } from './checks.js';
 import { addReport, listReports, workList, specChanges, REPORT_STATUSES, CRITERION_STATUSES, EVIDENCE_KINDS } from './reports.js';
 import { listTypes, isKnownType } from './specTypes.js';
 import { glossaryEntries, CORE_DOCS } from './store.js';
@@ -32,6 +33,7 @@ function buildServer(team, canDrafts, writer) {
         ' To implement: call get_work_list (what is new, changed or unfinished), read each spec with get_spec – for a changed spec get_spec_changes shows what is different – and check list_decisions for answers to earlier questions.' +
         (writer
           ? ' When you are done with a spec – or stuck – call report_implementation (status, every acceptance criterion, evidence such as commits, PRs and tests, deviations): people steer by these reports and do not read your code. ' +
+            'Back every criterion you call met with a re-runnable check: register_check (test, CI job, metric, command), run it, report_check_result, and name it in the criterion – checks are run again after changes, and get_work_list shows the specs whose checks fail or went stale as "recheck". ' +
             'When the spec leaves a choice open that a person should make, do not guess: call request_decision with 2–6 options and your recommendation, continue with other work, and look for the answer with list_decisions later. ' +
             'If you disagree with a spec or find it conflicts with the code, do not edit it: use add_feedback (check list_feedback first). ' +
             'You may create and edit DRAFTS (create_draft_spec, update_draft_spec, create_draft_document, update_draft_document); you can never approve or publish – a person reviews your drafts in the Specs app.'
@@ -120,8 +122,9 @@ function buildServer(team, canDrafts, writer) {
       for (const d of store.pinnedDocs(t).filter((x) => x.status === 'approved')) {
         try { const body = await store.readReleasedDoc(team, d.id); if (hasContent(body)) released.set(d.id, body); } catch { /* not in repo (yet) */ }
       }
-      const order = ['vision.md', 'strategy.md', ...[...released.keys()].filter((k) => !(k in CORE_DOCS)).sort()];
+      const order = ['vision.md', 'strategy.md', 'guardrails.md', ...[...released.keys()].filter((k) => !(k in CORE_DOCS)).sort()];
       let md = `# Team context – ${team.name}\n`;
+      if (released.has('guardrails.md')) md += '\n> GUARDRAILS below are binding on every task. If your work would break one, stop and ask (request_decision) instead of deciding yourself.\n';
       for (const id of order) if (released.has(id)) md += `\n---\n<!-- ${id} -->\n${released.get(id).trim()}\n`;
       const terms = await glossaryEntries(team);
       if (terms.length) {
@@ -214,7 +217,7 @@ function buildServer(team, canDrafts, writer) {
           spec_id: z.string(), version: z.number().int().positive().optional().describe('Released version you implemented (default: the current one)'),
           status: z.enum(REPORT_STATUSES).describe('implemented = everything in the spec is done · partial = some criteria are open · blocked = you cannot continue (say why) · in_progress = work has started'),
           summary: z.string().min(1).max(4000).describe('What was done, in a few sentences a non-developer understands'),
-          criteria: z.array(z.object({ text: z.string().min(1).max(400).describe('The criterion or requirement, quoted from the spec (e.g. "R2 …")'), status: z.enum(CRITERION_STATUSES), note: z.string().max(600).optional() })).max(60).optional(),
+          criteria: z.array(z.object({ text: z.string().min(1).max(400).describe('The criterion or requirement, quoted from the spec (e.g. "R2 …")'), status: z.enum(CRITERION_STATUSES), note: z.string().max(600).optional(), checks: z.array(z.string().max(80)).max(8).optional().describe('Names of the registered checks (register_check) that prove this criterion – people can run them again') })).max(60).optional(),
           evidence: z.array(z.object({ kind: z.enum(EVIDENCE_KINDS), ref: z.string().min(1).max(400).describe('Commit hash, PR or CI URL, test name …'), note: z.string().max(400).optional() })).max(30).optional(),
           deviations: z.string().max(4000).optional().describe('Where the implementation differs from the spec, and why'),
         },
@@ -222,8 +225,50 @@ function buildServer(team, canDrafts, writer) {
       run(async ({ spec_id, version, status, summary, criteria, evidence, deviations }) => {
         const r = addReport(team, { specId: spec_id, version, status, summary, criteria, evidence, deviations }, by);
         const cur = store.getItem(t, spec_id);
-        return { id: r.id, spec: r.specId, version: r.specVersion, status: r.status, ...(r.specVersion < cur.version ? { note: `Recorded for v${r.specVersion}. The current version is v${cur.version}: see get_spec_changes("${spec_id}").` } : { note: 'Recorded. People see it in the Specs app.' }) };
+        const unproven = r.criteria.filter((c) => c.status === 'met' && !c.checks?.length).length;
+        return { ...(unproven ? { unverified_criteria: unproven, advice: `${unproven} criteria are marked met without a check. A claim people cannot run again is only your word: register a check for each (register_check) and name it in the criterion.` } : {}), id: r.id, spec: r.specId, version: r.specVersion, status: r.status, ...(r.specVersion < cur.version ? { note: `Recorded for v${r.specVersion}. The current version is v${cur.version}: see get_spec_changes("${spec_id}").` } : { note: 'Recorded. People see it in the Specs app.' }) };
       }),
+    );
+
+    server.registerTool(
+      'register_check',
+      {
+        description: 'Make a claim checkable: register how a criterion of a released spec can be verified again – a test, a CI job, a metric, a command. Same name = same check (updates it). ' +
+          'Prefer automatic checks a pipeline can run (kind test/ci/command/metric); use manual only when nothing else is possible. Then run it and report the result with report_check_result, and name the check in report_implementation.',
+        inputSchema: {
+          spec_id: z.string(), name: z.string().min(1).max(80).describe('Short and stable, e.g. "unit: signature rotation" or "ci: build"'),
+          kind: z.enum(CHECK_KINDS), how: z.string().min(1).max(600).describe('Exact command, CI job URL, test selector or metric query'),
+          expect: z.string().max(300).optional().describe('What counts as passing, e.g. "exit 0", "p95 < 200 ms", "coverage >= 80 %"'),
+          criterion: z.string().max(400).optional().describe('The acceptance criterion this check proves, quoted from the spec'),
+          max_age_days: z.number().int().min(1).max(365).optional().describe('A passing result older than this is stale (default 14)'),
+        },
+      },
+      run(async ({ spec_id, name, kind, how, expect, criterion, max_age_days }) => {
+        const c = registerCheck(team, { specId: spec_id, name, kind, how, expect, criterion, maxAgeDays: max_age_days }, by);
+        return { spec: c.specId, name: c.name, state: c.state, note: 'Registered. Run it and call report_check_result.' };
+      }),
+    );
+
+    server.registerTool(
+      'report_check_result',
+      {
+        description: 'Report the outcome of running a registered check: pass, fail or error, with the measured value and a link to the run (CI URL, log). Report failures honestly – a failing check keeps the spec on the work list. A CI pipeline can report results itself with its own token (POST /api/ci/checks/results); those count as stronger evidence than yours.',
+        inputSchema: {
+          spec_id: z.string(), name: z.string().min(1).max(80), status: z.enum(RUN_STATUSES),
+          value: z.string().max(200).optional().describe('Measured value, e.g. "47 passed", "182 ms"'), detail: z.string().max(2000).optional(),
+          ref: z.string().max(400).optional().describe('URL of the CI run or log'), commit: z.string().max(80).optional().describe('Commit that was checked'),
+        },
+      },
+      run(async ({ spec_id, name, status, value, detail, ref, commit }) => {
+        const c = recordRun(team, { specId: spec_id, name, status, value, detail, ref, commit }, by, 'agent');
+        return { spec: c.specId, name: c.name, state: c.state, note: 'Recorded. People see it next to the implementation report.' };
+      }),
+    );
+
+    server.registerTool(
+      'retire_check',
+      { description: 'Retire a check that no longer applies (the spec changed). It stays in the history but no longer counts. Explain why in the next report.', inputSchema: { spec_id: z.string(), name: z.string() } },
+      run(async ({ spec_id, name }) => { retireCheck(team, spec_id, name); return { retired: name }; }),
     );
 
     server.registerTool(
@@ -312,6 +357,17 @@ function buildServer(team, canDrafts, writer) {
     { description: 'Implementation reports (newest first): which version of a spec was implemented, the status of every criterion, evidence and deviations.', inputSchema: { spec_id: z.string().optional(), limit: z.number().int().min(1).max(50).optional() } },
     safe(async ({ spec_id, limit }) => listReports(t, { specId: spec_id, limit: limit ?? 10 }).map((r) => ({
       id: r.id, spec: r.specId, version: r.specVersion, status: r.status, summary: r.summary, criteria: r.criteria, evidence: r.evidence, deviations: r.deviations || undefined, by: r.via ?? r.author, at: r.createdAt,
+    }))),
+  );
+  server.registerTool(
+    'list_checks',
+    {
+      description: 'The re-runnable checks (tests, CI jobs, metrics, commands) of a spec: how to run each, what counts as passing, and the result of its last run. state: passing · failing · stale (too old or from an older spec version) · unverified (never ran). Run the ones that are not passing and report with report_check_result.',
+      inputSchema: { spec_id: z.string().optional(), history: z.boolean().optional().describe('Include the last runs of each check') },
+    },
+    safe(async ({ spec_id, history }) => listChecks(t, { specId: spec_id }).map((c) => ({
+      spec: c.specId, name: c.name, kind: c.kind, how: c.how, expect: c.expect || undefined, proves: c.criterion || undefined, max_age_days: c.maxAgeDays, state: c.state, last_run: c.last ?? undefined,
+      ...(history ? { runs: runHistory(t, c.specId, c.name, 10) } : {}),
     }))),
   );
   server.registerTool(

@@ -163,6 +163,19 @@ Menschen schreiben und geben frei, Agenten bauen – und melden zurück. Der Men
 * Aufrufe an lokale/private Adressen sind gesperrt (`HOOK_ALLOW_LOCAL=1` hebt das für einen Runner im LAN auf). *Send test* schickt einen Aufruf „Connection test“; Status und Antwort des letzten Aufrufs stehen in der Karte.
 * Der Webhook ist nur der Anstoß. Maßgeblich ist immer die Arbeitsliste – ein verpasster Aufruf geht also nicht verloren, der nächste Lauf holt alles nach.
 
+**Belege, die man wiederholen kann (Checks)** – Ein Bericht ist erst belastbar, wenn sich seine Aussagen erneut prüfen lassen. Deshalb registriert der Agent pro Akzeptanzkriterium einen **Check** (`register_check`: Art `test`, `ci`, `command`, `metric`, `url` oder `manual`, Aufruf, Erwartung, optional das Kriterium und `max_age_days`, Standard 14) und meldet jedes Ergebnis mit `report_check_result` (pass/fail/error, Messwert, Link zum Lauf, Commit). Im Bericht nennt das Kriterium die Checks (`checks: [...]`).
+
+* **Verifiziert statt behauptet:** Die App zeigt je Kriterium *Verified* (alle genannten Checks bestehen gerade), *Check failing*, *Check stale* oder *Claimed only* (kein Check). Die Zusammenfassung lautet z. B. „4/4 criteria · 3 verified“; die Karte *Checks* im Bericht listet Aufruf, Erwartung, letztes Ergebnis, Quelle (*reported by CI* oder *by the agent*) und Link zum Lauf, auch offline.
+* **Wiedervorlage:** Ein Check ist **stale**, wenn sein letztes Ergebnis älter als `max_age_days` ist oder zu einer älteren Spec-Version gehört; **failing** nach einem fehlgeschlagenen Lauf. Dann steht der Spec in `get_work_list` wieder mit Zustand `recheck` und `checks_to_run` – der Agent führt die Checks erneut aus (`list_checks` zeigt, wie), meldet das Ergebnis und repariert bei Fehlern den Code. Ein neuer Release macht alle bisherigen Ergebnisse stale. `retire_check` nimmt einen Check außer Dienst, wenn der Spec ihn nicht mehr braucht.
+* **Belege aus der CI statt vom Agenten:** Eine Pipeline kann mit einem eigenen Token (Scope *Read & write drafts*, Rolle Editor+) Ergebnisse melden; sie gelten als `source: ci`:
+  ```bash
+  curl -fsS -X POST "$SPECS_URL/api/ci/checks/results" -H "Authorization: Bearer $SPECS_TOKEN" -H 'content-type: application/json' \
+    -d '{"results":[{"spec_id":"SPEC-012","name":"unit: key rotation","status":"pass","value":"12 passed","ref":"'"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"'","commit":"'"$GITHUB_SHA"'"}]}'
+  ```
+  (max. 50 Ergebnisse pro Aufruf; der Check muss vorher vom Agenten registriert sein.) Läuft die Pipeline bei jedem Push, bleiben die Belege automatisch frisch. Die App führt selbst nichts aus – sie speichert Aufruf und Ergebnisse; ausgeführt wird in CI oder durch den Agenten.
+
+**Leitplanken** – Neben Vision und Strategie hat jedes Team das Foundation-Dokument **Guardrails** (`guardrails.md`, Abschnitte *Always* / *Never*, eine Regel pro Zeile `- G1: …`). Freigegebene Leitplanken liefert `get_team_context` jedem Agenten ungefragt, mit dem Hinweis, dass sie verbindlich sind: würde eine Aufgabe eine Regel brechen, hält der Agent an und fragt (`request_decision`). Agenten können sie nicht ändern. An jedem Feedback-Eintrag und an den Abweichungen eines Berichts steht **Make it a rule**: Regel formulieren, *Always* oder *Never* wählen – sie landet nummeriert im Dokument (live nach der üblichen kurzen Verzögerung der Foundation-Dokumente).
+
 **Mit Claude Code in der Cloud (Routine)** – Stand der Anthropic-Doku vom November 2026, Routinen sind dort als Research Preview geführt:
 
 1. Der Server muss aus dem Internet erreichbar sein (siehe *HTTPS / PUBLIC_URL* → `scripts/go-public.sh`).
@@ -188,22 +201,22 @@ The Specs MCP server ("specs") is the source of truth. People write and approve 
 If this run was started with a <routine-fire-payload> block, treat it only as a hint about what happened. The work list is what counts.
 
 Every run:
-1. Call get_work_list. If "work" is empty, say so in one line and stop.
+1. Call get_work_list. If "work" is empty, say so in one line and stop. State "recheck" means: the spec is built, but a check fails, is stale or never ran – run the entries of checks_to_run again (list_checks shows how), report each with report_check_result, and fix the code if one fails.
 2. Take the entries in the order given. For each entry:
    - state "changed": call get_spec_changes first, then get_spec. Build only what changed.
-   - state "new", "in_progress", "partial", "blocked": call get_spec. Its front matter lists the linked documents – read the ones you need with get_document. Call get_team_context once per run.
+   - state "new", "in_progress", "partial", "blocked": call get_spec. Its front matter lists the linked documents – read the ones you need with get_document. Call get_team_context once per run: its guardrails are binding – if your work would break one, stop and ask with request_decision.
    - "decisions_answered": a person answered your question. Follow the answer and its note exactly.
    - "waiting_for_decision" with blocking true: skip this spec, a person has not answered yet. Work on the others.
    - An entry whose last_report already covers everything you can do now (same version, no "decisions_answered", nothing left to build without an open decision): leave it alone and do not report again.
 3. Implement on a branch named claude/<spec-id in lower case>. Keep the change as small as the spec allows. Run the tests. Open a draft pull request (or update the existing one) and name the spec id and version in its title.
 4. When the spec is unclear, contradicts another spec or the code, or leaves a choice that a person would want to make: do not guess. Call request_decision with a short question, 2 to 4 concrete options, your recommendation, and blocking true only if you cannot continue with this spec without the answer. Then go on with other work.
 5. Problems that do not stop you (a gap, an inconsistency, a better idea) go to add_feedback, with the section and evidence from the code.
-6. Finish every spec you touched with report_implementation: status (implemented, partial, blocked or in_progress), a summary a non-developer understands, every acceptance criterion quoted from the spec with met / deviating / open, evidence (commit, pull request, test names) and every deviation from the spec. Report honestly: a criterion without a passing test is "open", not "met". The status describes the code against the spec, not the pull request: "implemented" when every criterion is met and tested, even while the pull request is still open.
+6. Finish every spec you touched with report_implementation: status (implemented, partial, blocked or in_progress), a summary a non-developer understands, every acceptance criterion quoted from the spec with met / deviating / open, evidence (commit, pull request, test names) and every deviation from the spec. Make every claim re-runnable: for each criterion you call met, register a check (register_check: a test, CI job, metric or command, with what counts as passing), run it, report the result (report_check_result) and name the check in the criterion. A criterion without a passing check is "open", not "met". Report honestly: a failing check stays failing. The status describes the code against the spec, not the pull request: "implemented" when every criterion is met and tested, even while the pull request is still open.
 
 Stop when the work list holds nothing you can work on. End with one line per spec: id, status, pull request.
 ```
 
-**API:** `GET /api/teams/:id/reports?spec=`, `GET /api/teams/:id/feedback?spec=&kind=decision`, `PATCH /api/teams/:id {hook: {url, token?, clearToken?, headers?, events?, format?}}`, `POST /api/teams/:id/hook/test`. Antworten und Triage vom Gerät laufen über den Sync (`feedbackOps`), Entscheidungen und neueste Berichte kommen mit jedem Sync zurück.
+**API:** `GET /api/teams/:id/reports?spec=`, `GET /api/teams/:id/checks?spec=`, `POST /api/ci/checks/results`, `GET /api/teams/:id/feedback?spec=&kind=decision`, `PATCH /api/teams/:id {hook: {url, token?, clearToken?, headers?, events?, format?}}`, `POST /api/teams/:id/hook/test`. Antworten und Triage vom Gerät laufen über den Sync (`feedbackOps`), Entscheidungen und neueste Berichte kommen mit jedem Sync zurück.
 
 ## Wie es funktioniert
 
@@ -272,7 +285,7 @@ Die UI-Tests sind aus der Vanilla-JS-Version (v0.7) übernommen und für BlockNo
 
 ## Bekannte Lücken
 
-* Agenten-Kreislauf: gegen einen lokalen Claude-Code-Lauf und einen nachgestellten Routine-Endpunkt getestet, **nicht** gegen eine echte Claude-Code-Routine in der Cloud. Der Tunnel-Start in `scripts/go-public.sh` (Quick Tunnel und eigener Tunnel) ist ungetestet; Passwort-Prüfung, `.env`-Pflege, `status` und `stop` sind getestet. Ein Spec-Typ „Guardrails“ (Leitplanken, die für alle Specs gelten) fehlt noch. Beantworten zwei Menschen dieselbe Entscheidung (einer davon offline), ersetzt die später beim Server ankommende Antwort die frühere – ohne Konflikt-Dialog; der Agent wird dann erneut angestoßen.
+* Agenten-Kreislauf: gegen einen lokalen Claude-Code-Lauf und einen nachgestellten Routine-Endpunkt getestet, **nicht** gegen eine echte Claude-Code-Routine in der Cloud. Der Tunnel-Start in `scripts/go-public.sh` (Quick Tunnel und eigener Tunnel) ist ungetestet; Passwort-Prüfung, `.env`-Pflege, `status` und `stop` sind getestet. Leitplanken sind ein Foundation-Dokument, kein Spec-Typ; sie werden nicht maschinell durchgesetzt (nur der Agent hält sich daran, Checks können sie nicht prüfen). Die App führt Checks nicht selbst aus – ob ein CI-Ergebnis stimmt, hängt an der Pipeline, die es meldet. Beantworten zwei Menschen dieselbe Entscheidung (einer davon offline), ersetzt die später beim Server ankommende Antwort die frühere – ohne Konflikt-Dialog; der Agent wird dann erneut angestoßen.
 
 * Drag & Drop ist mit der Maus getestet; auf echten Touch-Geräten noch nicht.
 * Git: Remote-Zugriff wurde mit lokalem Bare-Repo getestet, nicht gegen GitHub/GitLab; SSH-Host-Keys werden beim ersten Kontakt übernommen (`accept-new`). Die Remote-URL ist frei wählbar → Team-Admins können den Server zu beliebigen Hosts verbinden lassen (SSRF-Fläche; bei Bedarf per Egress-Firewall begrenzen).

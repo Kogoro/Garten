@@ -2,7 +2,7 @@ import express from 'express';
 import {
   ROLES, perms, requireUser, requireTeam, requireInstanceAdmin, loginWithPassword, startSession, endSession, setPassword, verifyPassword,
   createUser, updateUser, deleteUser, listUsers, getUser, createPat, listPats, revokePat, AuthError, MCP_SCOPES,
-  meSummary, members, setMember, removeMember, teamsFor, userFromRequest,
+  meSummary, verifyPat, members, setMember, removeMember, teamsFor, userFromRequest,
 } from './auth.js';
 import { db } from './db.js';
 import { listConnections, revokeConnection } from './oauth.js';
@@ -17,6 +17,7 @@ import { createInvite, listInvites, revokeInvite, inviteByToken, registerFromInv
 import { listGlobalTerms, createGlobalTerm, updateGlobalTerm, deleteGlobalTerm, importGlobalTerms, GlossaryError } from './globalGlossary.js';
 import { addFeedback, listFeedback, setFeedback, openCounts, applyFeedbackOps, gardenFeedback, gardenRev } from './feedback.js';
 import { listReports, latestReports } from './reports.js';
+import { recordRun, listChecks, runHistory, checksBySpec } from './checks.js';
 import { publicHook, saveHook, testHook } from './hooks.js';
 import { listTypes, createType, updateType, deleteType, TypeError_ } from './specTypes.js';
 import * as store from './store.js';
@@ -120,6 +121,22 @@ export function apiRouter() {
     res.json({ me: me(user), teamId });
   }));
 
+  // ---- a CI pipeline reports check results with a personal token (scope mcp:write, role editor+). Counts as source "ci".
+  r.post('/ci/checks/results', wrap(async (req, res) => {
+    const m = /^Bearer (spc_\S+)$/.exec(req.get('authorization') ?? '');
+    const p = m && verifyPat(m[1]);
+    if (!p) return res.status(401).json({ error: 'Send a personal token: Authorization: Bearer spc_…' });
+    if (!p.scopes.includes('mcp:write')) return res.status(403).json({ error: 'The token needs the scope "Read & write drafts" (mcp:write).' });
+    const team = getTeam(p.teamId);
+    const rows = Array.isArray(req.body?.results) ? req.body.results : [req.body];
+    if (rows.length > 50) return res.status(400).json({ error: 'At most 50 results per call.' });
+    const out = rows.map((x) => {
+      try { const c = recordRun(team, { specId: x?.spec_id, name: x?.name, status: x?.status, value: x?.value, detail: x?.detail, ref: x?.ref, commit: x?.commit }, { id: p.user.id, name: p.user.name, via: p.name }, 'ci'); return { spec_id: c.specId, name: c.name, state: c.state }; }
+      catch (e) { if (e instanceof store.ApiError) return { spec_id: x?.spec_id, name: x?.name, error: e.message }; throw e; }
+    });
+    res.json({ results: out });
+  }));
+
   // ---- everything below needs a session
   r.use(requireUser);
 
@@ -179,7 +196,7 @@ export function apiRouter() {
     const rev = gardenRev(t);
     res.json({
       results, fbResults, items: store.itemsSince(t, Number(since) || 0), cursor: store.maxSeq(t), me: me(req.user), project: PROJECT_NAME, mcpUrl: `${PUBLIC_URL}/mcp`, specTypes: listTypes(t), feedbackOpen: openCounts(t),
-      ...(have === rev ? {} : { garden: { rev, feedback: gardenFeedback(t), reports: latestReports(t) } }), // what the garden view needs offline; only sent when it changed
+      ...(have === rev ? {} : { garden: { rev, feedback: gardenFeedback(t), reports: latestReports(t), checks: checksBySpec(t) } }), // what the garden view needs offline; only sent when it changed
     });
   }));
 
@@ -190,6 +207,11 @@ export function apiRouter() {
 
   // implementation reports: agents write them through MCP, everyone in the team reads them
   team.get('/reports', requireTeam('read'), (req, res) => res.json({ reports: listReports(req.team.id, { specId: req.query.spec ? String(req.query.spec) : undefined }) }));
+
+  team.get('/checks', requireTeam('read'), (req, res) => {
+    const specId = req.query.spec ? String(req.query.spec) : undefined;
+    res.json({ checks: listChecks(req.team.id, { specId }).map((c) => ({ ...c, runs: runHistory(req.team.id, c.specId, c.name, 10) })) });
+  });
 
   team.get('/', requireTeam(), (req, res) => res.json({ team: teamView(req.team, req.role) }));
   team.patch('/', requireTeam('admin'), wrap(async (req, res) => {
