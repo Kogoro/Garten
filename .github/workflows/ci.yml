@@ -5,7 +5,7 @@ on:
   pull_request:
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -21,14 +21,14 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm test
   scripts:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - run: sudo apt-get install -y shellcheck
       - run: bash -n scripts/install-debian.sh ct/garten.sh install/garten-install.sh
       - run: shellcheck -S error scripts/install-debian.sh
   docker:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - run: docker build -t garten:ci .
