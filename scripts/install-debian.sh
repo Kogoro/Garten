@@ -233,7 +233,7 @@ EOF
     systemctl restart caddy
     local ca=""
     for _ in $(seq 30); do
-      ca="$(find /var/lib/caddy /root/.local/share/caddy -path '*pki/authorities/local/root.crt' -size +0 2>/dev/null | head -1)"
+      ca="$(find /var/lib/caddy /root/.local/share/caddy -path '*pki/authorities/local/root.crt' -size +0 2>/dev/null | head -1 || true)"   # find fails while a directory is missing; pipefail + set -e must not stop the loop
       [ -n "$ca" ] && break; sleep 1
     done
     [ -n "$ca" ] || die "Caddy did not create its certificate authority – see: journalctl -u caddy"
