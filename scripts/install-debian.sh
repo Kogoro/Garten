@@ -8,23 +8,21 @@
 #   /opt/garten                the code (this repository), built
 #   /var/lib/garten/data       SQLite database and one Git repository per team  ← back this up
 #   /etc/garten/garten.env     settings (same variables as docker-compose.yml)
-#   garten.service             the server, as the unprivileged user "garten", on 127.0.0.1:3000
-#   Caddy                      HTTPS on port 443 with its own certificate authority (the offline mode of the app needs HTTPS);
-#                              http://<address>/ explains how to trust that authority on a phone
+#   garten.service             the server, as the unprivileged user "garten", on port 3000 (all interfaces)
 #   garten                     command: garten info | update | url <address> | backup | logs
 #
 # Settings (environment variables, all optional)
 #   GARTEN_URL     the address people will use.
-#                    unset        first install: https://<IP of this machine> through Caddy; later runs keep what is set
-#                    auto         detect the IP again and use https://<IP> through Caddy
-#                    https://…    your own reverse proxy does TLS: no Caddy, Garten listens on port 3000 of all interfaces
-#                    http://…     no TLS at all (port 3000). Works online only – browsers refuse offline mode without HTTPS.
+#                    unset        first install: http://<IP of this machine>:3000; later runs keep what is set
+#                    auto         detect the IP again and use http://<IP>:3000
+#                    http://…     no TLS (port 3000). Works online only – browsers refuse offline mode without HTTPS.
+#                    https://…    your own reverse proxy does TLS and forwards to port 3000
 #   GARTEN_ADMIN   e-mail address of the first admin (default admin@localhost; only used on an empty database)
 #   GARTEN_REPO, GARTEN_REF   where the code comes from (default https://github.com/Kogoro/Garten.git, main)
 set -euo pipefail
 
 main() {
-  local APP_DIR=/opt/garten HOME_DIR=/var/lib/garten DATA_DIR=/var/lib/garten/data ETC_DIR=/etc/garten WWW_DIR=/var/www/garten
+  local APP_DIR=/opt/garten HOME_DIR=/var/lib/garten DATA_DIR=/var/lib/garten/data ETC_DIR=/etc/garten
   local ENVF=$ETC_DIR/garten.env CREDS=/root/garten.creds
   local REPO="${GARTEN_REPO:-https://github.com/Kogoro/Garten.git}" REF="${GARTEN_REF:-main}"
 
@@ -62,20 +60,19 @@ main() {
   ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
   url="${GARTEN_URL:-}"
   [ -z "$url" ] && [ "$first" = 0 ] && url="$(getenv PUBLIC_URL)"
+  # An installation made by an older version of this script ran behind Caddy (HTTPS on 443, server on 127.0.0.1 only).
+  # Caddy is gone, so unless an address was given, move it to plain HTTP.
+  [ -z "${GARTEN_URL:-}" ] && [ "$first" = 0 ] && [ "$(getenv HOST)" = 127.0.0.1 ] && url=auto
   if [ -z "$url" ] || [ "$url" = auto ]; then
-    [ -n "$ip" ] || die "This machine has no IP address yet. Give it one, or pass GARTEN_URL=https://…"
-    url="https://$ip"; mode=caddy
-  elif [ -z "${GARTEN_URL:-}" ] && [ "$(getenv HOST)" = 127.0.0.1 ]; then
-    mode=caddy                              # an update of an installation that already runs behind Caddy
-  else
-    case "$url" in https://*) mode=proxy ;; http://*) mode=plain ;; *) die "GARTEN_URL must start with https:// or http://" ;; esac
+    [ -n "$ip" ] || die "This machine has no IP address yet. Give it one, or pass GARTEN_URL=http://…"
+    url="http://$ip:3000"
   fi
+  case "$url" in https://*) mode=proxy ;; http://*) mode=plain ;; *) die "GARTEN_URL must start with https:// or http://" ;; esac
   url="${url%/}"
-  local host="${url#*://}"; host="${host%%/*}"; host="${host%%:*}"
 
   # ---------------------------------------------------------------- user and directories
   id garten >/dev/null 2>&1 || useradd --system --home-dir "$HOME_DIR" --shell /usr/sbin/nologin garten
-  mkdir -p "$DATA_DIR" "$ETC_DIR" "$WWW_DIR"
+  mkdir -p "$DATA_DIR" "$ETC_DIR"
   chown -R garten:garten "$HOME_DIR"
   chmod 750 "$HOME_DIR"
 
@@ -117,7 +114,6 @@ EOF
   fi
   setenv PUBLIC_URL "$url"
   case "$mode" in
-    caddy) setenv HOST 127.0.0.1; setenv TRUST_PROXY 1 ;;
     proxy) unsetenv HOST; setenv TRUST_PROXY 1 ;;
     plain) unsetenv HOST; setenv TRUST_PROXY 0 ;;
   esac
@@ -158,7 +154,6 @@ url() { sed -n 's/^PUBLIC_URL=//p' "$ENVF" | tail -1; }
 case "${1:-info}" in
   info)
     echo "Garten    $(url)   ($(systemctl is-active garten))"
-    [ -f /var/www/garten/garten-ca.crt ] && echo "Phone     http://$(hostname -I | awk '{print $1}')/   (install the certificate once, then offline mode works)"
     [ -f /root/garten.creds ] && echo "Login     see /root/garten.creds"
     echo "Data      /var/lib/garten/data      Settings  $ENVF"
     echo "Commands  garten update | url <https://…|auto> | backup | logs"
@@ -201,71 +196,16 @@ EOF
     ( umask 077; printf 'Garten – first admin\n  Address:  %s\n  E-mail:   %s\n  Password: %s\nChange the password after the first sign-in (Account → Password), then delete this file.\n' "$url" "${GARTEN_ADMIN:-admin@localhost}" "$password" > "$CREDS" )
   fi
 
-  # ---------------------------------------------------------------- HTTPS through Caddy
-  if [ "$mode" = caddy ]; then
-    step "Setting up HTTPS (Caddy)"
-    command -v caddy >/dev/null || apt-get install -y -qq caddy >/dev/null
-    local names="https://$host" hn; hn="$(hostname 2>/dev/null || true)"
-    case "$hn" in ''|localhost|"$host") ;; *) names="$names, https://$hn" ;; esac
-    cat > /etc/caddy/Caddyfile <<EOF
-# Written by Garten's installer (scripts/install-debian.sh) – "garten url …" writes it again.
-{
-	auto_https disable_redirects
-	skip_install_trust
-}
-
-# The app. Caddy signs the certificate with its own authority; devices trust it once (see http://$host/).
-$names {
-	tls internal
-	encode zstd gzip
-	reverse_proxy 127.0.0.1:3000
-}
-
-# Plain HTTP: only the certificate and the page that explains how to install it.
-:80 {
-	root * $WWW_DIR
-	@ca path /garten-ca.crt
-	header @ca Content-Type application/x-x509-ca-cert
-	file_server
-}
-EOF
-    systemctl enable --quiet caddy
-    systemctl restart caddy
-    local ca=""
-    for _ in $(seq 30); do
-      ca="$(find /var/lib/caddy /root/.local/share/caddy -path '*pki/authorities/local/root.crt' -size +0 2>/dev/null | head -1)"
-      [ -n "$ca" ] && break; sleep 1
-    done
-    [ -n "$ca" ] || die "Caddy did not create its certificate authority – see: journalctl -u caddy"
-    install -m 644 "$ca" "$WWW_DIR/garten-ca.crt"
-    cat > "$WWW_DIR/index.html" <<EOF
-<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Garten – set up this device</title>
-<style>body{font:16px/1.5 system-ui,sans-serif;max-width:40rem;margin:0 auto;padding:1.5rem 1rem;color:#1c1c1c;background:#fafaf7}
-@media(prefers-color-scheme:dark){body{color:#eee;background:#181816}a{color:#9ccf8f}}
-h1{font-size:1.4rem}a.b{display:inline-block;padding:.7rem 1rem;border-radius:.6rem;background:#2f6f3e;color:#fff;text-decoration:none;margin:.3rem 0}
-li{margin:.4rem 0}code{background:#8882;padding:.1rem .3rem;border-radius:.3rem}</style>
-<h1>Garten – set up this device</h1>
-<p>Garten runs at <a href="$url">$url</a>. Its certificate is signed by this server's own authority. Trust it once on each device – only then the browser allows the app to work <b>offline</b>.</p>
-<p><a class="b" href="/garten-ca.crt" download>1 · Download the certificate</a></p>
-<ol start="2">
-<li><b>Android:</b> Settings → Security &amp; privacy → More security settings → Install from device storage → <i>CA certificate</i> → choose <code>garten-ca.crt</code>. (Search the settings for “CA certificate” if the menu differs.) Use Chrome.</li>
-<li><b>iPhone / iPad:</b> open the download in Safari → <i>Allow</i> → Settings → <i>Profile Downloaded</i> → Install. Then Settings → General → About → Certificate Trust Settings → switch on “Caddy Local Authority”.</li>
-<li><b>Desktop:</b> import the file as a trusted root authority in the browser (Firefox: Settings → Certificates → Authorities) or in the system.</li>
-</ol>
-<p><a class="b" href="$url">3 · Open Garten</a></p>
-<p>Then sign in, choose “Add to Home Screen”, and open every team once while online.</p>
-</html>
-EOF
-  elif systemctl is-enabled --quiet caddy 2>/dev/null && grep -q "Garten's installer" /etc/caddy/Caddyfile 2>/dev/null; then
-    systemctl disable --quiet --now caddy       # switched from Caddy to another address
+  # Older versions of this script put Caddy in front of Garten; it is not used any more.
+  if grep -qs "Garten's installer" /etc/caddy/Caddyfile; then
+    systemctl disable --quiet --now caddy 2>/dev/null || true
+    rm -rf /var/www/garten
   fi
 
   # ---------------------------------------------------------------- done
   printf '\n✓ Garten is running:  %s\n' "$url"
   [ -n "$password" ] && printf '  Sign in as  %s  with the password in  %s\n' "${GARTEN_ADMIN:-admin@localhost}" "$CREDS"
   case "$mode" in
-    caddy) printf '  Phone: open  http://%s/  once and install the certificate – without it the app shows a warning and cannot work offline.\n' "$host" ;;
     proxy) printf '  Point your reverse proxy at  http://%s:3000  (forward the Host header and X-Forwarded-*).\n' "${ip:-this machine}" ;;
     plain) printf '  No HTTPS: the app works online only (browsers allow offline mode only over HTTPS).\n' ;;
   esac

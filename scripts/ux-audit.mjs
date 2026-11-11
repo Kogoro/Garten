@@ -21,7 +21,8 @@ const require = createRequire(import.meta.url);
 let axePath; try { axePath = require.resolve('axe-core/axe.min.js'); } catch { execFileSync('npm', ['i', '--no-save', '--no-audit', '--no-fund', 'axe-core'], { cwd: root, stdio: 'ignore' }); axePath = require.resolve('axe-core/axe.min.js'); }
 const axeSrc = readFileSync(axePath, 'utf8');
 
-const PORT = 3400 + Math.floor(Math.random() * 400), BASE = `http://localhost:${PORT}`;
+let PORT = 3400 + Math.floor(Math.random() * 400); if (PORT === 3659) PORT++; // 3659 is on fetch's blocked-port list ("bad port")
+const BASE = `http://localhost:${PORT}`;
 const dir = mkdtempSync(path.join(process.env.TEST_TMP || tmpdir(), 'ux-audit-'));
 const srv = spawn('node', ['server/index.js'], { cwd: root, env: { ...process.env, PORT: String(PORT), DATA_DIR: dir, ADMIN_PASSWORD: 'adminpass1', PUBLIC_URL: BASE, SEED_DEMO: '1', NODE_NO_WARNINGS: '1' }, stdio: 'ignore' });
 const stop = () => { try { srv.kill(); } catch { /* gone */ } };
