@@ -1,8 +1,10 @@
 import { randomBytes, randomUUID, scrypt, timingSafeEqual, createHash } from 'node:crypto';
 import { promisify } from 'node:util';
 import { db } from './db.js';
-import { ADMIN_EMAIL, ADMIN_PASSWORD, SECURE_COOKIES, DEFAULT_TEAM_NAME, DEFAULT_TEAM_KEY } from './config.js';
+import { ADMIN_EMAIL, ADMIN_PASSWORD, SECURE_COOKIES, SESSION_IDLE_DAYS, DEFAULT_TEAM_NAME, DEFAULT_TEAM_KEY } from './config.js';
 import { getTeam, getTeamByKey, listTeams, createTeam } from './teams.js';
+import { Limiter } from './ratelimit.js';
+import { isEmail, passwordProblem } from './validate.js';
 
 const scryptAsync = promisify(scrypt);
 export const sha = (s) => createHash('sha256').update(s).digest('hex');
@@ -62,18 +64,42 @@ export function removeMember(teamId, userId) {
 }
 
 // ------------------------------------------------------------------ passwords
+// Stored as scrypt$N$r$p$salt$hash. Hashes of earlier versions (scrypt$salt$hash, N=16384) still verify and are upgraded at the next sign-in.
+const SCRYPT = { N: 2 ** 16, r: 8, p: 2 };
+const LEGACY = { N: 16384, r: 8, p: 1 };
+const SCRYPT_MEM = 512 * 1024 * 1024;
+// A hash needs ~64 MiB: only a few at a time, the rest waits (bounds memory under a flood of sign-in attempts).
+let hashing = 0;
+const hashQueue = [];
+async function slot() {
+  if (hashing >= 2) await new Promise((r) => hashQueue.push(r));
+  hashing += 1;
+}
+function release() { hashing -= 1; hashQueue.shift()?.(); }
+async function derive(pw, salt, { N, r, p }) {
+  await slot();
+  try { return await scryptAsync(pw, salt, 64, { N, r, p, maxmem: SCRYPT_MEM }); } finally { release(); }
+}
+const parseHash = (stored) => {
+  const parts = String(stored ?? '').split('$');
+  if (parts[0] !== 'scrypt') return null;
+  if (parts.length === 3) return { ...LEGACY, salt: parts[1], hash: parts[2], legacy: true };
+  if (parts.length === 6 && [1, 2, 3].every((i) => /^\d+$/.test(parts[i]))) return { N: +parts[1], r: +parts[2], p: +parts[3], salt: parts[4], hash: parts[5] };
+  return null;
+};
 export async function hashPassword(pw) {
   const salt = randomBytes(16);
-  const key = await scryptAsync(pw, salt, 64);
-  return `scrypt$${salt.toString('base64')}$${key.toString('base64')}`;
+  const key = await derive(pw, salt, SCRYPT);
+  return `scrypt$${SCRYPT.N}$${SCRYPT.r}$${SCRYPT.p}$${salt.toString('base64')}$${key.toString('base64')}`;
 }
 export async function verifyPassword(pw, stored) {
-  const [alg, salt, hash] = String(stored ?? '').split('$');
-  if (alg !== 'scrypt') return false;
-  const key = await scryptAsync(pw, Buffer.from(salt, 'base64'), 64);
-  const want = Buffer.from(hash, 'base64');
+  const h = parseHash(stored);
+  if (!h || h.N > 2 ** 18) return false; // never let a stored value ask for unbounded work
+  const key = await derive(pw, Buffer.from(h.salt, 'base64'), h);
+  const want = Buffer.from(h.hash, 'base64');
   return key.length === want.length && timingSafeEqual(key, want);
 }
+const needsRehash = (stored) => { const h = parseHash(stored); return !h || h.legacy || h.N !== SCRYPT.N || h.r !== SCRYPT.r || h.p !== SCRYPT.p; };
 
 // ------------------------------------------------------------------ users
 const toUser = (r) =>
@@ -92,14 +118,14 @@ export class AuthError extends Error {
   constructor(message, status = 400) { super(message); this.status = status; }
 }
 
-export async function createUser({ email, name, admin = false, password, oidcSub }) {
+export async function createUser({ email, name, admin = false, password, oidcSub, skipPolicy = false }) {
   email = String(email ?? '').trim().toLowerCase();
-  if (!/^[^\s@]+@[^\s@]+$/.test(email)) throw new AuthError('Enter a valid e-mail address');
-  if (password !== undefined && String(password).length < 8) throw new AuthError('Password must have at least 8 characters');
+  if (!isEmail(email)) throw new AuthError('Enter a valid e-mail address');
+  if (password !== undefined && !skipPolicy) { const problem = passwordProblem(password); if (problem) throw new AuthError(problem); }
   if (getUserByEmail(email)) throw new AuthError('A user with this e-mail already exists', 409);
   const id = randomUUID();
   db.prepare('INSERT INTO users (id,email,name,admin,password_hash,oidc_sub,created_at) VALUES (?,?,?,?,?,?,?)').run(
-    id, email, (name || email.split('@')[0]).trim(), admin ? 1 : 0, password ? await hashPassword(password) : null, oidcSub ?? null, iso(),
+    id, email, String(name || email.split('@')[0]).trim().slice(0, 80), admin ? 1 : 0, password ? await hashPassword(password) : null, oidcSub ?? null, iso(),
   );
   return getUser(id);
 }
@@ -112,7 +138,7 @@ export async function updateUser(id, patch, actor) {
   if (losesAdmin && activeAdmins() <= 1) throw new AuthError('There must be at least one active instance admin');
   if (actor?.id === id && next.disabled) throw new AuthError('You cannot disable yourself');
   db.prepare('UPDATE users SET admin=?, disabled=?, name=? WHERE id=?').run(next.admin ? 1 : 0, next.disabled ? 1 : 0, next.name, id);
-  if (patch.password !== undefined) await setPassword(id, patch.password);
+  if (patch.password !== undefined) { await setPassword(id, patch.password); revokeAllForUser(id); } // a reset by an admin ends every credential
   if (next.disabled) revokeAllForUser(id);
   return getUser(id);
 }
@@ -134,9 +160,11 @@ export function deleteUser(id, actor) {
   db.prepare('DELETE FROM oauth_codes WHERE user_id=?').run(id);
 }
 
-export async function setPassword(id, password) {
-  if (String(password ?? '').length < 8) throw new AuthError('Password must have at least 8 characters');
-  db.prepare('UPDATE users SET password_hash=? WHERE id=?').run(await hashPassword(password), id);
+/** Sets a new password and ends all sessions of the user (the caller signs the current device in again). */
+export async function setPassword(id, password, { skipPolicy = false } = {}) {
+  if (!skipPolicy) { const problem = passwordProblem(password); if (problem) throw new AuthError(problem); }
+  db.prepare('UPDATE users SET password_hash=? WHERE id=?').run(await hashPassword(String(password)), id);
+  db.prepare('DELETE FROM sessions WHERE user_id=?').run(id);
 }
 
 export function linkOidc(id, sub) { db.prepare('UPDATE users SET oidc_sub=? WHERE id=?').run(sub, id); }
@@ -148,57 +176,78 @@ export function revokeAllForUser(id) {
   db.prepare('UPDATE oauth_tokens SET revoked=1 WHERE user_id=?').run(id);
 }
 
-// simple in-memory throttle against password guessing
-const attempts = new Map();
-function throttle(key) {
-  const t = Date.now();
-  const list = (attempts.get(key) ?? []).filter((x) => t - x < 5 * 60_000);
-  if (list.length >= 10) throw new AuthError('Too many attempts, try again in a few minutes', 429);
-  list.push(t);
-  attempts.set(key, list);
+// In-memory throttles against password guessing: per IP+account, per account (whatever the IP) and per IP (whatever the account).
+const byPair = new Limiter({ windowMs: 5 * 60_000, max: 10 });
+const byAccount = new Limiter({ windowMs: 15 * 60_000, max: 30 });
+const byIp = new Limiter({ windowMs: 5 * 60_000, max: 100 });
+function throttle(ip, email) {
+  const ok = [byIp.hit(`ip|${ip}`), byAccount.hit(`acct|${email}`), byPair.hit(`${ip}|${email}`)];
+  if (ok.includes(false)) throw new AuthError('Too many attempts, try again in a few minutes', 429);
 }
+/** Limits an action that needs a password (e.g. changing it) to a few tries. */
+const byUser = new Limiter({ windowMs: 10 * 60_000, max: 10 });
+export function throttleUser(userId) { if (!byUser.hit(userId)) throw new AuthError('Too many attempts, try again in a few minutes', 429); }
 
 export async function loginWithPassword(email, password, ip = '') {
   email = String(email ?? '').trim().toLowerCase();
-  throttle(`${ip}|${email}`);
+  throttle(ip, email);
   const row = db.prepare('SELECT * FROM users WHERE email=?').get(email);
   const okPw = row?.password_hash ? await verifyPassword(String(password ?? ''), row.password_hash) : (await hashPassword('x'), false);
   if (!row || !okPw || row.disabled) throw new AuthError('Wrong e-mail or password', 401);
+  byPair.reset(`${ip}|${email}`); byAccount.reset(`acct|${email}`);
+  if (needsRehash(row.password_hash)) db.prepare('UPDATE users SET password_hash=? WHERE id=?').run(await hashPassword(String(password)), row.id);
   return toUser(row);
 }
 
 // ------------------------------------------------------------------ sessions
-const COOKIE = 'specs_sid';
+// Over HTTPS the cookie carries the __Host- prefix: the browser then guarantees Secure, Path=/ and no Domain (no overwriting from sub-domains).
+const COOKIE = SECURE_COOKIES ? '__Host-specs_sid' : 'specs_sid';
+const COOKIE_NAMES = [COOKIE, 'specs_sid']; // the old name is still read, so nobody is signed out by the update
 const SESSION_DAYS = 30;
 
 export function startSession(res, user, userAgent = '') {
   const raw = randomBytes(32).toString('base64url');
-  db.prepare('INSERT INTO sessions (id,user_id,expires_at,created_at,user_agent) VALUES (?,?,?,?,?)').run(
-    sha(raw), user.id, now() + SESSION_DAYS * 86400, iso(), userAgent.slice(0, 200),
+  db.prepare('INSERT INTO sessions (id,user_id,expires_at,created_at,user_agent,last_seen_at) VALUES (?,?,?,?,?,?)').run(
+    sha(raw), user.id, now() + SESSION_DAYS * 86400, iso(), String(userAgent ?? '').slice(0, 200), now(),
   );
   db.prepare('UPDATE users SET last_login_at=? WHERE id=?').run(iso(), user.id);
   res.cookie(COOKIE, raw, { httpOnly: true, sameSite: 'lax', secure: SECURE_COOKIES, maxAge: SESSION_DAYS * 86400_000, path: '/' });
 }
 export function endSession(req, res) {
-  const raw = cookie(req, COOKIE);
+  const raw = sessionCookie(req);
   if (raw) db.prepare('DELETE FROM sessions WHERE id=?').run(sha(raw));
-  res.clearCookie(COOKIE, { path: '/' });
+  for (const n of COOKIE_NAMES) res.clearCookie(n, { path: '/' });
 }
 function cookie(req, name) {
   for (const part of (req.headers.cookie ?? '').split(';')) {
     const i = part.indexOf('=');
-    if (i > 0 && part.slice(0, i).trim() === name) return decodeURIComponent(part.slice(i + 1).trim());
+    if (i > 0 && part.slice(0, i).trim() === name) {
+      try { return decodeURIComponent(part.slice(i + 1).trim()); } catch { return null; } // a malformed value is no session
+    }
   }
   return null;
 }
+const sessionCookie = (req) => { for (const n of COOKIE_NAMES) { const v = cookie(req, n); if (v) return v; } return null; };
 export function userFromRequest(req) {
-  const raw = cookie(req, COOKIE);
+  const raw = sessionCookie(req);
   if (!raw) return null;
-  const row = db.prepare('SELECT user_id, expires_at FROM sessions WHERE id=?').get(sha(raw));
+  const id = sha(raw);
+  const row = db.prepare('SELECT user_id, expires_at, last_seen_at FROM sessions WHERE id=?').get(id);
   if (!row || row.expires_at < now()) return null;
+  const t = now();
+  if (row.last_seen_at && t - row.last_seen_at > SESSION_IDLE_DAYS * 86400) { db.prepare('DELETE FROM sessions WHERE id=?').run(id); return null; }
+  if (!row.last_seen_at || t - row.last_seen_at > 300) db.prepare('UPDATE sessions SET last_seen_at=? WHERE id=?').run(t, id);
   const u = getUser(row.user_id);
   return u && !u.disabled ? u : null;
 }
+/** The user's signed-in devices (the hash is only an identifier; the cookie value cannot be derived from it). */
+export function listSessions(req, userId) {
+  const mine = sessionCookie(req);
+  const cur = mine ? sha(mine) : null;
+  return db.prepare('SELECT id, created_at, last_seen_at, user_agent, expires_at FROM sessions WHERE user_id=? AND expires_at>? ORDER BY created_at DESC').all(userId, now())
+    .map((r) => ({ id: r.id, createdAt: r.created_at, lastSeenAt: r.last_seen_at ? new Date(r.last_seen_at * 1000).toISOString() : null, userAgent: r.user_agent, current: r.id === cur }));
+}
+export const revokeSession = (userId, id) => db.prepare('DELETE FROM sessions WHERE id=? AND user_id=?').run(String(id), userId).changes > 0;
 
 /** Express middleware: cookie session + CSRF guard (custom header on mutating requests). */
 export function requireUser(req, res, next) {
@@ -259,7 +308,7 @@ export function verifyPat(raw) {
 export async function bootstrapAdmin() {
   if (countUsers() === 0) {
     const password = ADMIN_PASSWORD || randomBytes(12).toString('base64url');
-    const admin = await createUser({ email: ADMIN_EMAIL, name: 'Admin', admin: true, password });
+    const admin = await createUser({ email: ADMIN_EMAIL, name: 'Admin', admin: true, password, skipPolicy: true }); // chosen by the operator
     console.log('Created first admin account:');
     console.log(`  e-mail:   ${ADMIN_EMAIL}`);
     console.log(`  password: ${password}${ADMIN_PASSWORD ? '  (from ADMIN_PASSWORD)' : '  (generated – change it under Account)'}`);
