@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: 24
@@ -27,19 +27,19 @@ jobs:
   scripts:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: sudo apt-get install -y shellcheck
       - run: bash -n scripts/install-debian.sh ct/garten.sh install/garten-install.sh
       - run: shellcheck -S error scripts/install-debian.sh
   docker:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: docker build -t garten:ci .
   audit:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: 24
