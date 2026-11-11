@@ -2,7 +2,7 @@ import { hasContent } from '@shared/glossary.js';
 import type * as Store from './store/core';
 import type { Item } from './store/types';
 
-export const CORE_LABEL: Record<string, string> = { 'vision.md': 'Vision', 'strategy.md': 'Strategy', 'glossary.md': 'Glossary' };
+export const CORE_LABEL: Record<string, string> = { 'vision.md': 'Vision', 'strategy.md': 'Strategy', 'guardrails.md': 'Guardrails', 'glossary.md': 'Glossary' };
 export const rawMode = (i: Item) => i.kind === 'doc' && !i.id.endsWith('.md');
 export const enc = encodeURIComponent;
 

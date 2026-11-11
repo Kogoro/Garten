@@ -24,7 +24,7 @@ export const state: any = {
 };
 export type FbPatch = { status?: string; answer?: number; reply?: string };
 export type FbOp = FbPatch & { id: string; n: number };
-export type Garden = { rev: number; feedback: any[]; reports: Record<string, any> };
+export type Garden = { rev: number; feedback: any[]; reports: Record<string, any>; checks?: Record<string, any[]> };
 const mapOf = (tid: string): Map<string, Item> => { if (!state.maps.has(tid)) state.maps.set(tid, new Map()); return state.maps.get(tid); };
 Object.defineProperty(state, 'items', { get: (): Map<string, Item> => mapOf(state.teamId) });
 
@@ -327,7 +327,7 @@ export function moveFolder(oldPath: string, newPath: string) {
 
 /** Foundation documents are always available to agents (vision, strategy, glossary, anything pinned). */
 export const foundationDocs = () => {
-  const order = ['vision.md', 'strategy.md', 'glossary.md'];
+  const order = ['vision.md', 'strategy.md', 'guardrails.md', 'glossary.md'];
   return all('doc').filter((d) => d.pinned).sort((a: any, b: any) => (order.indexOf(a.id) < 0 ? 9 : order.indexOf(a.id)) - (order.indexOf(b.id) < 0 ? 9 : order.indexOf(b.id)) || a.id.localeCompare(b.id));
 };
 export const setPinned = (id: string, on: boolean) => edit(id, { pinned: !!on });
@@ -586,7 +586,7 @@ async function adoptGarden(tid: string, data: any, sent: FbOp[]) {
   if (refused.length) state.gardenNotice = `${refused.length === 1 ? 'One answer was' : `${refused.length} answers were`} not accepted: ${refused[0].error}`;
   if (sent.length || left.length !== (state.fbOps[tid] ?? []).length) { state.fbOps[tid] = left; await meta('fbOps', state.fbOps); }
   if (data.garden) {
-    const g: Garden = { rev: data.garden.rev, feedback: data.garden.feedback ?? [], reports: data.garden.reports ?? {} };
+    const g: Garden = { rev: data.garden.rev, feedback: data.garden.feedback ?? [], reports: data.garden.reports ?? {}, checks: data.garden.checks ?? {} };
     for (const op of left) g.feedback = g.feedback.map((f) => (f.id === op.id ? applyOp(f, op, state.me?.name) : f));
     state.garden[tid] = g;
     await meta('garden', state.garden);
@@ -603,6 +603,8 @@ export const openFeedback = (): any[] => (gardenFb() ?? []).filter((f) => f.kind
 export const specFeedback = (specId: string): any[] => (gardenFb() ?? []).filter((f) => f.specId === specId);
 export const fbPending = (id?: string): number => (state.fbOps[state.teamId] ?? []).filter((o: FbOp) => !id || o.id === id).length;
 export const latestReport = (specId: string): any | null => state.garden[state.teamId]?.reports?.[specId] ?? null;
+/** The re-runnable checks of a spec with the state of their last run (also offline). */
+export const specChecks = (specId: string): any[] => state.garden[state.teamId]?.checks?.[specId] ?? [];
 export const dismissGardenNotice = () => { state.gardenNotice = null; emit(); };
 
 /** Open entries on a spec (feedback and decisions). From the offline copy, so it follows what was done on this device. */

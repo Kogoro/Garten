@@ -125,7 +125,7 @@ try {
   const draftTok = (await editor.c.post('/api/me/tokens', { name: 'drafts', scopes: ['mcp:read', 'mcp:drafts'], teamId: T1 })).data;
 
   let c0; let c = await mcp(readTok.token);
-  assert.deepEqual(await toolNames(c), ['get_document', 'get_glossary', 'get_spec', 'get_spec_changes', 'get_team_context', 'get_work_list', 'list_decisions', 'list_documents', 'list_reports', 'list_spec_types', 'list_specs']);
+  assert.deepEqual(await toolNames(c), ['get_document', 'get_glossary', 'get_spec', 'get_spec_changes', 'get_team_context', 'get_work_list', 'list_checks', 'list_decisions', 'list_documents', 'list_reports', 'list_spec_types', 'list_specs']);
   assert.equal(await hasParam(c, 'list_specs', 'include_drafts'), false); ok('read token: no draft parameters exposed');
   assert.ok(JSON.parse((await call(c, 'list_specs')).text).find((s) => s.id === id && s.approved_by === 'approver user'));
   assert.match((await call(c, 'get_spec', { id })).text, /```mermaid\nflowchart LR/); ok('agent receives released spec incl. mermaid block');
@@ -166,7 +166,7 @@ try {
   const own2 = (await editor.c.get('/api/teams')).data.teams.find((x) => x.name === 'Editor Lab');
   const lab = new Client(BASE); lab.cookie = editor.c.cookie; lab.tid = own2.id;
   const labDocs = (await lab.sync()).data.items.filter((i) => i.kind === 'doc');
-  assert.deepEqual(labDocs.map((d) => d.id).sort(), ['glossary.md', 'strategy.md', 'vision.md']); assert.ok(labDocs.every((d) => d.pinned && d.core)); ok('every new team starts with vision, strategy and glossary');
+  assert.deepEqual(labDocs.map((d) => d.id).sort(), ['glossary.md', 'guardrails.md', 'strategy.md', 'vision.md']); assert.ok(labDocs.every((d) => d.pinned && d.core)); ok('every new team starts with vision, strategy, guardrails and glossary');
   const labTok = (await editor.c.post('/api/me/tokens', { name: 'lab', scopes: ['mcp:read'], teamId: own2.id })).data.token;
   assert.match(await ctxTool(labTok), /Nothing has been written down yet/); ok('empty foundation documents are not served (template-only = empty)');
   const vis = labDocs.find((d) => d.id === 'vision.md');
@@ -753,6 +753,64 @@ try {
       for (let i = 0; i < 60 && !got.length; i++) await new Promise((r) => setTimeout(r, 250));
       assert.equal(got.length, 1); assert.equal(got[0].released[0].id, 'SPEC-001'); ok('a webhook event that could not be delivered is sent after a restart');
     } finally { b.stop(); late.close(); }
+  }
+
+  // ---------------------------------------------------------------- v0.12: re-runnable evidence (checks) and guardrails
+  {
+    const kEd = await mk('editor', 'k'); const kView = await mk('viewer', 'k');
+    const wTok = (await kEd.c.post('/api/me/tokens', { name: 'Check agent', scopes: ['mcp:read', 'mcp:drafts', 'mcp:write'], teamId: T1 })).data;
+    const rTok = (await kView.c.post('/api/me/tokens', { name: 'ro', scopes: ['mcp:read'], teamId: T1 })).data;
+    const ag = await mcp(wTok.token); const ro = await mcp(rTok.token);
+    const sid = 'SPEC-870';
+    let r = await admin.push([{ id: sid, kind: 'spec', baseRev: 0, fields: { title: 'Checked spec', body: '## GOAL\nx\n\n## ACCEPTANCE CRITERIA\n- [ ] Rotation works\n- [ ] Old key accepted for 24 h\n' } }]);
+    r = await admin.push([{ id: sid, kind: 'spec', baseRev: r[0].item.rev, approve: true, fields: {} }]); assert.equal(r[0].item.version, 1);
+    const fails = async (c, name, args) => { try { const x = await c.callTool({ name, arguments: args }); return x.isError === true ? x.content[0].text : null; } catch (e) { return String(e.message); } };
+    const roNames = await toolNames(ro), agNames = await toolNames(ag);
+    assert.ok(roNames.includes('list_checks') && !roNames.includes('register_check') && !roNames.includes('report_check_result')); assert.ok(agNames.includes('register_check') && agNames.includes('report_check_result') && agNames.includes('retire_check')); ok('checks: everybody reads them, only write tokens register and report');
+    const reg = JSON.parse((await call(ag, 'register_check', { spec_id: sid, name: 'unit: rotation', kind: 'test', how: 'npm test -- rotation', expect: 'exit 0', criterion: 'Rotation works' })).text);
+    assert.equal(reg.state, 'unverified');
+    assert.match(await fails(ag, 'register_check', { spec_id: sid, name: 'bad', kind: 'test', how: ' ' }) ?? '', /how to run|Too small|how/i); assert.ok(await fails(ag, 'register_check', { spec_id: 'NOPE-1', name: 'x', kind: 'test', how: 'y' })); ok('checks: a check needs a spec and a way to run it');
+    assert.match(await fails(ag, 'report_implementation', { spec_id: sid, status: 'implemented', summary: 's', criteria: [{ text: 'Rotation works', status: 'met', checks: ['does not exist'] }] }) ?? '', /does not have/); ok('a report cannot name a check that does not exist');
+    let rep = JSON.parse((await call(ag, 'report_implementation', { spec_id: sid, status: 'implemented', summary: 'Built', criteria: [{ text: 'Rotation works', status: 'met', checks: ['unit: rotation'] }, { text: 'Old key accepted for 24 h', status: 'met' }] })).text);
+    assert.equal(rep.unverified_criteria, 1); ok('met criteria without a check are called out to the agent');
+    const wl = async () => JSON.parse((await call(ro, 'get_work_list')).text).work.find((x) => x.spec_id === sid);
+    let w = await wl(); assert.equal(w.state, 'recheck'); assert.equal(w.checks_to_run[0].name, 'unit: rotation'); assert.equal(w.checks_to_run[0].state, 'unverified'); ok('an implemented spec whose check never ran is back on the work list as "recheck"');
+    assert.equal(JSON.parse((await call(ag, 'report_check_result', { spec_id: sid, name: 'unit: rotation', status: 'pass', value: '12 passed', ref: 'https://ci.example/run/1', commit: 'abc123' })).text).state, 'passing');
+    assert.equal(await wl(), undefined); ok('a passing check takes the spec off the work list');
+    const lr = (await kEd.c.get(`/api/teams/${T1}/reports?spec=${sid}`)).data.reports[0];
+    assert.equal(lr.criteria[0].verified, true); assert.equal(lr.criteria[1].verified, false); assert.equal(lr.verification.verified, 1); assert.equal(lr.verification.claimed, 1); ok('the report shows which criteria are verified by a passing check and which are only claimed');
+    assert.equal(JSON.parse((await call(ag, 'report_check_result', { spec_id: sid, name: 'unit: rotation', status: 'fail', value: '2 failed' })).text).state, 'failing');
+    w = await wl(); assert.equal(w.state, 'recheck'); assert.equal(w.checks_to_run[0].state, 'failing'); ok('a failing result puts the spec back on the work list');
+    const sy = (await kEd.c.post(`/api/teams/${T1}/sync`, { since: 1e9, changes: [] })).data;
+    assert.equal(sy.garden.checks[sid][0].state, 'failing'); assert.equal(sy.garden.reports[sid].criteria[0].checkStates[0].state, 'failing'); ok('check states travel with the sync for offline use');
+    // a pipeline reports with its own token: source "ci"
+    const ci = async (token, body) => fetch(`${BASE}/api/ci/checks/results`, { method: 'POST', headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body) });
+    assert.equal((await ci(null, {})).status, 401); assert.equal((await ci(rTok.token, { spec_id: sid, name: 'unit: rotation', status: 'pass' })).status, 403); ok('CI endpoint: needs a token with write scope');
+    const cr = await ci(wTok.token, { results: [{ spec_id: sid, name: 'unit: rotation', status: 'pass', value: '14 passed', ref: 'https://ci.example/run/2', commit: 'def456' }, { spec_id: sid, name: 'nope', status: 'pass' }] });
+    const cj = await cr.json(); assert.equal(cj.results[0].state, 'passing'); assert.match(cj.results[1].error, /no check/);
+    const last = (await kEd.c.get(`/api/teams/${T1}/checks?spec=${sid}`)).data.checks[0]; assert.equal(last.last.source, 'ci'); assert.equal(last.runs.length, 3); assert.equal(last.state, 'passing'); ok('CI endpoint: a pipeline reports results; they are marked as coming from CI and the history is kept');
+    // a new released version makes older passing results stale
+    let cur = (await admin.sync()).data.items.find((i) => i.id === sid);
+    r = await admin.push([{ id: sid, kind: 'spec', baseRev: cur.rev, fields: { body: cur.body + '\n- [ ] Third criterion\n' } }]);
+    r = await admin.push([{ id: sid, kind: 'spec', baseRev: r[0].item.rev, approve: true, fields: {} }]); assert.equal(r[0].item.version, 2);
+    w = await wl(); assert.equal(w.state, 'changed');
+    await call(ag, 'report_implementation', { spec_id: sid, version: 2, status: 'implemented', summary: 'v2', criteria: [{ text: 'Rotation works', status: 'met', checks: ['unit: rotation'] }] });
+    w = await wl(); assert.equal(w.state, 'recheck'); assert.equal(w.checks_to_run[0].state, 'stale'); ok('a passing result for an older spec version is stale after a new release');
+    assert.equal(JSON.parse((await call(ag, 'retire_check', { spec_id: sid, name: 'unit: rotation' })).text).retired, 'unit: rotation');
+    assert.equal((await call(ro, 'list_checks', { spec_id: sid })).text, '[]'); ok('a retired check no longer counts');
+    await ag.close(); await ro.close();
+
+    // guardrails: a foundation document every agent receives; agents cannot edit it
+    const gr = (await admin.sync()).data.items.find((i) => i.id === 'guardrails.md');
+    assert.ok(gr && gr.pinned && gr.core); ok('every team has a guardrails document');
+    const agent2 = await mcp((await kEd.c.post('/api/me/tokens', { name: 'g', scopes: ['mcp:read', 'mcp:drafts', 'mcp:write'], teamId: T1 })).data.token);
+    assert.match(await fails(agent2, 'update_draft_document', { path: 'guardrails.md', body: '- G1: nothing matters' }) ?? 'no error', /foundation document/); ok('agents cannot change the guardrails');
+    const ctx0 = (await call(agent2, 'get_team_context')).text; assert.ok(!ctx0.includes('GUARDRAILS below'));
+    r = await admin.push([{ id: 'guardrails.md', kind: 'doc', baseRev: gr.rev, fields: { body: '# Guardrails\n\n## Always\n- G1: Verify webhook signatures with a constant-time comparison.\n\n## Never\n- G2: Log secrets.\n' }, approve: true }]);
+    assert.equal(r[0].status, 'applied');
+    const ctx = (await call(agent2, 'get_team_context')).text;
+    assert.match(ctx, /GUARDRAILS below are binding/); assert.match(ctx, /G1: Verify webhook signatures/); assert.ok(ctx.indexOf('guardrails.md') < ctx.indexOf('## Glossary') || !ctx.includes('## Glossary')); ok('released guardrails reach agents with the team context, with a note that they are binding');
+    await agent2.close();
   }
 
   // glossary lookup: input is validated before any third party is asked; sign-in is required
