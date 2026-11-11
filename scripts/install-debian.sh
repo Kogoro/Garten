@@ -93,7 +93,7 @@ main() {
   step "Building (takes a few minutes)"
   systemctl stop garten 2>/dev/null || true
   cd "$APP_DIR"
-  npm ci --omit=dev --no-audit --no-fund --loglevel=error
+  npm ci --omit=dev --ignore-scripts --no-audit --no-fund --loglevel=error   # the server needs no build scripts
   npm --prefix web ci --no-audit --no-fund --loglevel=error
   npm --prefix web run build >/dev/null
   rm -rf web/node_modules                    # only needed for the build
@@ -138,6 +138,12 @@ ExecStart=$(command -v node) server/index.js
 Restart=always
 RestartSec=3
 NoNewPrivileges=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+UMask=0077
 
 [Install]
 WantedBy=multi-user.target
@@ -171,11 +177,22 @@ esac
 EOF
 
   step "Starting Garten"
+  # File-system sandbox: read-only system, private /tmp, no /home. It needs mount namespaces, which some containers do not allow –
+  # it is a drop-in, so it can be taken away again if the service does not start with it.
+  local SANDBOX=/etc/systemd/system/garten.service.d/sandbox.conf
+  mkdir -p "$(dirname "$SANDBOX")"
+  printf '[Service]\nProtectSystem=strict\nReadWritePaths=%s\nProtectHome=true\nPrivateTmp=true\n' "$HOME_DIR" > "$SANDBOX"
   systemctl daemon-reload
   systemctl enable --quiet garten
-  systemctl restart garten
+  systemctl restart garten || true
+  wait_up() { local i; for i in $(seq 60); do curl -fsS -o /dev/null --max-time 3 http://127.0.0.1:3000/healthz 2>/dev/null && return 0; sleep 1; done; return 1; }
   local up=0
-  for _ in $(seq 60); do curl -fsS -o /dev/null --max-time 3 http://127.0.0.1:3000/healthz 2>/dev/null && { up=1; break; }; sleep 1; done
+  wait_up && up=1
+  if [ "$up" = 0 ] && [ -f "$SANDBOX" ]; then
+    printf '\n! Garten did not start with the file-system sandbox (this container may not allow it) – trying again without it.\n' >&2
+    rm -f "$SANDBOX"; systemctl daemon-reload; systemctl restart garten || true
+    wait_up && up=1
+  fi
   [ "$up" = 1 ] || { journalctl -u garten -n 30 --no-pager >&2 || true; die "Garten did not start – see the log above (journalctl -u garten)."; }
 
   if [ -n "$password" ]; then

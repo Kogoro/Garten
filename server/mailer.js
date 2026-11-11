@@ -18,6 +18,7 @@ function makeTransport() {
   });
 }
 const transport = makeTransport();
+if (transport && !SMTP_REQUIRE_TLS && new URL(SMTP_URL).protocol !== 'smtps:') console.warn('SMTP_REQUIRE_TLS is off: mail (and the SMTP password) may travel unencrypted. Set SMTP_REQUIRE_TLS=1 unless the mail server is on this machine.');
 export const mailEnabled = !!transport;
 export const mailInfo = () => ({ enabled: mailEnabled, from: mailEnabled ? SMTP_FROM : null, host: mailEnabled ? new URL(SMTP_URL).hostname : null });
 

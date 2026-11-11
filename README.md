@@ -86,13 +86,15 @@ Seite **Team → Git connection** (Team-Admin). Jedes Team hat sein eigenes loka
 
 | Einstellung | Bedeutung |
 |---|---|
-| URL | `https://…` oder SSH (`git@host:org/repo.git`). Andere Schemata (`file://`, `ext::`, `-…`) werden abgelehnt; `http://` nur mit `GIT_ALLOW_HTTP=1`. |
+| URL | `https://…` oder SSH (`git@host:org/repo.git`). Andere Schemata (`file://`, `ext::`, `-…`) werden abgelehnt; `http://` nur mit `GIT_ALLOW_HTTP=1`. Adressen im privaten oder lokalen Netz (Loopback, `10.x`, `192.168.x`, Cloud-Metadaten, einteilige Rechnernamen) nur mit `GIT_ALLOW_PRIVATE=1` – sonst könnte ein Team-Admin vom Server aus das interne Netz abtasten. Namen werden vor jeder Verbindung neu aufgelöst. |
 | Branch | Ziel-Branch. Existiert er schon mit Commits, werden sie zuerst gemergt (bei Konflikten in Dateien, die Specs verwaltet, gewinnt Specs). |
 | Ordner | Specs schreibt **nur** in `<Ordner>/` (Default `specs/`): `<ID>.md`, `docs/…`, `GLOSSARY.md`. Alles andere im Repo bleibt unangetastet. Nach der ersten Freigabe gesperrt. |
 | Authentifizierung | *HTTPS-Token* (Benutzername + Token, nur schreibbar) oder *SSH-Deploy-Key* (der Server erzeugt ein ed25519-Paar; den öffentlichen Teil als Deploy-Key mit Schreibrecht eintragen). |
 | Auto-Push | Push (inkl. Version-Tags) nach jeder Freigabe/Rücknahme; **Test connection** und **Push now** manuell, Status wird angezeigt. |
 
-Tokens und Private Keys werden mit AES-256-GCM verschlüsselt gespeichert (`SECRET_KEY` oder automatisch erzeugte Schlüsseldatei im Volume) und nie wieder ausgegeben. Fehlermeldungen werden von Zugangsdaten bereinigt.
+Tokens und Private Keys werden mit AES-256-GCM verschlüsselt gespeichert (`SECRET_KEY`, daraus per scrypt abgeleitet, oder automatisch erzeugte Schlüsseldatei im Volume) und nie wieder ausgegeben. Fehlermeldungen werden von Zugangsdaten bereinigt. Für produktive Instanzen `SECRET_KEY` außerhalb des Daten-Volumes setzen (sonst liegt der Schlüssel in jedem Backup neben den Geheimnissen).
+
+Ein gespeichertes Token (Git und Webhook) gehört zu dem Server, für den es eingegeben wurde: Wird die URL auf einen anderen Host geändert, wird es verworfen und muss neu eingegeben werden. Symbolische Links und Submodule aus dem Remote werden nie ausgecheckt; Specs schreibt nie außerhalb des Team-Repos. SSH-Host-Keys werden pro Team gelernt (erste Verbindung), ein geänderter Schlüssel ist ein Fehler – nach einem echten Serverwechsel `POST /api/teams/<id>/git/forget-host-key`. Ein Test der Verbindung zeigt die gelernten Fingerabdrücke.
 
 ## Editor
 
@@ -237,7 +239,7 @@ Ohne Proxmox funktioniert dasselbe auf jedem Debian 12/13 oder Ubuntu 24.04 (VM,
 
 ## HTTPS / PUBLIC_URL
 
-Service Worker („Offline-Start“, Installation auf dem Handy) brauchen **HTTPS** (Ausnahme `localhost`). Hinter einem Reverse Proxy mit TLS `PUBLIC_URL=https://…` und `TRUST_PROXY=1` setzen – `PUBLIC_URL` muss stimmen, sonst funktioniert OAuth für MCP nicht.
+Service Worker („Offline-Start“, Installation auf dem Handy) brauchen **HTTPS** (Ausnahme `localhost`). Hinter einem Reverse Proxy mit TLS `PUBLIC_URL=https://…` und `TRUST_PROXY=1` (= genau ein Proxy davor; eine Zahl gibt die Anzahl der Proxys an, Express-Werte wie `loopback` sind möglich – nie „allen vertrauen“, sonst lässt sich die Anmelde-Drossel mit einem erfundenen `X-Forwarded-For` umgehen) setzen – `PUBLIC_URL` muss stimmen, sonst funktioniert OAuth für MCP nicht.
 
 ### Von unterwegs erreichbar: `scripts/go-public.sh`
 
@@ -256,6 +258,16 @@ scripts/go-public.sh stop      # Tunnel schließen, zurück zu http://localhost:
 * Solange `PUBLIC_URL` mit `https://` beginnt, sind die Sitzungs-Cookies „Secure“: Anmelden über `http://localhost:3000` hält dann nicht mehr – auch am Rechner die Tunnel-Adresse benutzen.
 * Der Rechner muss wach bleiben, z. B. `systemd-inhibit --what=sleep:idle sleep infinity`.
 
+## Sicherheit im Betrieb
+
+* **Passwörter:** mindestens 10 Zeichen, keine Allerwelts-Passwörter; scrypt (alte Hashes werden beim nächsten Login erneuert). Ein Passwortwechsel beendet alle anderen Sitzungen; ein Reset durch den Admin beendet alle Sitzungen und Tokens des Kontos. Sitzungen enden nach `SESSION_IDLE_DAYS` (14) ohne Nutzung, sind unter `GET /api/me/sessions` einsehbar und einzeln beendbar. Anmeldeversuche werden pro IP, pro Konto und pro IP+Konto gedrosselt.
+* **SSO (OIDC):** `state` ist per Cookie an den Browser gebunden, das ID-Token wird geprüft (Signatur über `jwks_uri`, Issuer, Audience, Ablauf, Nonce). Die E-Mail-Adresse muss vom Provider bestätigt sein (`email_verified`); Provider ohne diesen Claim: `OIDC_TRUST_UNVERIFIED_EMAIL=1`. Ein bestehendes Konto mit Passwort, Instanz-Admins und bereits verknüpfte Konten werden **nicht** automatisch mit einer SSO-Identität verknüpft – nur Konten ohne Passwort (z. B. vom Admin angelegt oder eingeladen).
+* **Header:** Content-Security-Policy (nur eigene Skripte), `X-Frame-Options: DENY`, COOP, Permissions-Policy, bei `https://` auch HSTS und das Cookie-Präfix `__Host-`.
+* **Audit-Log:** Anmeldungen (auch fehlgeschlagene), Rollen/Mitglieder, Tokens, OAuth-Freigaben, Git-/Webhook-Einstellungen, Freigaben von Specs, Team-/Nutzer-Verwaltung. Instanz-Admins lesen es unter `GET /api/admin/audit` (`limit`, `before`, `action`, `team`); Aufbewahrung `AUDIT_RETENTION_DAYS` (180). Geheimnisse werden nie protokolliert.
+* **Webhooks:** mit Token werden `X-Specs-Timestamp` und `X-Specs-Signature: sha256=<HMAC-SHA256(Token, "<Timestamp>.<Body>")>` mitgeschickt, damit der Empfänger Integrität prüfen und alte Aufrufe verwerfen kann. Texte von Menschen (Titel, Notizen) stehen einzeilig und gekürzt im Aufruf; der MCP-Server weist Agenten an, Inhalte von Specs/Feedback als Daten und nicht als Anweisungen zu behandeln.
+* **Mail:** Ohne `SMTP_REQUIRE_TLS` wird TLS für jeden Mailserver verlangt, der nicht auf derselben Maschine läuft.
+* **Aufräumen:** abgelaufene Sitzungen, OAuth-Anfragen/-Codes/-Tokens, alte Einladungen und ungenutzte registrierte OAuth-Clients werden stündlich gelöscht.
+
 ## Entwicklung und Tests
 
 ```bash
@@ -263,7 +275,8 @@ npm run build                # Frontend bauen (web/dist); der Server liefert es 
 cd web && npm run dev        # Vite-Dev-Server mit Proxy auf :3000 (Server separat starten: npm start)
 npm test                     # baut das Frontend und führt alles aus (~350 Checks)
 node tests/api.test.mjs      # Sessions, Teams/Rollen, Ordner, Glossar, Agent-Drafts, Entscheidungen, Berichte, Webhook, PATs, OAuth-Flow, Git-Push in ein echtes Bare-Repo
-node tests/oidc.test.mjs     # SSO gegen einen Mock-Identity-Provider
+node tests/oidc.test.mjs     # SSO gegen einen Mock-Identity-Provider (inkl. ID-Token-, State- und Verknüpfungs-Prüfungen)
+node tests/unit.test.mjs     # Sicherheits-Bausteine: Netzwerk-Wächter, Validierung, Drossel, Geheimnisse, Pfad-Sicherheit, Aufräumen
 cd web && npm test           # Vitest: Markdown ⇄ Editor-Round-Trip (BlockNote), Inline-Formatierung
 node web/e2e/ui.test.mjs     # Browser (Playwright): Offline, Blöcke, Cursor-Einfügen, Drag & Drop, Diagramme, Glossar, Ordner, Teams, Git, Rollen
 ```

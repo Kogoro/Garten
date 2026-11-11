@@ -1,7 +1,9 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { mkdir, writeFile, rm, readFile, access, readdir } from 'node:fs/promises';
+import { lstatSync, realpathSync } from 'node:fs';
 import path from 'node:path';
+import { childEnv } from './env.js';
 
 const run = promisify(execFile);
 
@@ -13,7 +15,7 @@ export class Repo {
   }
 
   raw(env, ...args) {
-    return run('git', args, { cwd: this.dir, maxBuffer: 32 * 1024 * 1024, timeout: 120000, killSignal: 'SIGKILL', env: { ...process.env, LC_ALL: 'C', LANGUAGE: 'C', ...env } }).then((r) => r.stdout);
+    return run('git', args, { cwd: this.dir, maxBuffer: 32 * 1024 * 1024, timeout: 120000, killSignal: 'SIGKILL', env: childEnv(env ?? {}) }).then((r) => r.stdout);
   }
 
   /** git in the repo; initialises it on first use. */
@@ -30,10 +32,39 @@ export class Repo {
     return p;
   }
 
-  safe(rel) {
+  /**
+   * Absolute path of `rel` inside the repository. Refuses paths that leave it – also via symbolic links: a remote repository merged into
+   * this one could contain a link such as `specs -> /data`, and every later write would follow it.
+   */
+  safe(rel, allowLeaf = false) {
     const abs = path.resolve(this.dir, rel);
     if (!abs.startsWith(this.dir + path.sep)) throw new Error(`unsafe path: ${rel}`);
+    let cur = this.dir;
+    const parts = path.relative(this.dir, abs).split(path.sep);
+    for (const [i, part] of parts.entries()) {
+      cur = path.join(cur, part);
+      let st;
+      try { st = lstatSync(cur); } catch (e) { if (e.code === 'ENOENT' || e.code === 'ENOTDIR') break; throw e; }
+      if (st.isSymbolicLink() && !(allowLeaf && i === parts.length - 1)) throw new Error(`unsafe path (symbolic link): ${rel}`);
+    }
+    try { // belt and braces: the real location of the deepest existing ancestor must be inside the real repository
+      let probe = allowLeaf ? path.dirname(abs) : abs;
+      while (probe !== this.dir) { try { realpathSync(probe); break; } catch { probe = path.dirname(probe); } }
+      const real = realpathSync(probe);
+      const base = realpathSync(this.dir);
+      if (real !== base && !real.startsWith(base + path.sep)) throw new Error(`unsafe path: ${rel}`);
+    } catch (e) { if (/^unsafe path/.test(e.message)) throw e; }
     return abs;
+  }
+
+  /** Symbolic links and submodules never belong into the working tree: remove them from index and disk. Returns the removed paths. */
+  async dropLinks() {
+    const out = await this.raw(null, 'ls-files', '-s', '-z');
+    const bad = out.split('\0').filter(Boolean).map((l) => /^(\d+) \S+ \d\t([\s\S]*)$/.exec(l)).filter((m) => m && (m[1] === '120000' || m[1] === '160000')).map((m) => m[2]);
+    for (const f of bad) await this.raw(null, 'rm', '-q', '-f', '--cached', '--', f).catch(() => {});
+    for (const f of bad) await rm(path.join(this.dir, f), { recursive: true, force: true }).catch(() => {});
+    await rm(path.join(this.dir, '.gitmodules'), { force: true }).catch(() => {});
+    return bad;
   }
 
   async init() {
@@ -47,8 +78,10 @@ export class Repo {
     await rm(path.join(this.dir, '.git', 'index.lock'), { force: true });
     await this.raw(null, 'config', 'user.name', 'Specs');
     await this.raw(null, 'config', 'user.email', 'specs@localhost');
+    await this.raw(null, 'config', 'core.symlinks', 'false'); // links in fetched content arrive as plain files
     await this.raw(null, 'config', 'commit.gpgsign', 'false');
     await this.raw(null, 'config', 'tag.gpgsign', 'false');
+    await this.dropLinks(); // a repository from an earlier version may already contain links
   }
 
   /** Write/remove files, commit and optionally tag. Returns the commit sha or null if nothing changed. */
@@ -71,7 +104,7 @@ export class Repo {
         await mkdir(path.dirname(abs), { recursive: true });
         await writeFile(abs, content);
       }
-      for (const rel of remove) await rm(this.safe(rel), { force: true });
+      for (const rel of remove) await rm(this.safe(rel, true), { force: true });
       if (post) await post(this); // e.g. regenerate GLOSSARY.md, tidy orphaned documents
       await this.git('add', '-A');
       const status = (await this.git('status', '--porcelain')).trim();
@@ -89,7 +122,7 @@ export class Repo {
 
   /** For use inside a `post` hook: write / remove a file in the working tree before it is committed. */
   async commitWrite(rel, content) { const abs = this.safe(rel); await mkdir(path.dirname(abs), { recursive: true }); await writeFile(abs, content); }
-  async commitRemove(rel) { await rm(this.safe(rel), { force: true }); }
+  async commitRemove(rel) { await rm(this.safe(rel, true), { force: true }); }
 
   /** Tag a commit without creating a new one (used when an approval changes nothing in the tree). */
   tag(name) {
@@ -124,7 +157,7 @@ export class Repo {
     const rec = async (r) => {
       let ents = [];
       try { ents = await readdir(this.safe(r), { withFileTypes: true }); } catch { return; }
-      for (const e of ents) (e.isDirectory() ? await rec(`${r}/${e.name}`) : out.push(`${r}/${e.name}`));
+      for (const e of ents) { if (e.isSymbolicLink()) continue; e.isDirectory() ? await rec(`${r}/${e.name}`) : out.push(`${r}/${e.name}`); }
     };
     await rec(rel);
     return out;

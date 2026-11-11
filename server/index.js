@@ -5,7 +5,9 @@ import { fileURLToPath } from 'node:url';
 import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js';
 import { mcpAuthRouter, getOAuthProtectedResourceMetadataUrl } from '@modelcontextprotocol/sdk/server/auth/router.js';
 import { db } from './db.js';
-import { PORT, HOST, DATA_DIR, SEED_DEMO, PUBLIC_URL, TRUST_PROXY, OIDC } from './config.js';
+import { PORT, HOST, DATA_DIR, SEED_DEMO, PUBLIC_URL, TRUST_PROXY, OIDC, SECURE_COOKIES } from './config.js';
+import { startJanitor } from './janitor.js';
+import { ipLimit } from './ratelimit.js';
 import { apiRouter } from './api.js';
 import { mcpHandler } from './mcp.js';
 import { provider, consentRouter } from './oauth.js';
@@ -26,15 +28,27 @@ if (SEED_DEMO && store.allSpecs(defaultTeam.id).length === 0 && store.allDocs(de
   console.log('seeded demo data');
 }
 await store.startupSweep();
+startJanitor();
 resumeHooks();
 catchUpPushes(listTeams()).catch((e) => console.error('catch-up:', e.message));
 
 const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', TRUST_PROXY);
-app.use((_req, res, next) => {
+// Security headers. The CSP allows only this origin's scripts (no inline script, no eval); styles may be inline (Mermaid, the editor).
+// /oauth has no form-action: its consent form ends in a redirect to the agent's own callback address.
+const CSP_BASE = ["default-src 'self'", "script-src 'self'", "style-src 'self' 'unsafe-inline'", "img-src 'self' data: blob: https:", "font-src 'self' data:", "connect-src 'self'",
+  "worker-src 'self' blob:", "manifest-src 'self'", "object-src 'none'", "base-uri 'none'", "frame-ancestors 'none'"];
+const CSP_APP = [...CSP_BASE, "form-action 'self'"].join('; ');
+const CSP_OAUTH = CSP_BASE.join('; ');
+app.use((req, res, next) => {
   res.set('X-Content-Type-Options', 'nosniff');
   res.set('Referrer-Policy', 'same-origin');
+  res.set('X-Frame-Options', 'DENY');
+  res.set('Cross-Origin-Opener-Policy', 'same-origin');
+  res.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=()');
+  res.set('Content-Security-Policy', req.path.startsWith('/oauth') ? CSP_OAUTH : CSP_APP);
+  if (SECURE_COOKIES) res.set('Strict-Transport-Security', 'max-age=31536000');
   next();
 });
 app.get('/healthz', (_req, res) => {
@@ -44,7 +58,7 @@ app.get('/healthz', (_req, res) => {
 // ---- web app API + browser sign-in
 app.use('/api', apiRouter());
 app.use('/oauth', consentRouter());
-if (OIDC) app.use('/auth/oidc', oidcRouter());
+if (OIDC) app.use('/auth/oidc', ipLimit({ windowMs: 60_000, max: 60 }), oidcRouter());
 
 // ---- MCP: OAuth 2.1 authorization server (DCR + PKCE) and the protected /mcp resource
 const mcpUrl = new URL(`${PUBLIC_URL}/mcp`);

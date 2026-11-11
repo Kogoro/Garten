@@ -5,6 +5,7 @@ import { db } from './db.js';
 import { INVITE_TTL_DAYS, PUBLIC_URL } from './config.js';
 import { sha, ROLES, setMember, getUserByEmail, createUser, AuthError, getUser } from './auth.js';
 import { getTeam } from './teams.js';
+import { isEmail } from './validate.js';
 
 const now = () => Math.floor(Date.now() / 1000);
 const toInvite = (r) => r && {
@@ -19,7 +20,7 @@ export const getInvite = (id) => toInvite(db.prepare('SELECT * FROM invites WHER
 
 export function createInvite({ team, email, role = 'viewer', by }) {
   email = String(email ?? '').trim().toLowerCase();
-  if (!/^[^\s@]+@[^\s@]+$/.test(email)) throw new AuthError('Enter a valid e-mail address');
+  if (!isEmail(email)) throw new AuthError('Enter a valid e-mail address');
   if (!ROLES.includes(role)) throw new AuthError('Unknown role');
   const existing = getUserByEmail(email);
   if (existing && db.prepare('SELECT 1 FROM memberships WHERE team_id=? AND user_id=?').get(team.id, existing.id)) throw new AuthError('This person is already a member of the team', 409);
@@ -53,6 +54,7 @@ export async function registerFromInvite(token, { name, password }) {
   const inv = inviteByToken(token);
   if (!inv) throw new AuthError('This invitation is no longer valid', 410);
   if (inv.userExists) throw new AuthError('This e-mail already has an account – sign in to accept the invitation', 409);
+  if (!password) throw new AuthError('Choose a password');
   const user = await createUser({ email: inv.email, name, password });
   const teamId = accept(inv.id, user.id);
   return { user, teamId };
