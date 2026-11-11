@@ -133,6 +133,7 @@ export function ItemEditor({ item }: { item: Item }) {
   return (
     <div className="editor" data-editor={item.id}>
       <header className="bar ed-bar">
+        {isSpec && <h1 className="sr">{item.title || item.id}</h1>}
         <Link className="icon-btn back" to={back} aria-label="Back"><Icon name="back" /></Link>
         {isSpec
           ? <><label className="sr" htmlFor="title">Title</label><input id="title" className="ed-title" placeholder="Spec title" value={item.title} autoComplete="off" title={path} readOnly={ro} onChange={(e) => S.edit(item.id, { title: e.target.value })} /></>

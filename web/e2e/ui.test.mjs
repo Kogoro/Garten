@@ -225,6 +225,22 @@ try {
   await page.click('[data-act=more-menu]'); await page.getByRole('button', { name: /^Sync/ }).click();
   await page.waitForFunction(() => location.hash === '#/sync'); ok('the sync page moved into the More menu');
 
+  // keyboard: command palette, shortcuts, skip link, one title per page
+  await page.locator('body').click({ position: { x: 5, y: 5 } }).catch(() => {});
+  await page.keyboard.press('Control+k');
+  const pal = page.locator('[data-palette]'); await pal.waitFor();
+  await pal.locator('input').fill('webhook sig'); await pal.locator('[role=option]', { hasText: 'Webhook signature rotation' }).waitFor();
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() => location.hash === '#/spec/SPEC-012');
+  await page.waitForFunction(() => /^Webhook signature rotation · Specs · /.test(document.title)); ok('keyboard: Ctrl+K finds a spec by title and opens it; the window title names page and team');
+  await page.keyboard.press('Escape').catch(() => {});
+  await page.locator('body').click({ position: { x: 5, y: 5 } }).catch(() => {});
+  await page.keyboard.press('g'); await page.keyboard.press('y');
+  await page.waitForFunction(() => location.hash === '#/sync'); await page.waitForFunction(() => /^Sync · /.test(document.title)); ok('keyboard: "g" then "y" goes to Sync');
+  await page.keyboard.press('?'); await page.getByRole('dialog', { name: /Keyboard shortcuts/ }).waitFor(); await page.keyboard.press('Escape'); ok('keyboard: "?" lists the shortcuts');
+  await page.evaluate(() => document.body.focus()); await page.keyboard.press('Tab');
+  assert.equal(await page.evaluate(() => document.activeElement?.textContent), 'Skip to content'); ok('the first Tab stop is a skip link');
+
   // account on mobile
   await page.click('[data-act=more-menu]'); await page.getByRole('button', { name: 'Account & agent access' }).click();
   await page.getByText('Agent access (MCP)').waitFor();

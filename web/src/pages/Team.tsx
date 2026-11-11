@@ -189,7 +189,7 @@ function AgentSetup({ teamName, mcpUrl }: { teamName: string; mcpUrl: string }) 
       <div className="btns"><button type="button" className="btn small" onClick={() => copy(json)}>Copy .mcp.json</button></div>
       <p className="note">Set <span className="mono">SPECS_TOKEN</span> as an environment variable of the agent’s environment – never commit the token. Alternatively add the address as a custom connector in claude.ai; then you sign in instead of using a token.</p>
       <div className="sect-title"><span>3 · Instruction for the routine</span></div>
-      <div className="code as-prompt" id="as-prompt">{prompt}</div>
+      <div className="code as-prompt" id="as-prompt" tabIndex={0} role="region" aria-label="Instruction for the agent">{prompt}</div>
       <div className="btns"><button type="button" className="btn small" data-act="as-copy-prompt" onClick={() => copy(prompt)}>Copy instruction</button></div>
     </div>
   );
@@ -256,7 +256,7 @@ export function TeamPage() {
         <section className="card" id="agentCard"><div className="card-head"><h2>Agent setup</h2></div><AgentSetup teamName={t.name} mcpUrl={S.state.mcpUrl} /></section>
 
         <section className="card"><h2>Roles &amp; rights</h2>
-          <div className="table-wrap"><table className="matrix"><thead><tr><th></th>{ROLES.map((r) => <th key={r}>{r}</th>)}</tr></thead><tbody>
+          <div className="table-wrap" tabIndex={0} role="region" aria-label="Permissions by role"><table className="matrix"><thead><tr><th><span className="sr">Permission</span></th>{ROLES.map((r) => <th key={r}>{r}</th>)}</tr></thead><tbody>
             {RIGHTS.map(([k, l]) => <tr key={k}><th scope="row">{l}</th>{ROLES.map((r) => <td key={r}>{ROLE_RIGHTS[r].includes(k) ? <span className="yes">✓</span> : <span className="no">–</span>}</td>)}</tr>)}
           </tbody></table></div></section>
       </div></div>

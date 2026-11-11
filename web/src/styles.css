@@ -650,3 +650,43 @@ textarea.field.hook-headers { min-height: 76px; font-size: 12.5px; }
 .lookup-hit .btn { align-self: flex-start; }
 #toast.has-action { pointer-events: auto; display: flex; align-items: center; gap: 12px; }
 .toast-act { min-height: 44px; padding: 0 8px; margin: -10px -8px -10px 0; border: 0; background: none; color: var(--accent, #7bd88f); font: 700 13px var(--sans); }
+
+/* ---- UX round 1: keyboard, landmarks, touch, readability */
+html :focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }          /* beats the "outline: 0" of single controls */
+.search:focus-within { outline: 2px solid var(--green); outline-offset: 2px; }
+.skip { position: fixed; top: 8px; left: 8px; z-index: 100; padding: 10px 14px; border-radius: 10px; background: var(--panel); color: var(--text); border: 2px solid var(--green); font-weight: 600; transform: translateY(-200%); }
+.skip:focus { transform: none; }
+main.content { outline: none; }
+p a:not(.btn), .note a, li a:not(.btn):not(.src) { text-decoration: underline; text-underline-offset: 2px; }
+.ftoggle, .row-title, .gi-body, .doc-chip { overflow-wrap: anywhere; }
+.row, .item, .gd-row, .rp-ref, .fb-text, .gd-title, h1, h2, h3 { overflow-wrap: anywhere; }
+@media (max-width: 700px) {
+  html, body { font-size: 16px; }
+  input, select, textarea { font-size: 16px; }       /* below 16px iOS zooms into the field */
+  .ftoggle, .fbtn, .icon-btn.sm, .ed-bar .ed-title, .tab { min-height: 44px; }
+  .fbtn { min-width: 44px; opacity: 1; }
+  .icon-btn.sm { min-width: 44px; }
+  p a:not(.btn), .note a, .src { display: inline-block; padding: 12px 0; }
+}
+@media (forced-colors: active) { .chip, .btn, .filter, .pill { border: 1px solid CanvasText; } }
+
+/* command palette + shortcut list */
+.palette { gap: 8px; max-height: min(80vh, 640px); }
+@media (min-width: 701px) { .scrim:has(.palette) { align-items: flex-start; padding-top: 12vh; } .palette { width: min(560px, 92vw); border-radius: 16px; } }
+.pal-list { list-style: none; margin: 0; padding: 0; overflow: auto; display: flex; flex-direction: column; gap: 2px; min-height: 0; flex: 1; }
+.pal-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; padding: 0 12px; border-radius: 10px; cursor: pointer; overflow-wrap: anywhere; }
+.pal-list li.on { background: var(--tint); box-shadow: inset 3px 0 0 var(--green); }
+.pal-none { cursor: default; }
+.pal-foot { display: flex; justify-content: space-between; font-size: 12px; padding: 4px 4px 0; }
+kbd { display: inline-block; min-width: 22px; padding: 1px 6px; border: 1px solid var(--line2); border-bottom-width: 2px; border-radius: 6px; background: var(--panel); color: var(--soft); font: 600 12px var(--mono); text-align: center; }
+.keys { margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.keys > div { display: flex; justify-content: space-between; align-items: center; gap: 16px; min-height: 36px; }
+.keys dt { white-space: nowrap; } .keys dd { margin: 0; color: var(--soft); text-align: right; }
+
+/* round 1b */
+@media (max-width: 700px) {
+  :is(input, select, textarea) { font-size: 16px !important; }
+  .search input { min-height: 44px; height: auto; }
+  label:has(> input[type=checkbox]), label:has(> input[type=radio]) { min-height: 44px; display: flex; align-items: center; gap: 10px; }
+}
+@media (max-width: 700px) { .kv a { display: inline-flex; align-items: center; min-height: 44px; } }

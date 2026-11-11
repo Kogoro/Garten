@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { ic } from './icons';
 import { initial } from './lib';
@@ -63,10 +63,12 @@ export function useMenus() {
 }
 
 /** The one page header: compact, same everywhere (team button on mobile, sync pill). */
+const DetailOpen = createContext(false);
 export function Bar({ title, children }: { title: string; children?: ReactNode }) {
   const m = useMenus();
+  const H = useContext(DetailOpen) ? 'h2' : 'h1'; // an open spec/document has its own h1: one h1 per page
   return (
-    <header className="bar"><h1>{title}</h1>{children}<SyncPill />
+    <header className="bar"><H>{title}</H>{children}<SyncPill />
       <button type="button" className="ws-btn only-mobile" aria-label={`Team: ${m.teamName}`} onClick={m.workspace}><span className="ws-av">{initial(m.teamName)}</span>{m.invites > 0 && <span className="badge-dot" />}</button>
       {m.sheet}
     </header>
@@ -76,6 +78,7 @@ export function Bar({ title, children }: { title: string; children?: ReactNode }
 const PLACEHOLDER: Record<string, [keyof typeof ic, string]> = {
   specs: ['specs', 'Select a spec, or create one with “New”.'], docs: ['docs', 'Select a document, or create one with “New”.'], glossary: ['glossary', 'Select a term to see its definition, synonyms and references.'],
 };
+const TITLES: Record<string, string> = { specs: 'Specs', docs: 'Documents', glossary: 'Glossary', release: 'Release', garden: 'Garden', sync: 'Sync', team: 'Members & Git', account: 'Account', admin: 'Admin' };
 export function sectionOf(pathname: string) {
   const p = pathname.split('/')[1] ?? '';
   return p === '' || p === 'spec' ? 'specs' : p === 'doc' ? 'docs' : p;
@@ -92,11 +95,16 @@ export function Shell({ master, detail, single, active }: { master: ReactNode; d
     <NavLink key={to} to={to} end={to === '/'} className="navitem" aria-current={act === (to === '/' ? 'specs' : to.slice(1)) ? 'page' : undefined}><Icon name={icon} size={18} /><span>{label}</span>{extra}</NavLink>
   );
   const [pi, ptext] = PLACEHOLDER[act] ?? PLACEHOLDER.specs;
+  // one distinct window title per page (history, tabs, screen readers): "Spec title · Specs · Team"
+  const openId = pathname.startsWith('/spec/') || pathname.startsWith('/doc/') ? decodeURIComponent(pathname.replace(/^\/(spec|doc)\//, '')) : null;
+  const openTitle = openId ? (S.get(openId)?.title || openId) : null;
+  useEffect(() => { document.title = [openTitle, TITLES[act] ?? 'Specs', t?.name].filter(Boolean).join(' · '); }, [openTitle, act, t?.name]);
   const needs = S.feedbackTotal();
   const moreBadge = m.invites + S.conflicts().length;
   return (
     <div className={`shell ${single ? 'single' : ''}`} data-pane={detail ? 'detail' : 'master'}>
-      <aside className="sidebar" id="sidebar">
+      <a className="skip" href="#main" onClick={(e) => { e.preventDefault(); document.getElementById('main')?.focus(); }}>Skip to content</a>
+      <nav className="sidebar" id="sidebar" aria-label="Sections">
         <button type="button" className="ws" aria-label="Switch team" onClick={m.workspace}><span className="ws-av">{initial(m.teamName)}</span><b>{m.teamName}</b><Icon name="chevron" size={14} />{m.invites > 0 && <span className="navitem badge" style={{ marginLeft: 6 }}>{m.invites}</span>}</button>
         <div className="navlabel">Content</div>
         {link('/', 'Specs', 'specs', nSpecs ? <span className="muted" style={{ marginLeft: 'auto', fontSize: 12 }}>{nSpecs}</span> : null)}{link('/docs', 'Documents', 'docs')}{link('/glossary', 'Glossary', 'glossary')}
@@ -111,12 +119,12 @@ export function Shell({ master, detail, single, active }: { master: ReactNode; d
           <SyncPill />
           <button type="button" className="me" data-act="user-menu" aria-label="Account menu" onClick={m.user}><span className="avatar">{initial(me.name)}</span><span className="who"><b>{me.name}</b><small>{t?.role ?? (me.admin ? 'instance admin' : '')}</small></span><Icon name="more" size={18} /></button>
         </div>
-      </aside>
-      <div className="content">
-        <section className="master" id="master">{master}</section>
+      </nav>
+      <main className="content" id="main" tabIndex={-1}>
+        <DetailOpen.Provider value={!!detail}><section className="master" id="master">{master}</section></DetailOpen.Provider>
         {!single && <section className="detail" id="detail">{detail ?? <div className="placeholder"><Icon name={pi} size={40} /><p>{ptext}</p></div>}</section>}
-      </div>
-      <nav className="tabbar" id="tabbar" aria-label="Main">
+      </main>
+      <nav className="tabbar" id="tabbar" aria-label="Main sections">
         {([['/', 'Specs', 'specs', 'specs'], ['/garden', 'Garden', 'garden', 'garden'], ['/docs', 'Docs', 'docs', 'docs'], ['/release', 'Release', 'release', 'release']] as const).map(([to, l, i, k]) => (
           <NavLink key={to} to={to} end={to === '/'} aria-current={act === k ? 'page' : undefined}><Icon name={i} />{<span>{l}</span>}{k === 'garden' && needs > 0 && <span className="badge">{needs}</span>}</NavLink>
         ))}

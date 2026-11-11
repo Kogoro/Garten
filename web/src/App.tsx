@@ -14,6 +14,7 @@ import { ReleasePage } from './pages/Release';
 import { SpecsPage } from './pages/Specs';
 import { SyncPage } from './pages/Sync';
 import { TeamPage } from './pages/Team';
+import { Palette } from './Palette';
 import { Toaster, useStore } from './ui';
 
 export default function App() {
@@ -42,5 +43,5 @@ export default function App() {
       <Route path="*" element={<Navigate to="/" />} />
     </Routes>
   );
-  return <>{body}<MenuHost />{relogin && <ReloginSheet onClose={() => setRelogin(false)} />}<Toaster /></>;
+  return <>{body}<Palette /><MenuHost />{relogin && <ReloginSheet onClose={() => setRelogin(false)} />}<Toaster /></>;
 }

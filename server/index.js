@@ -1,4 +1,5 @@
 import express from 'express';
+import compression from 'compression';
 import path from 'node:path';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -29,14 +30,21 @@ await store.startupSweep();
 resumeHooks();
 catchUpPushes(listTeams()).catch((e) => console.error('catch-up:', e.message));
 
+// The web app: only its own scripts (no inline script), its own data connections, no plug-ins. Styles may be inline (React style props, Mermaid).
+const APP_CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'";
 const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', TRUST_PROXY);
 app.use((_req, res, next) => {
   res.set('X-Content-Type-Options', 'nosniff');
   res.set('Referrer-Policy', 'same-origin');
+  res.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()');
+  res.set('Cross-Origin-Opener-Policy', 'same-origin');
+  // pages of this server cannot be framed or re-targeted; the web app gets the full policy below
+  res.set('Content-Security-Policy', "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'");
   next();
 });
+app.use(compression({ threshold: 1024, filter: (req, res) => (req.path === '/mcp' ? false : compression.filter(req, res)) }));
 app.get('/healthz', (_req, res) => {
   try { db.prepare('SELECT 1').get(); res.json({ ok: true }); } catch (e) { console.error('healthz:', e); res.status(503).json({ ok: false }); }
 });
@@ -74,7 +82,10 @@ if (!webDir) console.warn('No web build found – run "npm run build" (web/dist)
 else app.use(
   express.static(webDir, {
     setHeaders: (res, file) => {
-      if (/(^|\/)(sw\.js|index\.html|workbox-[^/]*\.js)$/.test(file)) res.setHeader('Cache-Control', 'no-cache');
+      if (/(^|\/)(sw\.js|index\.html|workbox-[^/]*\.js|manifest\.webmanifest|theme-init\.js)$/.test(file)) res.setHeader('Cache-Control', 'no-cache');
+      else if (/\/assets\//.test(file)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable'); // file names carry a content hash
+      else res.setHeader('Cache-Control', 'public, max-age=86400');
+      if (/\.html$/.test(file)) res.setHeader('Content-Security-Policy', APP_CSP);
     },
   }),
 );
