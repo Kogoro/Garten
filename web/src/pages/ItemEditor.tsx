@@ -169,7 +169,7 @@ export function ItemEditor({ item }: { item: Item }) {
     </>
   );
   return (
-    <div className="editor" data-editor={item.id}>
+    <div className="editor" data-editor={item.id} data-locked={phone && locked ? '' : undefined}>
       <header className="bar ed-bar">
         {isSpec && !(phone && locked) && <h1 className="sr">{item.title || item.id}</h1>}
         <Link className="icon-btn back" to={back} aria-label="Back"><Icon name="back" /></Link>
@@ -186,10 +186,10 @@ export function ItemEditor({ item }: { item: Item }) {
         <button type="button" className="icon-btn" data-act="item-menu" aria-label="More actions" aria-haspopup="menu" onClick={itemMenu}><Icon name="more" /></button>
       </header>
       {phone && locked && isSpec && (
-        <section className="sumcard" aria-label="Overview">
-          {item.status === 'approved' && <button type="button" className="sumrow" data-act="report" onClick={() => setSheet('report')}><span>Implementation</span><span className="sumval"><ImplChip spec={item} always /></span><span className="chev"><Icon name="chevron" size={16} /></span></button>}
-          <button type="button" className="sumrow" data-act="feedback" aria-label={`Feedback: ${S.feedbackCount(item.id)} open`} onClick={() => setSheet('feedback')}><span>Feedback</span><span className={`sumval${S.feedbackCount(item.id) ? ' hot' : ''}`}>{S.feedbackCount(item.id) ? `${S.feedbackCount(item.id)} open` : 'None open'}</span><span className="chev"><Icon name="chevron" size={16} /></span></button>
-          <button type="button" className="sumrow" data-act="link-docs" onClick={() => setSheet('link')}><span>Documents</span><span className="sumval">{item.links.length} linked</span><span className="chev"><Icon name="chevron" size={16} /></span></button>
+        <section className="sumstrip" aria-label="Overview">
+          {item.status === 'approved' && <button type="button" className="sumcell" data-act="report" onClick={() => setSheet('report')}><small>Agent</small><span>{implState(item, S.latestReport(item.id)).text.replace(/ · built.*$/, '')}</span></button>}
+          <button type="button" className="sumcell" data-act="feedback" aria-label={`Feedback: ${S.feedbackCount(item.id)} open`} onClick={() => setSheet('feedback')}><small>Feedback</small><span className={S.feedbackCount(item.id) ? 'hot' : ''}>{S.feedbackCount(item.id) ? `${S.feedbackCount(item.id)} open` : 'None open'}</span></button>
+          <button type="button" className="sumcell" data-act="link-docs" onClick={() => setSheet('link')}><small>Documents</small><span>{item.links.length} linked</span></button>
         </section>
       )}
       {item.conflict && <div id="banner"><div className="card bad banner"><div className="grow"><b>Changed on the server</b><span>Your edits and the server version differ.</span></div><button className="btn danger" data-act="conflict" onClick={() => setSheet('conflict')}>Review</button></div></div>}
@@ -218,7 +218,7 @@ export function ItemEditor({ item }: { item: Item }) {
       {phone && locked && (
         <footer className="approve-bar">
           {approveLine && <span className="approve-line">{approveLine}</span>}
-          {!ro && <button type="button" className="btn" data-act="edit" onClick={() => setEditing(true)}><Icon name="file" size={16} /> Edit</button>}
+          {!ro && <button type="button" className="btn ghost" data-act="edit" onClick={() => setEditing(true)}>Edit</button>}
           <span id="approveSlot"><ApproveButton i={item} S={S} /></span>
         </footer>
       )}

@@ -59,9 +59,8 @@ function SpecList({ selected }: { selected?: string }) {
         {!specs.length && <div className="empty">{all.length ? 'No specs match.' : S.can('write') ? 'No specs yet. Create your first one — it works offline.' : 'No specs yet.'}</div>}
         {specs.map((s) => (
           <Link key={s.id} className={`row ${selected === s.id ? 'active' : ''}`} to={`/spec/${encodeURIComponent(s.id)}`}>
-            <div className="row-top"><span className="row-id">{s.id}</span><ItemSync i={s} S={S} quiet /></div>
             <div className="row-title">{s.title || <span className="muted">Untitled spec</span>}</div>
-            <div className="row-meta"><TypeChip s={s} S={S} /><StatusChip i={s} S={S} /><AgentChip s={s} S={S} /><ImplChip spec={s} />{S.feedbackCount(s.id) > 0 && <span className="chip warn" title="Open feedback">{S.feedbackCount(s.id)} feedback</span>}{s.links.length > 0 && <span>{s.links.length} document{s.links.length === 1 ? '' : 's'}</span>}<span>{s.fetchedAt && !S.hasUnreleased(s) ? `Agent fetched ${ago(Date.parse(s.fetchedAt))}` : `Edited ${ago(touched(s))}`}</span></div>
+            <div className="row-meta"><span className="row-id">{s.id}</span><TypeChip s={s} S={S} /><StatusChip i={s} S={S} /><AgentChip s={s} S={S} /><ImplChip spec={s} />{S.feedbackCount(s.id) > 0 && <span className="chip warn" title="Open feedback">{S.feedbackCount(s.id)} feedback</span>}<ItemSync i={s} S={S} quiet /><span className="row-when">{s.links.length > 0 && <span className="row-docs">{s.links.length} document{s.links.length === 1 ? '' : 's'}</span>}<span>{s.fetchedAt && !S.hasUnreleased(s) ? <>Agent fetched {ago(Date.parse(s.fetchedAt))}</> : <><span className="row-word">Edited </span>{ago(touched(s))}</>}</span></span></div>
           </Link>
         ))}
       </div>
