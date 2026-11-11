@@ -28,8 +28,19 @@ export const StatusChip = ({ i, S }: { i: Item; S: Store }) => {
   return i.approve ? <span className="chip warn">Approval queued</span> : i.status === 'approved' ? <span className="chip ok">Approved v{i.version}{S.hasUnreleased(i) ? ' · edited' : ''}</span> : <span className="chip">Draft</span>;
 };
 
-export const ItemSync = ({ i, S }: { i: Item; S: Store }) =>
-  i.conflict ? <span className="st bad"><Icon name="warn" size={12} />Conflict</span> : S.isPending(i) ? <span className="st warn"><Icon name="up" />Not synced</span> : <span className="st"><Icon name="check" />Synced</span>;
+/** Sync state of one item. `quiet` (lists): say nothing while everything is fine, so only the exceptions stand out. */
+export const ItemSync = ({ i, S, quiet }: { i: Item; S: Store; quiet?: boolean }) =>
+  i.conflict ? <span className="st bad"><Icon name="warn" size={12} />Conflict</span> : S.isPending(i) ? <span className="st warn"><Icon name="up" />Not synced</span> : quiet ? null : <span className="st"><Icon name="check" />Synced</span>;
+
+/** An address that leads nowhere (deleted item, old link): say so and offer the way back – never a blank screen. */
+export function NotFound({ what, to, back }: { what: string; to: string; back: string }) {
+  return (
+    <div className="notfound">
+      <header className="bar"><Link className="icon-btn back" to={to} aria-label={`Back to ${back}`}><Icon name="back" /></Link><h1>Not found</h1></header>
+      <div className="scroll"><div className="page"><p>This {what} does not exist (anymore). It may have been deleted, or the link is from another team.</p><div className="btns"><Link className="btn primary" to={to}>Back to {back}</Link></div></div></div>
+    </div>
+  );
+}
 
 export function saveState(i: Item, S: Store) {
   if (!S.can('write')) return 'ro';

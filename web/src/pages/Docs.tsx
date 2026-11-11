@@ -7,7 +7,7 @@ import { PathSheet, type PathSheetKind } from '../sheets';
 import { openMenu, useUi } from '../state';
 import type { Item } from '../store/types';
 import { Icon, ago, toast, touched, useStore } from '../ui';
-import { ItemEditor, ItemSync } from './ItemEditor';
+import { ItemEditor, ItemSync, NotFound } from './ItemEditor';
 
 type Store = ReturnType<typeof useStore>;
 interface Node { folders: Map<string, Node>; docs: Item[] }
@@ -53,7 +53,7 @@ function DocsList({ selected }: { selected?: string }) {
       const used = S.usedBy(d.id);
       out.push(
         <Link key={d.id} className={`row docrow ${selected === d.id ? 'active' : ''}`} style={{ ['--d' as any]: depth }} to={`/doc/${enc(d.id)}`}>
-          <div className="row-top"><span className="row-title mono" style={{ fontSize: 13.5 }}>{S.baseName(d.id)}</span><ItemSync i={d} S={S} /></div>
+          <div className="row-top"><span className="row-title mono" style={{ fontSize: 13.5 }}>{S.baseName(d.id)}</span><ItemSync i={d} S={S} quiet /></div>
           <div className="row-meta"><span>{used.length ? `Used by ${used.map((u) => u.id).join(', ')}` : 'Not linked to a spec'}</span><span>Edited {ago(touched(d))}</span></div>
         </Link>,
       );
@@ -93,5 +93,5 @@ export function DocsPage() {
   const { '*': rest } = useParams();
   const id = rest ? decodeURIComponent(rest) : undefined;
   const item = id ? S.get(id) : undefined;
-  return <Shell master={<DocsList selected={id} />} detail={id ? (item && item.kind === 'doc' ? <ItemEditor key={id} item={item} /> : <div className="placeholder"><p>This document does not exist (anymore).</p></div>) : undefined} />;
+  return <Shell master={<DocsList selected={id} />} detail={id ? (item && item.kind === 'doc' ? <ItemEditor key={id} item={item} /> : <NotFound what="document" to="/docs" back="Documents" />) : undefined} />;
 }

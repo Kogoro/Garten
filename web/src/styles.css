@@ -724,3 +724,9 @@ kbd { display: inline-block; min-width: 22px; padding: 1px 6px; border: 1px soli
 .onb li.done a { color: var(--muted); text-decoration: line-through; }
 .onb-mark { flex: 0 0 18px; height: 18px; border: 2px solid var(--muted); border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; }
 .onb li.done .onb-mark { background: var(--green-solid); border-color: var(--green-solid); color: var(--on-green); }
+
+/* phase 1: calm lists */
+.onb li a:not(.btn):not(.src) { text-decoration: none; }
+.onb li.done a:not(.btn):not(.src) { text-decoration: line-through; }
+.notfound { display: flex; flex-direction: column; height: 100%; }
+@media (max-width: 700px) { .list { padding-bottom: calc(96px + env(safe-area-inset-bottom)); } }  /* room for the New spec button */

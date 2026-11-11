@@ -240,6 +240,10 @@ try {
   await page.keyboard.press('?'); await page.getByRole('dialog', { name: /Keyboard shortcuts/ }).waitFor(); await page.keyboard.press('Escape'); ok('keyboard: "?" lists the shortcuts');
   await page.evaluate(() => document.body.focus()); await page.keyboard.press('Tab');
   assert.equal(await page.evaluate(() => document.activeElement?.textContent), 'Skip to content'); ok('the first Tab stop is a skip link');
+  // an address that leads nowhere offers the way back
+  await page.evaluate(() => { location.hash = '#/spec/NOPE-999'; });
+  await page.getByText('does not exist (anymore)').waitFor(); await page.getByRole('link', { name: /Back to Specs/ }).first().click();
+  await page.waitForFunction(() => location.hash === '#/'); ok('a missing spec shows a message with a way back, not a blank page');
   // pause and resume the agents
   await page.evaluate(() => { location.hash = '#/garden'; });
   page.once('dialog', (dlg) => dlg.accept());

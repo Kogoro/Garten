@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Bar, Shell } from '../Shell';
-import { AgentChip, ItemEditor, ItemSync, StatusChip, TypeChip } from './ItemEditor';
+import { AgentChip, ItemEditor, ItemSync, NotFound, StatusChip, TypeChip } from './ItemEditor';
 import { NewSpecSheet } from '../sheets';
 import { ImplChip } from '../reports';
 import { Icon, ago, touched, useStore } from '../ui';
@@ -52,9 +52,9 @@ function SpecList({ selected }: { selected?: string }) {
         {!specs.length && <div className="empty">{all.length ? 'No specs match.' : S.can('write') ? 'No specs yet. Create your first one — it works offline.' : 'No specs yet.'}</div>}
         {specs.map((s) => (
           <Link key={s.id} className={`row ${selected === s.id ? 'active' : ''}`} to={`/spec/${encodeURIComponent(s.id)}`}>
-            <div className="row-top"><span className="row-id">{s.id}</span><ItemSync i={s} S={S} /></div>
+            <div className="row-top"><span className="row-id">{s.id}</span><ItemSync i={s} S={S} quiet /></div>
             <div className="row-title">{s.title || <span className="muted">Untitled spec</span>}</div>
-            <div className="row-meta"><TypeChip s={s} S={S} /><StatusChip i={s} S={S} /><AgentChip s={s} S={S} /><ImplChip spec={s} />{S.feedbackCount(s.id) > 0 && <span className="chip warn" title="Open feedback">{S.feedbackCount(s.id)} feedback</span>}<span>{s.links.length} document{s.links.length === 1 ? '' : 's'}</span><span>{s.fetchedAt && !S.hasUnreleased(s) ? `Agent fetched ${ago(Date.parse(s.fetchedAt))}` : `Edited ${ago(touched(s))}`}</span></div>
+            <div className="row-meta"><TypeChip s={s} S={S} /><StatusChip i={s} S={S} /><AgentChip s={s} S={S} /><ImplChip spec={s} />{S.feedbackCount(s.id) > 0 && <span className="chip warn" title="Open feedback">{S.feedbackCount(s.id)} feedback</span>}{s.links.length > 0 && <span>{s.links.length} document{s.links.length === 1 ? '' : 's'}</span>}<span>{s.fetchedAt && !S.hasUnreleased(s) ? `Agent fetched ${ago(Date.parse(s.fetchedAt))}` : `Edited ${ago(touched(s))}`}</span></div>
           </Link>
         ))}
       </div>
@@ -67,7 +67,7 @@ function SpecList({ selected }: { selected?: string }) {
 function SpecEditorPage({ id }: { id: string }) {
   const S = useStore();
   const item = S.get(id);
-  if (!item || item.kind !== 'spec') return <div className="placeholder"><p>This spec does not exist (anymore).</p></div>;
+  if (!item || item.kind !== 'spec') return <NotFound what="spec" to="/" back="Specs" />;
   return <ItemEditor item={item} />;
 }
 
