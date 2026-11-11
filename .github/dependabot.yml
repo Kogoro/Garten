@@ -9,6 +9,14 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }
+    groups:
+      actions: { patterns: ["*"] }            # one pull request for all workflow action bumps
   - package-ecosystem: docker
     directory: /
     schedule: { interval: weekly }
+    # Dependabot only reads the tag ("24-alpine" -> "25-alpine"); it knows nothing about Node's release lines. Odd majors are
+    # never LTS, and moving to a new LTS is a decision (check the engines, the CI matrix and the Docker image), so majors stay manual.
+    # Digest and patch updates of the pinned image keep coming.
+    ignore:
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]
