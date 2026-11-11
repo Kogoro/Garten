@@ -23,7 +23,7 @@ async function authEnv(team) {
     const dir = await mkdtemp(path.join(tmpdir(), 'specs-ssh-'));
     const keyFile = path.join(dir, 'id');
     await writeFile(keyFile, decrypt(r.git_secret).replace(/\r?\n?$/, '\n'), { mode: 0o600 });
-    env.GIT_SSH_COMMAND = `ssh -i ${keyFile} -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=${path.join(DATA_DIR, 'known_hosts')}`;
+    env.GIT_SSH_COMMAND = `ssh -i ${keyFile} -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=${path.join(DATA_DIR, 'known_hosts')}`;
     cleanup = () => rm(dir, { recursive: true, force: true });
   }
   return { env, cleanup };

@@ -8,7 +8,7 @@ import { Icon, setTheme, themePref, toast, useStore } from './ui';
 
 export function SyncPill() {
   const S = useStore();
-  const q = S.queue().length, c = S.conflicts().length, st = S.state;
+  const q = S.queue().length + S.fbPending(), c = S.conflicts().length, st = S.state;
   let cls = 'ok', text = 'Synced', icon = ic.check(14);
   if (st.sessionExpired) [cls, text, icon] = ['bad', 'Sign in to sync', ic.warn(14)];
   else if (c) [cls, text, icon] = ['bad', `${c} conflict${c > 1 ? 's' : ''}`, ic.warn(14)];
@@ -52,7 +52,7 @@ export function useMenus() {
     workspace: async () => pick(await openMenu('Team', workspaceItems())),
     user: async () => pick(await openMenu(S.state.me!.name, [{ key: 'go:account', label: 'Account & agent access' }, ...themeItems, { key: 'logout', label: 'Sign out', danger: true }])),
     more: async () => pick(await openMenu('More', [
-      { key: 'go:glossary', label: 'Glossary' }, { key: 'go:sync', label: `Sync${S.queue().length + S.conflicts().length ? ` · ${S.queue().length + S.conflicts().length} waiting` : ''}` }, { key: 'go:team', label: 'Members & Git' },
+      { key: 'go:glossary', label: 'Glossary' }, { key: 'go:sync', label: `Sync${S.queue().length + S.fbPending() + S.conflicts().length ? ` · ${S.queue().length + S.fbPending() + S.conflicts().length} waiting` : ''}` }, { key: 'go:team', label: 'Members & Git' },
       ...(S.isInstanceAdmin() ? [{ key: 'go:admin', label: 'Admin' }] : []), { key: 'go:account', label: 'Account & agent access' },
       ...invites.map((i) => ({ key: `invite:${i.id}`, label: `Join “${i.teamName}” as ${i.role} (invitation)` })),
       { key: 'switch', label: `Team: ${teamName} – switch or create…` }, ...themeItems, { key: 'logout', label: 'Sign out', danger: true },

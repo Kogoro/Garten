@@ -40,7 +40,12 @@ async function applyChange(ch, team, user, role) {
       store.deleteItem(t, id, baseRev);
       return { id, status: 'applied', deleted: true };
     }
-    if (cur && cur.rev !== baseRev) return { id, status: 'conflict', server: cur };
+    if (cur && cur.rev !== baseRev) {
+      // A retry after a lost response: the server already holds exactly what this change says – it was applied.
+      const same = !approve && !revoke && Object.keys(fields).length > 0 && ['title', 'body', 'pinned', 'specType'].every((k) => !(k in fields) || fields[k] === cur[k])
+        && (!('links' in fields) || JSON.stringify(fields.links) === JSON.stringify(cur.links));
+      return same ? { id, status: 'applied', item: cur } : { id, status: 'conflict', server: cur };
+    }
     if (!cur && baseRev !== 0) return { id, status: 'conflict', server: null };
 
     const hasFields = ['title', 'body', 'links', 'pinned', 'specType'].some((k) => k in fields);
@@ -60,8 +65,11 @@ async function applyChange(ch, team, user, role) {
     }
     return { id, status: 'applied', item };
   } catch (e) {
-    if (e instanceof store.ApiError) return { id, status: 'error', message: e.message };
-    throw e;
+    // One failing change must not fail the whole batch (the others are already stored); report it per change, with the current item.
+    const item = (() => { try { return store.getItem(t, id) ?? undefined; } catch { return undefined; } })();
+    if (e instanceof store.ApiError) return { id, status: 'error', message: e.message, ...(item ? { item } : {}) };
+    console.error('sync change failed:', id, e);
+    return { id, status: 'error', message: 'The server could not publish this change. It will be retried with the next sync.', ...(item ? { item } : {}) };
   }
 }
 const order = (c) => (c.delete ? (c.kind === 'folder' ? 3 : 2) : c.kind === 'folder' ? -1 : c.kind === 'doc' ? 0 : 1); // folders/docs first, deletions last

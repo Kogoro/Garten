@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js';
 import { mcpAuthRouter, getOAuthProtectedResourceMetadataUrl } from '@modelcontextprotocol/sdk/server/auth/router.js';
+import { db } from './db.js';
 import { PORT, HOST, DATA_DIR, SEED_DEMO, PUBLIC_URL, TRUST_PROXY, OIDC } from './config.js';
 import { apiRouter } from './api.js';
 import { mcpHandler } from './mcp.js';
@@ -33,7 +34,9 @@ app.use((_req, res, next) => {
   res.set('Referrer-Policy', 'same-origin');
   next();
 });
-app.get('/healthz', (_req, res) => res.json({ ok: true }));
+app.get('/healthz', (_req, res) => {
+  try { db.prepare('SELECT 1').get(); res.json({ ok: true }); } catch (e) { console.error('healthz:', e); res.status(503).json({ ok: false }); }
+});
 
 // ---- web app API + browser sign-in
 app.use('/api', apiRouter());
@@ -74,10 +77,24 @@ else app.use(
 );
 
 app.use((err, _req, res, _next) => {
+  const status = Number(err?.status ?? err?.statusCode);
+  if (status >= 400 && status < 500) {          // body-parser: malformed JSON (400), body too large (413) …
+    return res.status(status).json({ error: status === 413 ? 'request too large' : status === 400 ? 'bad request' : 'rejected' });
+  }
   console.error(err);
   res.status(500).json({ error: 'internal error' });
 });
 
-app.listen(PORT, ...(HOST ? [HOST] : []), () => {
+const server = app.listen(PORT, ...(HOST ? [HOST] : []), () => {
   console.log(`specs listening on ${HOST || ''}:${PORT}  (data: ${DATA_DIR}, public url: ${PUBLIC_URL}${OIDC ? ', sso: ' + OIDC.name : ''})`);
 });
+
+// docker stop / systemctl stop: finish running requests, then leave the database in a clean state.
+for (const sig of ['SIGTERM', 'SIGINT']) {
+  process.on(sig, () => {
+    console.log(`${sig}: shutting down`);
+    setTimeout(() => process.exit(1), 8000).unref();
+    server.close(() => { try { db.close(); } catch { /* already closed */ } process.exit(0); });
+    server.closeIdleConnections?.();
+  });
+}

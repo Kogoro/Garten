@@ -69,7 +69,7 @@ button { cursor: pointer; }
 .tabbar { display: flex; flex-shrink: 0; height: calc(58px + env(safe-area-inset-bottom)); padding-bottom: env(safe-area-inset-bottom); border-top: 1px solid var(--line); background: var(--nav); }
 .tabbar > * { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-width: 0; background: none; border: 0; padding: 0; font-size: 11px; font-weight: 500; color: var(--muted); position: relative; }
 .tabbar > [aria-current="page"] { color: var(--green); font-weight: 600; }
-.tabbar .badge { position: absolute; top: 5px; left: calc(50% + 6px); min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--amber); color: #1B1300; font-size: 10px; font-weight: 700; line-height: 16px; text-align: center; }
+.tabbar .badge { position: absolute; top: 5px; left: calc(50% + 6px); min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--amber); color: #1B1300; font-size: 11px; font-weight: 700; line-height: 16px; text-align: center; }
 .shell[data-pane="detail"] .tabbar { display: none; } /* the editor is full screen on phones */
 
 /* list panes */
@@ -612,3 +612,31 @@ textarea.field.hook-headers { min-height: 76px; font-size: 12.5px; }
 .hook-ev { display: flex; flex-direction: column; gap: 4px; }
 .as-prompt { max-height: 260px; overflow: auto; word-break: normal; overflow-wrap: anywhere; }
 #agentSetup .sect-title { margin: 6px 0 0; }
+
+/* Review fixes (UI/UX): phone layout, touch targets, contrast */
+.sheet { position: relative; }
+.sheet:focus { outline: none; }
+.sheet-x { position: absolute; top: 6px; right: 6px; width: 44px; height: 44px; border: 0; background: none; color: var(--muted); font-size: 26px; line-height: 1; border-radius: 10px; }
+.sheet-x:hover, .sheet-x:focus-visible { background: var(--tint); color: var(--text); }
+.sheet > h2:first-of-type, .sheet > h1:first-of-type { padding-right: 44px; }
+.ed-bar .ed-title { min-width: 0; }
+.icon-btn, .fbbtn, .docsbtn, .save-ind, .approve { flex-shrink: 0; }
+.detail, .shell { overflow-x: clip; }
+.fb-evidence { overflow-wrap: anywhere; word-break: normal; }
+.fb-evidence.mono { word-break: break-all; }
+.menu-item:disabled { color: var(--muted); opacity: 1; }
+.matrix .no { color: var(--muted); }
+:root { --ph: #5F6B77; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --ph: #9AA4AE; } }
+:root[data-theme="dark"] { --ph: #9AA4AE; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+@media (max-width: 700px) {
+  :root { --hc: 44px; }
+  .dd-menu { position: fixed; left: 8px; right: 8px; top: calc(var(--h) + 8px); min-width: 0; max-height: 70vh; overflow: auto; }
+  .docs-menu { min-width: 0; }
+  .fbbtn, .docsbtn { min-height: 44px; min-width: 44px; justify-content: center; }
+  .tab { padding: 12px; }
+  .fb-spec { display: inline-block; padding: 14px 0; }
+  .approve .hint, .approve.queued .lbl { display: none; }
+  .tabbar .badge, .badge { font-size: 11px; }
+}

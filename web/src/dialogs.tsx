@@ -2,20 +2,40 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Icon } from './ui';
 import { useUi } from './state';
 
-/** Modal bottom sheet / dialog (the scrim closes it, so does Escape). */
+/** Modal bottom sheet / dialog (the scrim, the close button and Escape close it). Focus moves in, stays in and returns to the opener. */
 export function Sheet({ onClose, children }: { onClose: () => void; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const k = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    const opener = document.activeElement as HTMLElement | null;
+    const box = ref.current;
+    const heading = box?.querySelector('h1, h2, h3');
+    if (heading) { heading.id ||= `sheet-title-${Math.random().toString(36).slice(2, 8)}`; box?.setAttribute('aria-labelledby', heading.id); }
+    const focusable = () => [...(box?.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), input:not([type=hidden]):not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])') ?? [])].filter((e) => e.offsetParent !== null);
+    const k = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') return onClose();
+      if (e.key !== 'Tab') return;
+      const f = focusable(); if (!f.length) return;
+      const first = f[0], last = f[f.length - 1];
+      if (!box?.contains(document.activeElement)) { e.preventDefault(); first.focus(); }
+      else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    };
     document.addEventListener('keydown', k);
-    const i = ref.current?.querySelector<HTMLInputElement | HTMLTextAreaElement>('input:not([type=hidden]):not([type=radio]):not([type=checkbox]), textarea');
-    i?.focus();
-    try { if (i?.value) i.setSelectionRange?.(i.value.length, i.value.length); } catch { /* inputs without a caret (email …) */ }
-    return () => document.removeEventListener('keydown', k);
+    // A touch keyboard popping up would cover the sheet: only text fields get the focus on devices with a precise pointer.
+    const fine = typeof matchMedia === 'function' && matchMedia('(pointer: fine)').matches;
+    const i = fine ? box?.querySelector<HTMLInputElement | HTMLTextAreaElement>('input:not([type=hidden]):not([type=radio]):not([type=checkbox]), textarea') : null;
+    if (i) {
+      i.focus();
+      try { if (i.value) i.setSelectionRange?.(i.value.length, i.value.length); } catch { /* inputs without a caret (email …) */ }
+    } else box?.focus();
+    return () => { document.removeEventListener('keydown', k); if (opener?.isConnected) opener.focus?.(); };
   }, [onClose]);
   return (
     <div className="scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="sheet" role="dialog" aria-modal="true" ref={ref}>{children}</div>
+      <div className="sheet" role="dialog" aria-modal="true" tabIndex={-1} ref={ref}>
+        <button type="button" className="sheet-x" aria-label="Close" onClick={onClose}>×</button>
+        {children}
+      </div>
     </div>
   );
 }

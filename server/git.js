@@ -13,13 +13,16 @@ export class Repo {
   }
 
   raw(env, ...args) {
-    return run('git', args, { cwd: this.dir, maxBuffer: 32 * 1024 * 1024, env: { ...process.env, LC_ALL: 'C', LANGUAGE: 'C', ...env } }).then((r) => r.stdout);
+    return run('git', args, { cwd: this.dir, maxBuffer: 32 * 1024 * 1024, timeout: 120000, killSignal: 'SIGKILL', env: { ...process.env, LC_ALL: 'C', LANGUAGE: 'C', ...env } }).then((r) => r.stdout);
   }
 
   /** git in the repo; initialises it on first use. */
   async git(...args) { await this.ensure(); return this.raw(null, ...args); }
   async gitWith(env, ...args) { await this.ensure(); return this.raw(env, ...args); }
-  ensure() { return (this.ready ??= this.init()); }
+  ensure() {
+    // A failed init is not cached: the next call tries again.
+    return (this.ready ??= this.init().catch((e) => { this.ready = null; throw e; }));
+  }
   /** Run `fn` while no other mutation (commit, push) is in flight. */
   lock(fn) {
     const p = this.queue.then(fn, fn);
@@ -40,6 +43,8 @@ export class Repo {
     } catch {
       await this.raw(null, 'init', '-b', 'main');
     }
+    // A killed git leaves its lock behind; nothing else uses this repo, so it is stale. Drop whatever a crash left half done.
+    await rm(path.join(this.dir, '.git', 'index.lock'), { force: true });
     await this.raw(null, 'config', 'user.name', 'Specs');
     await this.raw(null, 'config', 'user.email', 'specs@localhost');
     await this.raw(null, 'config', 'commit.gpgsign', 'false');
@@ -50,6 +55,17 @@ export class Repo {
   commit({ write = {}, remove = [], message, tag, author, post }) {
     const job = async () => {
       await this.ensure();
+      try {
+        return await attempt();
+      } catch (e) {
+        // Never leave unreleased text in the working tree: agents read it and the next release would commit it.
+        await rm(path.join(this.dir, '.git', 'index.lock'), { force: true }).catch(() => {});
+        await this.raw(null, 'reset', '--hard', 'HEAD').catch(() => {});
+        await this.raw(null, 'clean', '-fdq').catch(() => {});
+        throw e;
+      }
+    };
+    const attempt = async () => {
       for (const [rel, content] of Object.entries(write)) {
         const abs = this.safe(rel);
         await mkdir(path.dirname(abs), { recursive: true });

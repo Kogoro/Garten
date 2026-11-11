@@ -168,6 +168,7 @@ export async function releaseSpec(team, id, by = null) {
   const missing = spec.links.filter((_, i) => !docs[i] || docs[i].kind !== 'doc');
   if (missing.length) throw new ApiError(`linked documents missing on server: ${missing.join(', ')}`);
 
+  const relRev = spec.rev; // an edit may arrive while git works: only this revision is released
   const version = spec.version + 1;
   const at = new Date().toISOString();
   const write = { [specPath(team, id)]: specFile(spec, docs, version, at) };
@@ -178,8 +179,8 @@ export async function releaseSpec(team, id, by = null) {
   const sha = await repo.commit({ write, message: `Release ${id} v${version}: ${spec.title}`, tag, author: by, post: tidy(team, keep) });
   if (!sha) await repo.tag(tag);
 
-  db.prepare("UPDATE items SET status='approved', version=?, released_rev=rev, released_at=?, released_by=?, seq=? WHERE team_id=? AND id=?")
-    .run(version, at, by?.name ?? null, nextSeq(t), t, id);
+  db.prepare("UPDATE items SET status='approved', version=?, released_rev=?, released_at=?, released_by=?, seq=? WHERE team_id=? AND id=?")
+    .run(version, relRev, at, by?.name ?? null, nextSeq(t), t, id);
   events.emit('committed', t);
   events.emit('released', { teamId: t, id, version, title: spec.title, by: by?.name ?? null });
   return getItem(t, id);
@@ -207,14 +208,15 @@ export async function releaseDoc(team, id, by = null) {
   if (!doc.pinned) throw new ApiError(`${id} is not a foundation document – it is released together with a spec`);
   if (!hasContent(doc.body)) return unreleaseDoc(team, id, by);
   if (doc.status === 'approved' && doc.rev === doc.releasedRev) return doc;
+  const relRev = doc.rev;
   const version = doc.version + 1;
   const at = new Date().toISOString();
   await repoFor(team).commit({
     write: { [docPath(team, id)]: doc.body },
     message: `Update ${id} (foundation document, v${version})`, author: by, post: tidy(team, keepSet(t, { extra: [id] })),
   });
-  db.prepare("UPDATE items SET status='approved', version=?, released_rev=rev, released_at=?, released_by=?, seq=? WHERE team_id=? AND id=?")
-    .run(version, at, by?.name ?? null, nextSeq(t), t, id);
+  db.prepare("UPDATE items SET status='approved', version=?, released_rev=?, released_at=?, released_by=?, seq=? WHERE team_id=? AND id=?")
+    .run(version, relRev, at, by?.name ?? null, nextSeq(t), t, id);
   events.emit('committed', t);
   return getItem(t, id);
 }
