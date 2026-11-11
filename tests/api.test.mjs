@@ -754,6 +754,13 @@ try {
     await probe.close();
   }
 
+  // team metrics: computed from the data the app holds
+  {
+    const m = (await admin.get(`/api/teams/${admin.tid}/metrics`)).data.metrics;
+    assert.equal(m.days, 30); assert.ok(m.releasedSpecs >= 1 && m.releasedInPeriod >= 1); assert.equal(typeof m.implementation.none, 'number');
+    assert.ok(m.medianHoursDraftToRelease === null || m.medianHoursDraftToRelease >= 0); assert.equal((await anon.get(`/api/teams/${admin.tid}/metrics`)).status, 401); ok('team health: process figures are computed from existing data and need a sign-in');
+  }
+
   // glossary lookup: input is validated before any third party is asked; sign-in is required
   assert.equal((await admin.get('/api/lookup?q=a')).status, 400); ok('lookup: a too short term is rejected');
   assert.equal((await anon.get('/api/lookup?q=idempotence')).status, 401); ok('lookup: needs a sign-in');

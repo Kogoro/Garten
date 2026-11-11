@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { HashRouter } from 'react-router-dom';
 import './styles.css';
 import App from './App';
+import { ErrorBoundary } from './ErrorBoundary';
 import * as S from './store/core';
 import { applyTheme } from './ui';
 import { applyDensity } from './prefs';
@@ -27,5 +28,5 @@ if ('serviceWorker' in navigator) {
   }).catch(() => {});
 }
 S.init().finally(() => {
-  createRoot(document.getElementById('root')!).render(<StrictMode><HashRouter><App /></HashRouter></StrictMode>);
+  createRoot(document.getElementById('root')!).render(<StrictMode><ErrorBoundary><HashRouter><App /></HashRouter></ErrorBoundary></StrictMode>);
 });

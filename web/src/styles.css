@@ -689,10 +689,29 @@ kbd { display: inline-block; min-width: 22px; padding: 1px 6px; border: 1px soli
   .search input { min-height: 44px; height: auto; }
   label:has(> input[type=checkbox]), label:has(> input[type=radio]) { min-height: 44px; display: flex; align-items: center; gap: 10px; }
 }
-@media (max-width: 700px) { .kv a { display: inline-flex; align-items: center; min-height: 44px; } }
+@media (max-width: 700px) { .kv a { display: inline-flex; align-items: center; min-height: 44px; min-width: 44px; } }
 
 /* density: compact lists for people who scan many items */
 [data-density=compact] .row { padding-top: 8px; padding-bottom: 8px; gap: 2px; }
 [data-density=compact] .row-meta { gap: 6px; }
 [data-density=compact] .kv, [data-density=compact] .gd-row { padding-top: 6px; padding-bottom: 6px; }
 @media (max-width: 700px) { [data-density=compact] .row { padding-top: 10px; padding-bottom: 10px; } }
+
+/* one-time tips */
+.hint-card { display: flex; align-items: center; gap: 12px; margin: 8px 12px; padding: 10px 12px; border: 1px solid var(--line2); border-left: 3px solid var(--green); border-radius: 10px; background: var(--panel); }
+.hint-card p { margin: 0; flex: 1; font-size: 13px; line-height: 1.45; color: var(--soft); }
+.hint-card .btn { flex-shrink: 0; }
+
+.crash { max-width: 560px; margin: 12vh auto 0; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.crash pre { margin: 0; padding: 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); white-space: pre-wrap; overflow-wrap: anywhere; font: 12px var(--mono); }
+
+.health summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.kvgrid { margin: 8px 0 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.kvgrid dt { font-size: 12px; color: var(--muted); } .kvgrid dd { margin: 2px 0 0; font-weight: 600; }
+.kvgrid small { font-weight: 400; color: var(--muted); }
+
+.editor-skeleton { display: flex; flex-direction: column; gap: 12px; padding: 16px 0; }
+.editor-skeleton i { display: block; height: 22px; border-radius: 8px; background: var(--tint); }
+.editor-skeleton i:nth-child(2) { width: 80%; } .editor-skeleton i:nth-child(3) { width: 55%; }
+@media (prefers-reduced-motion: no-preference) { .editor-skeleton i { animation: bootp 1.4s ease-in-out infinite; } }
+@keyframes bootp { 50% { opacity: .5; } }

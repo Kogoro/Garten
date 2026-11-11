@@ -1,9 +1,32 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { DecisionCard, FbItem, useFbAct } from '../feedback';
 import { ImplChip, ReportSheet, implState } from '../reports';
 import { Bar, Shell } from '../Shell';
 import { Icon, ago, toast, useStore } from '../ui';
+
+const dur = (h: number | null | undefined) => (h == null ? '–' : h < 1 ? `${Math.max(1, Math.round(h * 60))} min` : h < 48 ? `${Math.round(h)} h` : `${Math.round(h / 24)} days`);
+/** How the process runs, from data the app already has: nothing is collected or sent anywhere. */
+function Health() {
+  const S = useStore();
+  const [m, setM] = useState<any | null>(null);
+  useEffect(() => { let on = true; if (S.state.online) S.teamApi('GET', '/metrics').then((d: any) => on && setM(d.metrics)).catch(() => { /* offline or no access: no card */ }); return () => { on = false; }; }, [S.state.teamId, S.state.online]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!m) return null;
+  const i = m.implementation;
+  return (
+    <details className="card health" id="gd-health">
+      <summary><b>Team health</b><small className="muted"> last {m.days} days · computed on this server only</small></summary>
+      <dl className="kvgrid">
+        <div><dt>Released</dt><dd>{m.releasedInPeriod} of {m.releasedSpecs} specs</dd></div>
+        <div><dt>Draft to release</dt><dd>{dur(m.medianHoursDraftToRelease)} <small>median</small></dd></div>
+        <div><dt>Answering agents</dt><dd>{dur(m.medianHoursToAnswer)} <small>median, {m.decisionsAnswered} answered</small></dd></div>
+        <div><dt>Waiting for you</dt><dd>{m.openDecisions} <small>{m.openDecisions ? `oldest ${dur(m.oldestOpenDecisionHours)}` : ''}</small></dd></div>
+        <div><dt>Implemented</dt><dd>{i.implemented} <small>of {m.releasedSpecs}{i.blocked ? ` · ${i.blocked} blocked` : ''}{i.outdated ? ` · ${i.outdated} outdated` : ''}{i.none ? ` · ${i.none} not started` : ''}</small></dd></div>
+        {m.claimsVerified && <div><dt>Claims proven by checks</dt><dd>{m.claimsVerified.verified} of {m.claimsVerified.met}</dd></div>}
+      </dl>
+    </details>
+  );
+}
 
 /** The gardener's view: what agents ask, what they found, and how far they are with every released spec. Works offline. */
 export function GardenPage() {
@@ -68,6 +91,8 @@ export function GardenPage() {
           <div className="sect-title"><span>Recently answered</span><small>{answered.length}</small></div>
           <div className="fb-list">{answered.map((d) => <DecisionCard key={d.id} f={d} showSpec act={act} />)}</div>
         </section>}
+
+        <Health />
 
         {S.can('admin') && !paused && <div className="btns"><button type="button" className="btn small" data-act="agent-pause" onClick={() => { if (confirm('Pause the agents? They get no new work and no webhook calls until you resume.')) setPaused(true); }}>Pause agents</button></div>}
         {S.can('admin') && <p className="note gd-foot">Agents are connected under <Link to="/team">Members &amp; Git</Link>: the trigger that starts them on a release, and the prompt they work with.</p>}

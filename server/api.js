@@ -17,6 +17,7 @@ import { createInvite, listInvites, revokeInvite, inviteByToken, registerFromInv
 import { listGlobalTerms, createGlobalTerm, updateGlobalTerm, deleteGlobalTerm, importGlobalTerms, GlossaryError } from './globalGlossary.js';
 import { bumpGarden, addFeedback, listFeedback, setFeedback, openCounts, applyFeedbackOps, gardenFeedback, gardenRev } from './feedback.js';
 import { listReports, latestReports } from './reports.js';
+import { teamMetrics } from './metrics.js';
 import { publicHook, saveHook, testHook } from './hooks.js';
 import { listTypes, createType, updateType, deleteType, TypeError_ } from './specTypes.js';
 import * as store from './store.js';
@@ -190,6 +191,8 @@ export function apiRouter() {
 
   // implementation reports: agents write them through MCP, everyone in the team reads them
   team.get('/reports', requireTeam('read'), (req, res) => res.json({ reports: listReports(req.team.id, { specId: req.query.spec ? String(req.query.spec) : undefined }) }));
+
+  team.get('/metrics', requireTeam('read'), (req, res) => res.json({ metrics: teamMetrics(req.team) }));
 
   team.get('/', requireTeam(), (req, res) => res.json({ team: teamView(req.team, req.role) }));
   team.patch('/', requireTeam('admin'), wrap(async (req, res) => {

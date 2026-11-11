@@ -125,6 +125,40 @@ async function pass(label, viewport, scheme) {
   await ctx.close();
 }
 const ROUTES_LABEL = 'desktop-dark';
+
+// ---- performance of the first screen on a slow phone: 4x slower CPU, "slow 4G", no service worker cache (what a first visit costs)
+{
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+  const page = await ctx.newPage();
+  const cdp = await ctx.newCDPSession(page);
+  await page.goto(`${BASE}/`);
+  await page.fill('input[type=email]', 'admin@localhost'); await page.fill('input[type=password]', 'adminpass1'); await page.keyboard.press('Enter');
+  await page.waitForSelector('.tabbar, .sidebar', { state: 'attached', timeout: 20000 });
+  await cdp.send('Network.enable'); await cdp.send('Network.setCacheDisabled', { cacheDisabled: true });
+  await cdp.send('Network.emulateNetworkConditions', { offline: false, latency: 150, downloadThroughput: (1.6 * 1024 * 1024) / 8, uploadThroughput: (750 * 1024) / 8 });
+  await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
+  await page.addInitScript(() => {
+    window.__m = { lcp: 0, cls: 0, tbt: 0, ev: 0 };
+    new PerformanceObserver((l) => { for (const e of l.getEntries()) window.__m.lcp = e.startTime; }).observe({ type: 'largest-contentful-paint', buffered: true });
+    new PerformanceObserver((l) => { for (const e of l.getEntries()) if (!e.hadRecentInput) window.__m.cls += e.value; }).observe({ type: 'layout-shift', buffered: true });
+    new PerformanceObserver((l) => { for (const e of l.getEntries()) window.__m.tbt += Math.max(0, e.duration - 50); }).observe({ type: 'longtask', buffered: true });
+    new PerformanceObserver((l) => { for (const e of l.getEntries()) window.__m.ev = Math.max(window.__m.ev, e.duration); }).observe({ type: 'event', durationThreshold: 16, buffered: true });
+  });
+  await page.reload(); await page.waitForSelector('.tabbar', { state: 'attached', timeout: 60000 }); await page.waitForTimeout(3500);
+  const first = await page.evaluate(() => ({ ...window.__m, bytes: performance.getEntriesByType('resource').filter((r) => /\.(js|css)(\?|$)/.test(r.name)).reduce((a, r) => a + (r.transferSize || 0), 0) }));
+  // interaction latency: open the first spec in the list and a menu
+  await page.evaluate(() => { window.__m.ev = 0; });
+  await page.locator('a.row').first().click().catch(() => {}); await page.waitForTimeout(1200);
+  const inp = await page.evaluate(() => window.__m.ev);
+  check('performance', first.lcp < 2500, 'phone first load', `LCP ${Math.round(first.lcp)} ms (budget 2500, slow 4G, 4x slower CPU)`);
+  check('performance', first.cls < 0.1, 'phone first load', `CLS ${first.cls.toFixed(3)} (budget 0.1)`);
+  check('performance', first.tbt < 600, 'phone first load', `blocking time ${Math.round(first.tbt)} ms (budget 600 at 4x slower CPU)`);
+  check('performance', first.bytes < 300 * 1024, 'phone first load', `${Math.round(first.bytes / 1024)} KB of script and style transferred before the first screen (budget 300)`);
+  check('performance', inp < 200, 'phone interaction', `slowest interaction ${Math.round(inp)} ms (budget 200)`);
+  console.log(`first load on a slow phone: LCP ${Math.round(first.lcp)} ms · CLS ${first.cls.toFixed(3)} · blocking ${Math.round(first.tbt)} ms · ${Math.round(first.bytes / 1024)} KB JS+CSS · slowest interaction ${Math.round(inp)} ms`);
+  await ctx.close();
+}
+
 await pass('phone-light', { width: 390, height: 844 }, 'light');
 await pass('phone-small-dark', { width: 320, height: 640 }, 'dark');
 await pass('desktop-dark', { width: 1440, height: 900 }, 'dark');

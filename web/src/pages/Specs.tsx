@@ -6,6 +6,7 @@ import { NewSpecSheet } from '../sheets';
 import { ImplChip } from '../reports';
 import { Icon, ago, touched, useStore } from '../ui';
 import { usePref } from '../prefs';
+import { Hint } from '../Hint';
 import { implState } from '../reports';
 import type { Item } from '../store/types';
 
@@ -44,6 +45,7 @@ function SpecList({ selected }: { selected?: string }) {
           <select id="typeFilter" className="filter sel" aria-label="Filter by type" value={type} onChange={(e) => setType(e.target.value)}><option value="">All types</option>{S.specTypes().map((t) => <option key={t.key} value={t.key}>{t.label}{all.some((x) => x.specType === t.key) ? '' : ' (none)'}</option>)}</select>
         </div>
       </div>
+      <Hint id="palette" fineOnly>Press <kbd>Ctrl</kbd>/<kbd>⌘</kbd> <kbd>K</kbd> to jump to any spec, document or term, and <kbd>?</kbd> for all shortcuts.</Hint>
       <div className="list" id="list">
         {!specs.length && <div className="empty">{all.length ? 'No specs match.' : S.can('write') ? 'No specs yet. Create your first one — it works offline.' : 'No specs yet.'}</div>}
         {specs.map((s) => (

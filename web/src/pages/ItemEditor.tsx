@@ -1,10 +1,10 @@
-import { useRef, useState } from 'react';
+import { Suspense, lazy, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Dropdown, Sheet, MenuHost } from '../dialogs';
 import { glossaryTerms } from '../glossaryLib';
-import { SpecEditor, type EditorApi } from '../editor/SpecEditor';
-import { SpecForm } from '../form/SpecForm';
+import type { EditorApi } from '../editor/SpecEditor';
 import { BLOCK_MENU } from '../editor/blockTypes';
+import { Hint } from '../Hint';
 import { CORE_LABEL, enc, foundState, hasContent, rawMode } from '../lib';
 import { ConflictSheet, LinkSheet, PathSheet } from '../sheets';
 import { openMenu, useUi } from '../state';
@@ -12,6 +12,12 @@ import type { Item } from '../store/types';
 import { FeedbackSheet } from '../feedback';
 import { ImplChip, ReportSheet, implState } from '../reports';
 import { Icon, toast, useStore } from '../ui';
+
+// The editor (BlockNote, Mermaid …) is the bulk of the code: it loads when a spec or document is opened, not with the first screen.
+// The service worker precaches it, so opening works offline as before.
+const SpecEditor = lazy(() => import('../editor/SpecEditor').then((m) => ({ default: m.SpecEditor })));
+const SpecForm = lazy(() => import('../form/SpecForm').then((m) => ({ default: m.SpecForm })));
+const EditorFallback = () => <div className="editor-skeleton" role="status" aria-label="Loading the editor"><i /><i /><i /></div>;
 
 type Store = ReturnType<typeof useStore>;
 
@@ -147,10 +153,11 @@ export function ItemEditor({ item }: { item: Item }) {
       </header>
       {item.conflict && <div id="banner"><div className="card bad banner"><div className="grow"><b>Changed on the server</b><span>Your edits and the server version differ.</span></div><button className="btn danger" data-act="conflict" onClick={() => setSheet('conflict')}>Review</button></div></div>}
       <div id="editorBody" className="ed-scroll">
+        {!asForm && !ro && <Hint id="editor-links">Type <kbd>/</kbd> for blocks, <kbd>@</kbd> to link a document and <kbd>#</kbd> to link a glossary term.</Hint>}
         {asForm
-          ? <div className="blocks" id="form"><SpecForm docKey={`${item.team}|${item.id}|${item.specType}`} schema={form!} value={item.body} readOnly={ro} onChange={(md) => S.edit(item.id, { body: md })} /></div>
+          ? <div className="blocks" id="form"><Suspense fallback={<EditorFallback />}><SpecForm docKey={`${item.team}|${item.id}|${item.specType}`} schema={form!} value={item.body} readOnly={ro} onChange={(md) => S.edit(item.id, { body: md })} /></Suspense></div>
           : blocks
-          ? <div className="blocks" id="blocks"><SpecEditor terms={item.id === 'glossary.md' ? undefined : glossaryTerms(S).map((t) => t.term)} docKey={`${item.team}|${item.id}`} value={item.body} readOnly={ro} onChange={(md) => S.edit(item.id, { body: md })} onReady={(a) => (api.current = a)} refs={isSpec ? S.all('doc').filter((d) => !d.pinned).map((d) => d.id) : undefined} onRef={(id) => !item.links.includes(id) && S.toggleLink(item.id, id)} /></div>
+          ? <div className="blocks" id="blocks"><Suspense fallback={<EditorFallback />}><SpecEditor terms={item.id === 'glossary.md' ? undefined : glossaryTerms(S).map((t) => t.term)} docKey={`${item.team}|${item.id}`} value={item.body} readOnly={ro} onChange={(md) => S.edit(item.id, { body: md })} onReady={(a) => (api.current = a)} refs={isSpec ? S.all('doc').filter((d) => !d.pinned).map((d) => d.id) : undefined} onRef={(id) => !item.links.includes(id) && S.toggleLink(item.id, id)} /></Suspense></div>
           : <><label className="sr" htmlFor="body">Content</label><textarea id="body" className="ed-body" spellCheck={false} placeholder="Write Markdown…" readOnly={ro} value={item.body} onChange={(e) => S.edit(item.id, { body: e.target.value })} /></>}
       </div>
       {!ro && !asForm && (
