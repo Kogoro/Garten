@@ -247,15 +247,15 @@ Auf dem **Proxmox-Host** (als root) ausführen – das Skript baut auf der Engin
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/Kogoro/Garten/main/ct/garten.sh)"
 ```
 
-Standard: unprivilegierter Debian-13-Container, 2 CPU, 2 GB RAM, 6 GB Disk (`var_cpu=… var_ram=… var_disk=… bash -c …` überschreibt das). Der Container installiert Garten nach `/opt/garten`, legt die Daten unter `/var/lib/garten/data` ab und startet den Dienst `garten` (nur auf `127.0.0.1`). **Caddy** davor liefert HTTPS auf `https://<Container-IP>` mit einer **eigenen Zertifizierungsstelle** – nötig, weil Browser den Offline-Modus (Service Worker) nur über HTTPS erlauben.
+Standard: unprivilegierter Debian-13-Container, 2 CPU, 2 GB RAM, 6 GB Disk (`var_cpu=… var_ram=… var_disk=… bash -c …` überschreibt das). Der Container installiert Garten nach `/opt/garten`, legt die Daten unter `/var/lib/garten/data` ab und startet den Dienst `garten` auf `http://<Container-IP>:3000`. Das ist unverschlüsseltes HTTP und funktioniert nur online: Browser erlauben den Offline-Modus (Service Worker) nur über HTTPS (siehe [HTTPS / PUBLIC_URL](#https--public_url)).
 
 1. **Zugangsdaten:** `pct exec <ID> cat /root/garten.creds` (E-Mail `admin@localhost`, zufälliges Passwort; nach der Anmeldung unter *Account* ändern und die Datei löschen).
-2. **Einmal pro Gerät (Handy/Laptop):** `http://<Container-IP>/` öffnen, das Zertifikat laden und installieren (Android: *Einstellungen → Sicherheit → CA-Zertifikat installieren*; iPhone: Profil laden, installieren und unter *Info → Zertifikatsvertrauen* aktivieren). Danach `https://<Container-IP>` öffnen, anmelden, *Zum Home-Bildschirm hinzufügen* und **jedes Team einmal online öffnen**, damit alles offline verfügbar ist.
-3. **Aktualisieren:** im Container `garten update` (oder das Skript auf dem Host erneut starten und *Update* wählen). Daten und Einstellungen bleiben. **Backup:** `garten backup` (Archiv in `/root`). `garten info`, `garten logs`, `garten url https://spec.example.org` (eigene Adresse, z. B. mit eigenem Reverse-Proxy; dann ohne Caddy).
+2. **Anmelden:** `http://<Container-IP>:3000` öffnen.
+3. **Aktualisieren:** im Container `garten update` (oder das Skript auf dem Host erneut starten und *Update* wählen). Daten und Einstellungen bleiben. **Backup:** `garten backup` (Archiv in `/root`). `garten info`, `garten logs`, `garten url https://spec.example.org` (eigene Adresse, z. B. mit eigenem Reverse-Proxy, der HTTPS übernimmt).
 
 Ohne Proxmox funktioniert dasselbe auf jedem Debian 12/13 oder Ubuntu 24.04 (VM, Server, selbst angelegter LXC) mit `bash -c "$(curl -fsSL https://raw.githubusercontent.com/Kogoro/Garten/main/scripts/install-debian.sh)"` als root. Einstellungen stehen in `/etc/garten/garten.env` (dieselben Variablen wie in `docker-compose.yml`, zusätzlich `HOST`, `LOOKUP`).
 
-**Grenzen:** Nur per VPN erreichbar heißt: Cloud-Routinen von Claude Code können den Server nicht erreichen (lokale Agenten im VPN schon). Das Skript für den Container selbst wurde in einem Debian-13-Container getestet (Installation, Update, HTTPS mit Zertifikat, Anmeldung); der Lauf der community-scripts-Engine auf einem echten Proxmox-Host ist nicht getestet. Fällt er aus: LXC von Hand anlegen (Debian 13) und darin `install-debian.sh` ausführen.
+**Grenzen:** Nur per VPN erreichbar heißt: Cloud-Routinen von Claude Code können den Server nicht erreichen (lokale Agenten im VPN schon). Das Skript für den Container selbst wurde in einem Debian-13-Container getestet (Installation, Update, Anmeldung); der Lauf der community-scripts-Engine auf einem echten Proxmox-Host ist nicht getestet. Fällt er aus: LXC von Hand anlegen (Debian 13) und darin `install-debian.sh` ausführen.
 
 ## HTTPS / PUBLIC_URL
 
@@ -291,7 +291,7 @@ server {
 }
 ```
 
-Im Proxmox-Container: `garten url https://specs.example.org` stellt die Einstellungen um (ohne Caddy davor).
+Im Proxmox-Container: `garten url https://specs.example.org` stellt die Einstellungen um.
 
 ### Von unterwegs erreichbar: `scripts/go-public.sh`
 
