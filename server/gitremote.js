@@ -67,8 +67,18 @@ export async function pushTeam(teamId) {
       if (remoteExists) {
         const anc = await repo.raw(null, 'merge-base', '--is-ancestor', `origin/${branch}`, 'HEAD').then(() => true, () => false);
         if (!anc) { // remote has work we do not have: merge it in, the Specs app wins conflicts on files it manages
-          try { await repo.raw(null, 'merge', '--allow-unrelated-histories', '-X', 'ours', '--no-edit', '-m', `Merge ${branch} from remote`, `origin/${branch}`); }
+          try { await repo.raw(null, 'merge', '--no-ff', '--allow-unrelated-histories', '-X', 'ours', '--no-edit', '-m', `Merge ${branch} from remote`, `origin/${branch}`); }
           catch (e) { await repo.raw(null, 'merge', '--abort').catch(() => {}); throw e; }
+          // Text below the managed folder only counts when it was approved here: undo what the merge took from the remote there.
+          const root = team.row.git_root;
+          const changed = (await repo.raw(null, 'diff', '--name-only', 'HEAD^1', 'HEAD', '--', root)).split('\n').filter(Boolean);
+          if (changed.length) {
+            for (const f of changed) {
+              const had = await repo.raw(null, 'cat-file', '-e', `HEAD^1:${f}`).then(() => true, () => false);
+              if (had) await repo.raw(null, 'checkout', 'HEAD^1', '--', f); else await repo.raw(null, 'rm', '-q', '-f', '--', f);
+            }
+            await repo.raw(null, 'commit', '--amend', '--no-edit', '--allow-empty');
+          }
         }
       }
       await g('push', 'origin', `HEAD:refs/heads/${branch}`);

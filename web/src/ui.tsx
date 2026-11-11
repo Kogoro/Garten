@@ -24,13 +24,25 @@ export function ago(ts?: number | null) {
 export const touched = (i: Item) => i.editedAt ?? (i.updatedAt ? Date.parse(i.updatedAt) : 0);
 
 // ---- toast
-let toastEl: ((m: string) => void) | null = null;
-export const toast = (m: string) => toastEl?.(m);
+export interface ToastAction { label: string; run: () => void }
+let toastEl: ((m: string, a?: ToastAction) => void) | null = null;
+/** A short message; with an action (e.g. Undo) it stays a little longer and can be tapped. */
+export const toast = (m: string, a?: ToastAction) => toastEl?.(m, a);
 export function Toaster() {
   useEffect(() => {
     const el = document.getElementById('toast')!;
     let t: ReturnType<typeof setTimeout>;
-    toastEl = (m) => { el.textContent = m; el.classList.add('show'); clearTimeout(t); t = setTimeout(() => el.classList.remove('show'), 2800); };
+    toastEl = (m, a) => {
+      el.replaceChildren(document.createTextNode(m));
+      el.classList.toggle('has-action', !!a);
+      if (a) {
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'toast-act'; b.textContent = a.label;
+        b.onclick = () => { el.classList.remove('show'); clearTimeout(t); a.run(); };
+        el.append(b);
+      }
+      el.classList.add('show'); clearTimeout(t); t = setTimeout(() => el.classList.remove('show'), a ? 6000 : 2800);
+    };
     return () => { toastEl = null; };
   }, []);
   return <div id="toast" role="status" aria-live="polite" />;

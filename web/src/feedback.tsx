@@ -28,6 +28,9 @@ export function useFbAct(after?: (next: any) => void): Act {
     if (note) { const it = S.get(f.specId); if (it) S.edit(f.specId, { body: addReviewNote(it.body, f) }); }
     const next = S.fbAct(f, patch); // not inside after?.(…): an optional call skips its arguments when there is no callback
     after?.(next);
+    if (patch.status === 'dismissed' || patch.status === 'accepted') {
+      toast(patch.status === 'dismissed' ? 'Dismissed' : 'Accepted', { label: 'Undo', run: () => { after?.(S.fbAct(f, { status: 'open' })); } });
+    }
   };
 }
 

@@ -39,6 +39,7 @@ const ITEMS_SQL = (name) => `CREATE TABLE IF NOT EXISTS ${name} (
   const hasPinned = hasItems && db.prepare("SELECT 1 FROM pragma_table_info('items') WHERE name='pinned'").get();
   if (hasItems && !hasPinned) {
     db.exec('BEGIN');
+    try {
     db.exec('ALTER TABLE items RENAME TO items_v3');
     db.exec(ITEMS_SQL('items'));
     db.exec(`INSERT INTO items (team_id,id,deleted,kind,title,body,links,rev,seq,status,version,released_rev,released_at,released_by,updated_by,fetched_at,created_at,updated_at)
@@ -46,16 +47,16 @@ const ITEMS_SQL = (name) => `CREATE TABLE IF NOT EXISTS ${name} (
     db.exec('DROP TABLE items_v3');
     db.exec('CREATE INDEX IF NOT EXISTS items_seq ON items(team_id, seq)');
     db.exec('COMMIT');
+    } catch (e) { db.exec('ROLLBACK'); throw e; }
   }
   if (hasItems && !db.prepare("SELECT 1 FROM pragma_table_info('items') WHERE name='updated_via'").get()) db.exec('ALTER TABLE items ADD COLUMN updated_via TEXT');
   if (hasItems && !db.prepare("SELECT 1 FROM pragma_table_info('items') WHERE name='spec_type'").get()) {
     db.exec("ALTER TABLE items ADD COLUMN spec_type TEXT NOT NULL DEFAULT 'feature'");
   }
   const hasTeams = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='teams'").get();
-  if (hasTeams && !db.prepare("SELECT 1 FROM pragma_table_info('teams') WHERE name='foundation_auto'").get()) {
-    db.exec('ALTER TABLE teams ADD COLUMN foundation_auto INTEGER NOT NULL DEFAULT 1');
-    db.exec('ALTER TABLE teams ADD COLUMN created_by TEXT');
-  }
+  const hasCol = (table, col) => db.prepare(`SELECT 1 FROM pragma_table_info('${table}') WHERE name=?`).get(col);
+  if (hasTeams && !hasCol('teams', 'foundation_auto')) db.exec('ALTER TABLE teams ADD COLUMN foundation_auto INTEGER NOT NULL DEFAULT 1');
+  if (hasTeams && !hasCol('teams', 'created_by')) db.exec('ALTER TABLE teams ADD COLUMN created_by TEXT');
 }
 
 db.exec(`

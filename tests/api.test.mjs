@@ -675,6 +675,14 @@ try {
   await admin.push([{ id: 'SPEC-012', kind: 'spec', baseRev: rv, approve: true, fields: {} }]);
   for (let i = 0; i < 30; i++) { git(dev, 'pull', '-q', 'origin', 'main'); if (/auto pushed/.test(readFileSync(path.join(dev, 'specs', 'SPEC-012.md'), 'utf8'))) break; await new Promise((r) => setTimeout(r, 300)); }
   assert.match(readFileSync(path.join(dev, 'specs', 'SPEC-012.md'), 'utf8'), /auto pushed/); ok('approvals are pushed automatically');
+  // a colleague edits a released spec straight in the remote: that text was never approved here and must not reach agents
+  git(dev, 'pull', '-q', 'origin', 'main');
+  const f12 = path.join(dev, 'specs', 'SPEC-012.md'); writeFileSync(f12, readFileSync(f12, 'utf8') + '\nREMOTE-ONLY-EDIT\n');
+  writeFileSync(path.join(dev, 'NOTES.md'), 'dev notes\n'); git(dev, 'add', '.'); git(dev, 'commit', '-m', 'edit in the remote'); git(dev, 'push', '-q', 'origin', 'HEAD:main');
+  const mp = await admin.post(`${gitUrl}/push`); assert.equal(mp.status, 200, JSON.stringify(mp.data));
+  const teamRepo = `${srv.dir}/repos/${T1}`;
+  assert.ok(!readFileSync(path.join(teamRepo, 'specs', 'SPEC-012.md'), 'utf8').includes('REMOTE-ONLY-EDIT')); assert.ok(existsSync(path.join(teamRepo, 'NOTES.md')));
+  ok('edits made in the remote below the managed folder do not reach agents; other files merge in');
   const st = (await admin.get(`/api/teams/${T1}`)).data.team.git;
   assert.equal(st.lastOk, true); assert.ok(st.lastPushAt && st.lastSha); ok('push status is recorded');
   // a second team has its own, independent repository / connection
@@ -693,6 +701,20 @@ try {
 
   // git authorship
   assert.match(git(`${srv.dir}/repos/${T1}`, 'log', '--format=%an|%s', '--no-merges', '-n', '8'), /approver user\|Release /); ok('git commit is authored by the approver');
+
+  // review fixes: retries after a lost response, a re-created spec keeps counting versions
+  {
+    const ch = { id: 'SPEC-880', kind: 'spec', baseRev: 0, fields: { title: 'Retry me', body: 'one' } };
+    let r = await admin.push([ch]); assert.equal(r[0].status, 'applied');
+    r = await admin.push([ch]); assert.equal(r[0].status, 'applied'); assert.equal(r[0].item.title, 'Retry me'); ok('sync: the same change sent twice is applied once, not reported as a conflict');
+    r = await admin.push([{ id: 'SPEC-880', kind: 'spec', baseRev: r[0].item.rev, approve: true, fields: { body: 'one' } }]); assert.equal(r[0].item.version, 1);
+    r = await admin.push([{ id: 'SPEC-880', kind: 'spec', baseRev: r[0].item.rev, revoke: true }]);
+    r = await admin.push([{ id: 'SPEC-880', kind: 'spec', baseRev: r[0].item.rev, delete: true }]); assert.equal(r[0].deleted, true);
+    r = await admin.push([{ id: 'SPEC-880', kind: 'spec', baseRev: 0, fields: { title: 'Again', body: 'two' } }]);
+    assert.equal(r[0].status, 'applied');
+    r = await admin.push([{ id: 'SPEC-880', kind: 'spec', baseRev: r[0].item.rev, approve: true, fields: { body: 'two' } }]);
+    assert.equal(r[0].item.version, 2); ok('a spec id that is used again continues its version numbers');
+  }
 
   // glossary lookup: input is validated before any third party is asked; sign-in is required
   assert.equal((await admin.get('/api/lookup?q=a')).status, 400); ok('lookup: a too short term is rejected');

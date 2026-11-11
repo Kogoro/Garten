@@ -80,7 +80,7 @@ export function saveItem(t, { id, kind, title, body, links, pinned, specType }, 
     if (kind === 'folder' && !FOLDER_ID.test(id)) throw new ApiError(`invalid folder path: ${id}`);
     if (kind === 'folder' && rawItem(t, id)?.kind === 'doc') throw new ApiError(`${id} is a document`);
     if (cur?.deleted) {
-      db.prepare("UPDATE items SET updated_via=?, spec_type=?, kind=?, title=?, body=?, links=?, pinned=?, deleted=0, rev=rev+1, seq=?, status='draft', version=0, released_rev=0, released_at=NULL, released_by=NULL, updated_at=?, updated_by=? WHERE team_id=? AND id=?")
+      db.prepare("UPDATE items SET updated_via=?, spec_type=?, kind=?, title=?, body=?, links=?, pinned=?, deleted=0, rev=rev+1, seq=?, status='draft', released_rev=0, released_at=NULL, released_by=NULL, updated_at=?, updated_by=? WHERE team_id=? AND id=?")
         .run(by?.via ?? null, st ?? DEFAULT_TYPE, kind, title ?? '', body ?? '', JSON.stringify(links ?? []), pin ?? 0, nextSeq(t), now, who, t, id);
     } else {
       db.prepare('INSERT INTO items (team_id,id,kind,title,body,links,pinned,spec_type,rev,seq,created_at,updated_at,updated_by,updated_via) VALUES (?,?,?,?,?,?,?,?,1,?,?,?,?,?)')

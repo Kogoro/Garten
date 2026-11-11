@@ -11,7 +11,7 @@ const states = new Map(); // state -> { verifier, next, exp }
 let discovery;
 
 async function meta() {
-  discovery ??= fetch(`${OIDC.issuer}/.well-known/openid-configuration`).then((r) => {
+  discovery ??= fetch(`${OIDC.issuer}/.well-known/openid-configuration`, { signal: AbortSignal.timeout(10_000) }).then((r) => {
     if (!r.ok) throw new Error(`OIDC discovery failed (${r.status})`);
     return r.json();
   });
@@ -52,6 +52,7 @@ export function oidcRouter() {
       const tokenRes = await fetch(m.token_endpoint, {
         method: 'POST',
         headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
+        signal: AbortSignal.timeout(10_000),
         body: new URLSearchParams({
           grant_type: 'authorization_code', code: String(req.query.code), redirect_uri: REDIRECT,
           client_id: OIDC.clientId, ...(OIDC.clientSecret ? { client_secret: OIDC.clientSecret } : {}), code_verifier: st.verifier,
@@ -60,7 +61,7 @@ export function oidcRouter() {
       const tok = await tokenRes.json();
       if (!tokenRes.ok || !tok.access_token) throw new Error(`token exchange failed: ${tok.error ?? tokenRes.status}`);
       // identity comes from the provider's userinfo endpoint (called over TLS with the fresh access token)
-      const info = await (await fetch(m.userinfo_endpoint, { headers: { authorization: `Bearer ${tok.access_token}` } })).json();
+      const info = await (await fetch(m.userinfo_endpoint, { headers: { authorization: `Bearer ${tok.access_token}` }, signal: AbortSignal.timeout(10_000) })).json();
       if (!info.sub || !info.email) throw new Error('provider returned no sub/email');
       if (info.email_verified === false) return fail(res, 'Your e-mail address is not verified at the identity provider');
 

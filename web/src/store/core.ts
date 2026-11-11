@@ -185,7 +185,7 @@ const SPEC_TEMPLATE = '## GOAL\n\n## REQUIREMENTS\n\n## ACCEPTANCE CRITERIA\n';
 
 export function createSpec(typeKey: string = DEFAULT_TYPE) {
   const key = team()!.key;
-  const n = Math.max(0, ...all('spec').filter((s) => s.id.startsWith(`${key}-`)).map((s) => Number(/(\d+)$/.exec(s.id)?.[1] ?? 0))) + 1;
+  const n = Math.max(0, ...([...state.items.values()] as Item[]).filter((s) => s.kind === 'spec' && s.team === state.teamId && s.id.startsWith(`${key}-`)).map((s) => Number(/(\d+)$/.exec(s.id)?.[1] ?? 0))) + 1;
   const type = specType(typeKey);
   const item = blank(`${key}-${String(n).padStart(3, '0')}`, 'spec', { body: type.template || SPEC_TEMPLATE, specType: type.missing ? DEFAULT_TYPE : type.key });
   dropped.delete(item.id);
