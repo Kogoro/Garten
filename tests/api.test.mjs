@@ -776,6 +776,8 @@ try {
     const m = (await admin.get(`/api/teams/${admin.tid}/metrics`)).data.metrics;
     assert.equal(m.days, 30); assert.ok(m.releasedSpecs >= 1 && m.releasedInPeriod >= 1); assert.equal(typeof m.implementation.none, 'number');
     assert.ok(m.medianHoursDraftToRelease === null || m.medianHoursDraftToRelease >= 0); assert.equal((await anon.get(`/api/teams/${admin.tid}/metrics`)).status, 401); ok('team health: process figures are computed from existing data and need a sign-in');
+  }
+
   // ---------------------------------------------------------------- v0.12: re-runnable evidence (checks) and guardrails
   {
     const kEd = await mk('editor', 'k'); const kView = await mk('viewer', 'k');
