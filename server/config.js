@@ -1,6 +1,9 @@
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 
+// Files created by the server (database, repositories, key file) are private to the service user.
+process.umask(0o077);
+
 const env = (k, d = '') => (process.env[k] ?? d) || d;
 const flag = (k, d = false) => (process.env[k] === undefined || process.env[k] === '' ? d : !['0', 'false', 'no'].includes(process.env[k].toLowerCase()));
 
@@ -13,7 +16,22 @@ export const SEED_DEMO = flag('SEED_DEMO', false);
 /** Externally visible base URL – used for OAuth issuer / redirect URLs. Must be https unless localhost. */
 export const PUBLIC_URL = env('PUBLIC_URL', `http://localhost:${PORT}`).replace(/\/$/, '');
 export const SECURE_COOKIES = PUBLIC_URL.startsWith('https://');
-export const TRUST_PROXY = flag('TRUST_PROXY', false);
+/**
+ * Proxies in front of the server whose X-Forwarded-For is believed. "1"/"true" = exactly one hop (Caddy, a tunnel, a single reverse proxy);
+ * a number = that many hops; anything else is passed to Express (e.g. "loopback" or a CIDR list). Never "trust everything".
+ */
+function parseTrustProxy(v) {
+  const x = String(v ?? '').trim();
+  if (!x || ['0', 'false', 'no'].includes(x.toLowerCase())) return false;
+  if (['1', 'true', 'yes'].includes(x.toLowerCase())) return 1;
+  if (/^\d+$/.test(x)) return Number(x);
+  return x;
+}
+export const TRUST_PROXY = parseTrustProxy(process.env.TRUST_PROXY);
+/** Sessions that were not used for this many days end (in addition to the absolute 30 days). */
+export const SESSION_IDLE_DAYS = Number(env('SESSION_IDLE_DAYS', '14'));
+/** How long the audit log is kept. */
+export const AUDIT_RETENTION_DAYS = Number(env('AUDIT_RETENTION_DAYS', '180'));
 
 export const ADMIN_EMAIL = env('ADMIN_EMAIL', 'admin@localhost');
 export const ADMIN_PASSWORD = env('ADMIN_PASSWORD'); // generated on first start when empty
@@ -28,6 +46,8 @@ export const OIDC = process.env.OIDC_ISSUER
       autoCreate: flag('OIDC_AUTO_CREATE', false),
       defaultRole: env('OIDC_DEFAULT_ROLE', 'viewer'),
       defaultTeam: env('OIDC_DEFAULT_TEAM').toUpperCase(),
+      /** Accept identities whose e-mail address the provider does not confirm (email_verified missing or false). Off by default. */
+      trustUnverifiedEmail: flag('OIDC_TRUST_UNVERIFIED_EMAIL', false),
     }
   : null;
 
@@ -40,6 +60,8 @@ export const DEFAULT_TEAM_KEY = env('DEFAULT_TEAM_KEY', 'SPEC').toUpperCase();
 export const GIT_ALLOW_HTTP = flag('GIT_ALLOW_HTTP', false);
 /** Allow local filesystem remotes. Development/tests only – never enable on a shared server. */
 export const GIT_ALLOW_LOCAL = flag('GIT_ALLOW_LOCAL', false);
+/** Allow git remotes on loopback, private and link-local addresses (a Gitea in your LAN). Off by default: otherwise a team admin can probe the internal network. */
+export const GIT_ALLOW_PRIVATE = flag('GIT_ALLOW_PRIVATE', false);
 export const SECRET_KEY = env('SECRET_KEY'); // 32 bytes hex/base64; generated into the data dir when empty
 
 // ---- v0.4: teams for everyone, invitations, foundation documents
@@ -59,8 +81,9 @@ export const FOUNDATION_DEBOUNCE_MS = Number(env('FOUNDATION_DEBOUNCE_MS', '1500
 /** e.g. smtp://user:pass@mail.example.com:587  or  smtps://user:pass@mail.example.com:465 */
 export const SMTP_URL = env('SMTP_URL');
 export const SMTP_FROM = env('SMTP_FROM', 'Specs <no-reply@localhost>');
-/** Refuse to send unless the connection is upgraded to TLS (recommended for anything but a local relay). */
-export const SMTP_REQUIRE_TLS = flag('SMTP_REQUIRE_TLS', false);
+/** Refuse to send unless the connection is upgraded to TLS. Default: on for every mail server except one on this machine. */
+const smtpLocal = (() => { try { return /^(localhost|127\.\d+\.\d+\.\d+|\[?::1\]?)$/.test(new URL(SMTP_URL).hostname); } catch { return true; } })();
+export const SMTP_REQUIRE_TLS = flag('SMTP_REQUIRE_TLS', !smtpLocal);
 
 /** Online definition lookup for the glossary (Wikipedia, Wiktionary, dictionaryapi.dev). LOOKUP=0 switches it off. */
 export const LOOKUP_ENABLED = env('LOOKUP', '1') !== '0';

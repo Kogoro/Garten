@@ -1,30 +1,19 @@
 // One webhook per team: tells an agent runner (e.g. a Claude Code routine) that specs were released or decisions answered.
 import http from 'node:http';
 import https from 'node:https';
-import dns from 'node:dns';
-import net from 'node:net';
+import { createHmac } from 'node:crypto';
 import { db } from './db.js';
 import { events } from './store.js';
-import { getTeam, TeamError } from './teams.js';
+import { getTeam, TeamError, remoteOrigin } from './teams.js';
 import { encrypt, decrypt } from './secrets.js';
 import { HOOK_DEBOUNCE_MS, HOOK_ALLOW_LOCAL, PUBLIC_URL } from './config.js';
+import { makeSafeLookup, isPrivateHostLiteral } from './netguard.js';
 
 export const HOOK_EVENTS = ['release', 'answer'];
 export const HOOK_FORMATS = ['full', 'text'];
 
-// ---- never call into the server's own network (SSRF): private, loopback, link-local and metadata ranges are refused
-const blocked = new net.BlockList();
-for (const [a, p] of [['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8], ['169.254.0.0', 16], ['172.16.0.0', 12], ['192.0.0.0', 24], ['192.168.0.0', 16], ['198.18.0.0', 15], ['224.0.0.0', 4], ['240.0.0.0', 4]]) blocked.addSubnet(a, p, 'ipv4');
-for (const [a, p] of [['::', 128], ['::1', 128], ['64:ff9b::', 96], ['fc00::', 7], ['fe80::', 10], ['ff00::', 8]]) blocked.addSubnet(a, p, 'ipv6');
-const isPrivate = (address) => { const fam = net.isIP(address); return fam === 0 || blocked.check(address, fam === 6 ? 'ipv6' : 'ipv4'); };
-const safeLookup = (host, opts, cb) => {
-  if (typeof opts === 'function') { cb = opts; opts = {}; }
-  dns.lookup(host, { ...opts, all: true }, (err, list) => {
-    if (err) return cb(err);
-    if (!HOOK_ALLOW_LOCAL && list.some((a) => isPrivate(a.address))) return cb(new Error('the address is private or local – not allowed for webhooks'));
-    if (opts.all) cb(null, list); else cb(null, list[0].address, list[0].family);
-  });
-};
+// ---- never call into the server's own network (SSRF): private, loopback, link-local and metadata ranges are refused (see netguard.js)
+const safeLookup = makeSafeLookup(HOOK_ALLOW_LOCAL);
 
 export function validateHookUrl(url) {
   url = String(url ?? '').trim();
@@ -34,8 +23,7 @@ export function validateHookUrl(url) {
   try { u = new URL(url); } catch { throw new TeamError('Enter a full webhook URL (https://…)'); }
   if (u.username || u.password) throw new TeamError('Put credentials into the token or a header, not into the URL');
   if (u.protocol !== 'https:' && !(u.protocol === 'http:' && HOOK_ALLOW_LOCAL)) throw new TeamError('The webhook URL must start with https://');
-  const host = u.hostname.replace(/^\[|\]$/g, '').toLowerCase();
-  if (!HOOK_ALLOW_LOCAL && (host === 'localhost' || /\.(localhost|local|internal|lan|home)$/.test(host) || (net.isIP(host) && isPrivate(host)))) throw new TeamError('Webhooks to local or private addresses are disabled on this server (HOOK_ALLOW_LOCAL)');
+  if (!HOOK_ALLOW_LOCAL && isPrivateHostLiteral(u.hostname)) throw new TeamError('Webhooks to local or private addresses are disabled on this server (HOOK_ALLOW_LOCAL)');
   return u.toString();
 }
 
@@ -71,8 +59,11 @@ export function saveHook(teamId, s = {}) {
   const url = s.url === undefined ? r.hook_url ?? '' : validateHookUrl(s.url);
   let secret = r.hook_secret;
   if (s.token) { const tok = String(s.token).trim(); if (tok.length > 2000 || /[^\x21-\x7e]/.test(tok)) throw new TeamError('The token contains characters that are not allowed'); secret = encrypt(tok); }
+  // A stored token and the extra headers belong to the receiver they were entered for: a different server does not get them.
+  const otherServer = s.url !== undefined && !!url && !!r.hook_url && remoteOrigin(url) !== remoteOrigin(r.hook_url);
+  if (otherServer && !s.token) secret = null;
   if (s.clearToken || !url) secret = null;
-  let headers = r.hook_headers;
+  let headers = otherServer && s.headers === undefined ? null : r.hook_headers;
   if (s.headers !== undefined) { const h = parseHeaders(s.headers); headers = Object.keys(h).length ? encrypt(JSON.stringify(h)) : null; }
   if (!url) headers = null;
   let ev = r.hook_events;
@@ -94,7 +85,15 @@ function post(team, payload) {
     try { u = new URL(validateHookUrl(r.hook_url)); } catch (e) { return resolve({ ok: false, info: e.message }); }
     const body = JSON.stringify(r.hook_format === 'text' ? { text: payload.text } : payload);
     const headers = { ...storedHeaders(r), 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), 'User-Agent': 'specs-webhook' };
-    try { if (r.hook_secret) headers.Authorization = `Bearer ${decrypt(r.hook_secret)}`; } catch { return resolve({ ok: false, info: 'The stored token cannot be read – enter it again.' }); }
+    try {
+      if (r.hook_secret) { // bearer token, plus an HMAC over timestamp and body so the receiver can verify integrity and reject replays
+        const token = decrypt(r.hook_secret);
+        const ts = String(Math.floor(Date.now() / 1000));
+        headers.Authorization = `Bearer ${token}`;
+        headers['X-Specs-Timestamp'] = ts;
+        headers['X-Specs-Signature'] = `sha256=${createHmac('sha256', token).update(`${ts}.${body}`).digest('hex')}`;
+      }
+    } catch { return resolve({ ok: false, info: 'The stored token cannot be read – enter it again.' }); }
     const req = (u.protocol === 'https:' ? https : http).request(u, { method: 'POST', headers, lookup: safeLookup, timeout: 10_000 }, (res) => {
       let got = '';
       res.setEncoding('utf8');
@@ -155,9 +154,11 @@ async function flush(teamId) {
   if (!team?.row.hook_url) { db.prepare('DELETE FROM hook_outbox WHERE team_id=?').run(teamId); return; }
   const released = rows.filter((r) => r.kind === 'release').map((r) => JSON.parse(r.entry));
   const answered = rows.filter((r) => r.kind === 'answer').map((r) => JSON.parse(r.entry));
-  const lines = [`Update from Specs for the team "${team.name}".`];
-  if (released.length) lines.push('', 'Released (approved by a person):', ...released.map((r) => `- ${r.id} v${r.version}: ${r.title}${r.by ? ` (approved by ${r.by})` : ''}`));
-  if (answered.length) lines.push('', 'Decisions answered:', ...answered.map((a) => `- ${a.spec_id}: "${a.question}" → ${a.answer ?? 'see note'}${a.note ? ` (note: ${a.note})` : ''}`));
+  // Names, titles and notes are written by people (or other agents): one line each, shortened – they are data, not instructions.
+  const one = (x, n = 200) => String(x ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
+  const lines = [`Update from Specs for the team "${one(team.name, 80)}".`];
+  if (released.length) lines.push('', 'Released (approved by a person):', ...released.map((r) => `- ${one(r.id, 40)} v${r.version}: ${one(r.title)}${r.by ? ` (approved by ${one(r.by, 80)})` : ''}`));
+  if (answered.length) lines.push('', 'Decisions answered:', ...answered.map((a) => `- ${one(a.spec_id, 40)}: "${one(a.question, 300)}" → ${one(a.answer, 120) || 'see note'}${a.note ? ` (note: ${one(a.note, 300)})` : ''}`));
   lines.push('', HOWTO);
   const out = await send(teamId, {
     event: released.length && answered.length ? 'release+answer' : released.length ? 'release' : 'answer',

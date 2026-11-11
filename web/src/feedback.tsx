@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { FormError, Sheet } from './dialogs';
 import type { FbPatch } from './store/core';
 import { Icon, ago, toast, useStore } from './ui';
+import { RuleSheet } from './guardrails';
 
 export const KINDS: [string, string][] = [['concern', 'Concern'], ['conflict', 'Conflict'], ['question', 'Question'], ['suggestion', 'Suggestion'], ['gap', 'Missing info']];
 const kindLabel: Record<string, string> = { ...Object.fromEntries(KINDS), decision: 'Decision' };
@@ -55,7 +56,9 @@ export function FbItem({ f, version, showSpec, act }: { f: any; version?: number
 
 function FeedbackActions({ f, act }: { f: any; act: Act }) {
   const [reply, setReply] = useState(f.reply ?? '');
-  return (
+  const [rule, setRule] = useState(false);
+  return (<>
+    {rule && <RuleSheet initial={f.text} source={`${f.via ?? f.author}'s feedback on ${f.specId}`} onClose={() => setRule(false)} />}
     <div className="fb-acts">
       <label className="sr" htmlFor={`rp-${f.id}`}>Reply</label>
       <input id={`rp-${f.id}`} className="field" placeholder="Reply (optional)" value={reply} maxLength={2000} onChange={(e) => setReply(e.target.value)} />
@@ -63,9 +66,10 @@ function FeedbackActions({ f, act }: { f: any; act: Act }) {
         {f.status === 'open'
           ? <><button className="btn small" data-act="fb-accept" onClick={() => act(f, { status: 'accepted', reply })}>Accept</button><button className="btn small" data-act="fb-accept-note" title="Accept and add it to the spec as a checklist item under REVIEW NOTES" onClick={() => act(f, { status: 'accepted', reply }, true)}>Accept &amp; add to spec</button><button className="btn small" data-act="fb-dismiss" onClick={() => act(f, { status: 'dismissed', reply })}>Dismiss</button></>
           : <><button className="btn small" data-act="fb-reopen" onClick={() => act(f, { status: 'open', reply })}>Reopen</button>{f.status === 'accepted' && <button className="btn small" data-act="fb-done" onClick={() => act(f, { status: 'done', reply })}>Mark done</button>}</>}
+        <button className="btn small" type="button" data-act="fb-rule" title="Turn this into a guardrail every agent receives" onClick={() => setRule(true)}>Make it a rule</button>
       </div>
     </div>
-  );
+  </>);
 }
 
 /** A question an agent asks a person: pick one of its options (or write your own answer). The agent reads the answer on its next run. */

@@ -815,8 +815,7 @@ kbd { display: inline-block; min-width: 22px; padding: 1px 6px; border: 1px soli
 @media (max-width: 700px) { .row-docs, .row-word { display: none; } .row-meta { flex-wrap: nowrap; overflow: hidden; } .row-meta > .chip { flex-shrink: 0; } }
 @media (max-width: 700px) { .ws-btn { width: 36px; height: 36px; } }
 
-/* =====================================================================================
-   COHESION LAYER – one scale for the whole app (phone first)
+/* ==============================================================================   COHESION LAYER – one scale for the whole app (phone first)
    Controls: 40 px (buttons, fields, rows you tap), 32 px (dense: chips, small buttons), icon buttons 40 px hit area.
    Radius:   6 px (chips), 10 px (buttons, fields, rows, cards). Spacing: 4 / 8 / 12 px. Type: 12 / 13 / 14 / 16 px.
    Colour:   green = primary action and "fine"; amber = waiting for you; red = problem. Quiet when fine, loud when not.
@@ -892,3 +891,9 @@ kbd { display: inline-block; min-width: 22px; padding: 1px 6px; border: 1px soli
   .bn-editor [data-content-type="heading"][data-level="2"] { --level: 17px; }
   .bn-editor [data-content-type="heading"][data-level="3"] { --level: 15px; }
 }
+/* Checks (re-runnable evidence) */
+.rp-chk { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.rp-chk li { display: flex; gap: 10px; align-items: flex-start; }
+.rp-chk .rp-ref { display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.rp-chk small { color: var(--muted); }
+.rp-chk small.mono { font-family: var(--mono); }

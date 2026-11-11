@@ -1,8 +1,12 @@
 import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
+import { chmodSync } from 'node:fs';
 import { DATA_DIR } from './config.js';
 
-export const db = new DatabaseSync(path.join(DATA_DIR, 'specs.db'));
+const DB_FILE = path.join(DATA_DIR, 'specs.db');
+export const db = new DatabaseSync(DB_FILE);
+// databases of earlier versions were created world-readable
+for (const f of [DB_FILE, `${DB_FILE}-wal`, `${DB_FILE}-shm`]) { try { chmodSync(f, 0o600); } catch { /* does not exist (yet) */ } }
 {
   const hasUsers = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='users'").get();
   const old = hasUsers && db.prepare("SELECT 1 FROM pragma_table_info('users') WHERE name='role'").get();
@@ -272,3 +276,58 @@ db.exec(`CREATE TABLE IF NOT EXISTS hook_outbox (
   PRIMARY KEY (team_id, kind, key)
 )`);
 addColumn('teams', 'agent_paused', 'INTEGER NOT NULL DEFAULT 0');   // a person paused the agents: empty work list, no webhook calls
+
+// v0.12: re-runnable evidence. A check says how a claim of an agent can be verified again (a test, a CI job, a metric, a command);
+// every run of it is kept. Checks belong to a spec and survive new versions, so they can be run after every change.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS checks (
+    id TEXT PRIMARY KEY,
+    team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    spec_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL,                        -- test | ci | metric | command | url | manual
+    how TEXT NOT NULL,                         -- the command, the CI job URL, the metric query, the test selector
+    expect TEXT NOT NULL DEFAULT '',           -- what counts as passing ("exit 0", "p95 < 200 ms", "coverage >= 80 %")
+    criterion TEXT NOT NULL DEFAULT '',        -- the acceptance criterion it proves (quoted from the spec)
+    max_age_days INTEGER NOT NULL DEFAULT 14,  -- a passing result older than this is stale and must be repeated
+    retired INTEGER NOT NULL DEFAULT 0,
+    created_by TEXT,
+    via TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (team_id, spec_id, name)
+  );
+  CREATE TABLE IF NOT EXISTS check_runs (
+    id TEXT PRIMARY KEY,
+    check_id TEXT NOT NULL REFERENCES checks(id) ON DELETE CASCADE,
+    team_id TEXT NOT NULL,
+    spec_id TEXT NOT NULL,
+    spec_version INTEGER NOT NULL,
+    status TEXT NOT NULL,                      -- pass | fail | error
+    value TEXT NOT NULL DEFAULT '',            -- measured value, e.g. "182 ms", "47 passed"
+    detail TEXT NOT NULL DEFAULT '',
+    ref TEXT NOT NULL DEFAULT '',              -- URL of the CI run / log
+    commit_sha TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL,                      -- agent | ci (reported by a pipeline with its own token)
+    run_by TEXT,
+    at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS check_runs_check ON check_runs(check_id, at);
+`);
+
+// v0.12 (security review): sessions record their last use, refresh tokens remember their predecessor (reuse detection), audit log
+addColumn('sessions', 'last_seen_at', 'INTEGER');
+addColumn('oauth_tokens', 'prev_refresh_hash', 'TEXT');
+db.exec(`CREATE TABLE IF NOT EXISTS audit_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at TEXT NOT NULL,
+  actor_id TEXT,
+  actor TEXT,
+  team_id TEXT,
+  action TEXT NOT NULL,
+  target TEXT,
+  ip TEXT,
+  detail TEXT
+);
+CREATE INDEX IF NOT EXISTS audit_at ON audit_log(at);`);
+for (const f of [`${DB_FILE}-wal`, `${DB_FILE}-shm`]) { try { chmodSync(f, 0o600); } catch { /* no WAL file */ } }

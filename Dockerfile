@@ -1,5 +1,5 @@
 # --- build stage: the React app (Vite) – only its output ships in the runtime image
-FROM node:24-alpine AS build
+FROM node:24-alpine@sha256:a34ab6d7f6f4813f4d0c5469d74685604b962fbdbf5793a7bc7b4998ecb867c8 AS build
 WORKDIR /app/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
@@ -8,12 +8,12 @@ COPY shared ../shared
 RUN npm run build
 
 # --- runtime
-FROM node:24-alpine
+FROM node:24-alpine@sha256:a34ab6d7f6f4813f4d0c5469d74685604b962fbdbf5793a7bc7b4998ecb867c8
 RUN apk add --no-cache git openssh-client \
- && git config --system safe.directory '*'
+ && git config --system safe.directory '/data/repos/*'
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+RUN npm ci --omit=dev --ignore-scripts
 COPY server ./server
 COPY shared ./shared
 COPY --from=build /app/web/dist ./web/dist

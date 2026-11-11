@@ -224,6 +224,24 @@ try {
   assert.ok(await page.locator('.sheet .rp-dev', { hasText: 'audit log' }).isVisible()); ok('garden: the report of the agent lists criteria, evidence and deviations');
   await shot(page, '05c-report');
   await page.keyboard.press('Escape');
+  // checks: re-runnable evidence next to the report, and "make it a rule" for a deviation
+  await tool('register_check', { spec_id: 'SPEC-012', name: 'unit: key rotation', kind: 'test', how: 'npm test -- rotation', expect: 'exit 0', criterion: 'A new key can be issued' });
+  await tool('report_check_result', { spec_id: 'SPEC-012', name: 'unit: key rotation', status: 'pass', value: '12 passed', ref: 'https://ci.example.test/run/9' });
+  await tool('report_implementation', { spec_id: 'SPEC-012', status: 'partial', summary: 'Rotation endpoint is built. The overlap of old and new keys waits for a decision.', criteria: [{ text: 'A new key can be issued', status: 'met', checks: ['unit: key rotation'] }, { text: 'Old keys keep working during the overlap', status: 'open' }], deviations: 'Key changes are written to the audit log, which the spec does not mention.' });
+  await page.evaluate(() => dispatchEvent(new Event('online')));
+  await page.locator('#gd-impl .gd-row[data-spec="SPEC-012"] [data-impl=partial]', { hasText: '1 verified' }).waitFor({ timeout: 10000 });
+  await page.click('#gd-impl .gd-row[data-spec="SPEC-012"]');
+  await page.locator('.sheet .rp-chk li[data-check="unit: key rotation"][data-state=passing]').waitFor();
+  await page.locator('.sheet .rp-crit li[data-status=met] .chip', { hasText: 'Verified' }).waitFor(); ok('garden: the report shows its checks and which criteria are verified by a passing check');
+  await shot(page, '05d-report-checks');
+  await page.click('.sheet [data-act=dev-rule]');
+  await page.fill('#rule-text', 'Every change of a signing key is written to the audit log.');
+  await page.getByRole('button', { name: 'Never' }).click(); await page.getByRole('button', { name: 'Always' }).click();
+  await page.click('[data-act=rule-add]');
+  await page.evaluate(() => dispatchEvent(new Event('online')));
+  for (let i = 0; i < 40; i++) { const g = (await admin.sync()).data.items.find((x) => x.id === 'guardrails.md'); if (/G1: Every change of a signing key/.test(g?.body ?? '')) break; await page.waitForTimeout(250); }
+  assert.match((await admin.sync()).data.items.find((x) => x.id === 'guardrails.md').body, /## Always\n- G1: Every change of a signing key is written to the audit log\./); ok('guardrails: a deviation becomes a rule in the guardrails document');
+  await page.keyboard.press('Escape').catch(() => {});
   await page.click('[data-act=more-menu]'); await page.getByRole('button', { name: /^Sync/ }).click();
   await page.waitForFunction(() => location.hash === '#/sync'); ok('the sync page moved into the More menu');
 

@@ -3,6 +3,9 @@ on:
   push:
     branches: [main]
   pull_request:
+permissions:
+  contents: read   # the workflow only reads the repository
+
 jobs:
   test:
     runs-on: ubuntu-24.04
@@ -33,3 +36,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker build -t garten:ci .
+  audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm audit --omit=dev --audit-level=high
+      - run: npm --prefix web audit --omit=dev --audit-level=high

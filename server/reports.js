@@ -3,16 +3,32 @@ import { db } from './db.js';
 import * as store from './store.js';
 import { ApiError } from './store.js';
 import { bumpGarden, DECISION } from './feedback.js';
+import { listChecks, summarize, checksBySpec } from './checks.js';
 
 export const REPORT_STATUSES = ['implemented', 'partial', 'blocked', 'in_progress'];
 export const CRITERION_STATUSES = ['met', 'deviating', 'open'];
 export const EVIDENCE_KINDS = ['commit', 'pr', 'test', 'ci', 'url', 'other'];
 
 const json = (s) => { try { return JSON.parse(s) ?? []; } catch { return []; } };
-const view = (r) => ({
-  id: r.id, specId: r.spec_id, specVersion: r.spec_version, status: r.status, summary: r.summary, criteria: json(r.criteria), evidence: json(r.evidence),
-  deviations: r.deviations, author: r.author, via: r.via, createdAt: r.created_at,
-});
+const checksOf = (teamId, specId) => listChecks(teamId, { specId });
+/** Criteria that name checks get the current state of those checks; "verified" means every named check passes right now. */
+function enrich(criteria, checks) {
+  const byName = new Map((checks ?? []).map((c) => [c.name, c]));
+  const out = criteria.map((c) => {
+    if (!c.checks?.length) return { ...c, verified: false };
+    const states = c.checks.map((n) => ({ name: n, state: byName.get(n)?.state ?? 'retired' }));
+    return { ...c, checkStates: states, verified: c.status === 'met' && states.every((x) => x.state === 'passing') };
+  });
+  const metN = out.filter((c) => c.status === 'met').length;
+  return { criteria: out, verification: { met: metN, verified: out.filter((c) => c.verified).length, claimed: out.filter((c) => c.status === 'met' && !c.checks?.length).length, failing: out.filter((c) => c.status === 'met' && c.checkStates?.some((x) => x.state === 'failing')).length, stale: out.filter((c) => c.status === 'met' && c.checkStates?.some((x) => x.state === 'stale' || x.state === 'unverified')).length } };
+}
+const view = (r, checks) => {
+  const e = enrich(json(r.criteria), checks);
+  return {
+    id: r.id, specId: r.spec_id, specVersion: r.spec_version, status: r.status, summary: r.summary, criteria: e.criteria, verification: e.verification, evidence: json(r.evidence),
+    deviations: r.deviations, author: r.author, via: r.via, createdAt: r.created_at,
+  };
+};
 const clip = (s, n) => String(s ?? '').trim().slice(0, n);
 
 /** An agent reports what it built for a released spec version: status, each acceptance criterion, evidence, deviations. Reports are append-only. */
@@ -29,12 +45,16 @@ export function addReport(team, { specId, version, status, summary, criteria, ev
   if (evidence !== undefined && !Array.isArray(evidence)) throw new ApiError('evidence must be a list.');
   if ((criteria ?? []).length > 60) throw new ApiError('At most 60 criteria per report.');
   if ((evidence ?? []).length > 30) throw new ApiError('At most 30 evidence entries per report.');
+  const known = new Set(listChecks(team.id, { specId }).map((c) => c.name));
   const crit = (criteria ?? []).map((c) => {
     const text = clip(c?.text, 400); const st = c?.status ?? 'met';
     if (!text) throw new ApiError('Every criterion needs its text (quote it from the spec).');
     if (!CRITERION_STATUSES.includes(st)) throw new ApiError(`criterion status must be one of: ${CRITERION_STATUSES.join(', ')}`);
     const note = clip(c?.note, 600);
-    return { text, status: st, ...(note ? { note } : {}) };
+    if (c?.checks !== undefined && !Array.isArray(c.checks)) throw new ApiError('checks must be a list of check names.');
+    const names = [...new Set((c?.checks ?? []).map((n) => clip(n, 80)).filter(Boolean))].slice(0, 8);
+    for (const n of names) if (!known.has(n)) throw new ApiError(`Criterion "${text.slice(0, 60)}" names the check "${n}", which ${specId} does not have. Register it first (register_check)${known.size ? `; known: ${[...known].join(', ')}` : ''}.`);
+    return { text, status: st, ...(note ? { note } : {}), ...(names.length ? { checks: names } : {}) };
   });
   const evid = (evidence ?? []).map((e) => {
     const ref = clip(e?.ref, 400); const kind = e?.kind ?? 'other';
@@ -49,20 +69,22 @@ export function addReport(team, { specId, version, status, summary, criteria, ev
   db.prepare('INSERT INTO reports (id,team_id,spec_id,spec_version,status,summary,criteria,evidence,deviations,author,author_id,via,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
     .run(id, team.id, specId, v, status, sum, JSON.stringify(crit), JSON.stringify(evid), dev, by?.name ?? null, by?.id ?? null, by?.via ?? null, new Date().toISOString());
   bumpGarden(team.id);
-  return view(db.prepare('SELECT * FROM reports WHERE id=?').get(id));
+  return view(db.prepare('SELECT * FROM reports WHERE id=?').get(id), checksOf(team.id, specId));
 }
 
 export function listReports(teamId, { specId, limit = 50 } = {}) {
   const rows = specId
     ? db.prepare('SELECT * FROM reports WHERE team_id=? AND spec_id=? ORDER BY created_at DESC, rowid DESC LIMIT ?').all(teamId, specId, limit)
     : db.prepare('SELECT * FROM reports WHERE team_id=? ORDER BY created_at DESC, rowid DESC LIMIT ?').all(teamId, limit);
-  return rows.map(view);
+  const bySpec = checksBySpec(teamId);
+  return rows.map((r) => view(r, bySpec[r.spec_id]));
 }
 
 /** The newest report of every spec (what the garden view shows, also offline). */
 export function latestReports(teamId) {
   const out = {};
-  for (const r of db.prepare('SELECT * FROM reports WHERE team_id=? ORDER BY created_at, rowid').all(teamId)) out[r.spec_id] = view(r);
+  const bySpec = checksBySpec(teamId);
+  for (const r of db.prepare('SELECT * FROM reports WHERE team_id=? ORDER BY created_at, rowid').all(teamId)) out[r.spec_id] = view(r, bySpec[r.spec_id]);
   return out;
 }
 
@@ -75,6 +97,7 @@ export function workList(team) {
   const latest = latestReports(t);
   const decisions = db.prepare("SELECT * FROM feedback WHERE team_id=? AND kind=? AND status IN ('open','answered') ORDER BY created_at").all(t, DECISION);
   const feedbackOpen = Object.fromEntries(db.prepare("SELECT spec_id, COUNT(*) AS n FROM feedback WHERE team_id=? AND status='open' AND kind<>? GROUP BY spec_id").all(t, DECISION).map((r) => [r.spec_id, r.n]));
+  const allChecks = checksBySpec(t);
   const work = []; let done = 0;
   for (const s of store.approvedSpecs(t)) {
     const rep = latest[s.id];
@@ -86,6 +109,8 @@ export function workList(team) {
     else if (rep.specVersion < s.version) state = 'changed';
     else if (rep.status !== 'implemented') state = rep.status;
     else if (answered.length) state = 'decision_answered';
+    const chk = summarize(allChecks[s.id] ?? []);
+    if (!state && (chk.failing || chk.stale || chk.unverified)) state = 'recheck';
     if (!state) { done += 1; if (!open.length) continue; state = 'implemented'; }
     const options = (d) => { try { return JSON.parse(d.options) ?? []; } catch { return []; } };
     work.push({
@@ -95,13 +120,18 @@ export function workList(team) {
       ...(open.length ? { waiting_for_decision: open.map((d) => ({ id: d.id, question: d.text, blocking: !!d.blocking })) } : {}),
       ...(answered.length ? { decisions_answered: answered.map((d) => ({ id: d.id, question: d.text, answer: d.answer >= 0 ? options(d)[d.answer]?.label ?? null : null, note: d.reply || undefined, answered_by: d.resolved_by })) } : {}),
       ...(feedbackOpen[s.id] ? { open_feedback: feedbackOpen[s.id] } : {}),
+      ...(chk.total ? { checks: chk } : {}),
+      ...(state === 'recheck' ? {
+        hint: 'Run these checks again (list_checks shows how) and report each result with report_check_result. If one fails, fix the code or report the spec as partial.',
+        checks_to_run: (allChecks[s.id] ?? []).filter((c) => c.state !== 'passing').map((c) => ({ name: c.name, kind: c.kind, how: c.how, expect: c.expect || undefined, state: c.state })),
+      } : {}),
     });
   }
-  const rank = { decision_answered: 0, changed: 1, new: 2, in_progress: 3, partial: 4, blocked: 5, implemented: 6 };
+  const rank = { decision_answered: 0, changed: 1, recheck: 2, new: 3, in_progress: 4, partial: 5, blocked: 6, implemented: 7 };
   work.sort((a, b) => rank[a.state] - rank[b.state] || a.spec_id.localeCompare(b.spec_id));
   return {
     team: team.name, released_specs: store.approvedSpecs(t).length, up_to_date: done, work,
-    states: 'new = never reported · changed = a newer version was released since your last report · decision_answered = a person answered your question · in_progress / partial / blocked = your last report · implemented = done, listed only because a question is still open',
+    states: 'new = never reported · changed = a newer version was released since your last report · recheck = implemented, but a check fails, is stale (too old or from an older version) or never ran – run it again · decision_answered = a person answered your question · in_progress / partial / blocked = your last report · implemented = done, listed only because a question is still open',
     note: work.length ? 'Entries with a blocking waiting_for_decision must wait for a person; work on the others.' : 'Nothing to do: every released spec has an "implemented" report for its current version.',
   };
 }
