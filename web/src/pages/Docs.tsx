@@ -65,7 +65,7 @@ function DocsList({ selected }: { selected?: string }) {
     <>
       <Bar title="Documents">
         {can && (
-          <Dropdown className="btn primary" ariaLabel="New" label={<><Icon name="plus" size={14} /> New <Icon name="chevron" size={14} /></>}>
+          <Dropdown className="btn primary bar-add" ariaLabel="New" buttonProps={{ 'aria-label': 'New' }} label={<><Icon name="plus" size={14} /><span className="lbl">New</span><span className="chev-d"><Icon name="chevron" size={14} /></span></>}>
             {(close) => <>
               <button type="button" role="menuitem" onClick={() => { close(); setSheet({ kind: 'newdoc', value: ui.lastFolder ? `${ui.lastFolder}/` : '' }); }}><Icon name="file" size={16} /><span>Document</span></button>
               <button type="button" role="menuitem" onClick={() => { close(); setSheet({ kind: 'newfolder', value: '' }); }}><Icon name="folderPlus" size={16} /><span>Folder <small>with README.md</small></span></button>
@@ -78,7 +78,7 @@ function DocsList({ selected }: { selected?: string }) {
         {found.map((d) => {
           const st = foundState(d, S);
           const sub = d.core ? (hasContent(d.body) ? 'Always available to agents' : 'Write it once – agents always get it') : 'Pinned document';
-          return <Link key={d.id} className={`found ${selected === d.id ? 'active' : ''}`} to={`/doc/${enc(d.id)}`}><span className="fi"><Icon name={d.id === 'vision.md' ? 'release' : 'file'} size={18} /></span><span className="fb"><b>{CORE_LABEL[d.id] ?? d.id}</b><span>{sub}</span></span><span className={`chip ${st.cls}`}>{st.text}</span></Link>;
+          return <Link key={d.id} className={`found ${selected === d.id ? 'active' : ''}`} to={`/doc/${enc(d.id)}`}><span className="fi"><Icon name={d.id === 'vision.md' ? 'release' : 'file'} size={18} /></span><span className="fb"><b>{CORE_LABEL[d.id] ?? d.id}</b>{!(d.core && hasContent(d.body)) && <span>{sub}</span>}</span><span className={`chip ${st.cls}`}>{st.text}</span></Link>;
         })}
         <div className="sect-title" style={{ marginTop: 14 }}><span>Documents</span><small>{nDocs}</small></div>
         {tree.folders.size || tree.docs.length ? renderNode(tree, '', 0) : <div className="empty">No documents yet.<br />Add ADRs, schemas or notes and link them to specs. Organise them in folders.</div>}

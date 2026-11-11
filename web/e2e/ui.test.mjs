@@ -68,7 +68,7 @@ try {
   await page.locator('.row', { hasText: 'SPEC-012' }).waitFor(); ok('offline reload opens the app without a new login');
 
   // --- block editor, offline
-  await page.click('.fab[data-act=new-spec]'); await page.getByRole('button', { name: /Feature spec/ }).click();
+  await page.click('.bar [data-act=new-spec]'); await page.getByRole('button', { name: /Feature spec/ }).click();
   const title = `Offline spec ${Date.now() % 100000}`;
   await page.fill('#title', title);
   await page.locator('.bn-editor .bn-block').first().waitFor();

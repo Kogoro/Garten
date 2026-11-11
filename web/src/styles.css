@@ -666,7 +666,7 @@ p a:not(.btn), .note a, li a:not(.btn):not(.src) { text-decoration: underline; t
   .ftoggle, .fbtn, .icon-btn.sm, .ed-bar .ed-title, .tab { min-height: 44px; }
   .fbtn { min-width: 44px; opacity: 1; }
   .icon-btn.sm { min-width: 44px; }
-  p a:not(.btn), .note a, .src { display: inline-block; padding: 12px 0; }
+  .src { display: inline-block; padding: 12px 0; }   /* links inside a sentence stay inline: WCAG 2.5.8 exempts them, and padding would blow up the line spacing */
 }
 @media (forced-colors: active) { .chip, .btn, .filter, .pill { border: 1px solid CanvasText; } }
 
@@ -814,3 +814,61 @@ kbd { display: inline-block; min-width: 22px; padding: 1px 6px; border: 1px soli
 .row-when { margin-left: auto; display: inline-flex; gap: 8px; white-space: nowrap; }
 @media (max-width: 700px) { .row-docs, .row-word { display: none; } .row-meta { flex-wrap: nowrap; overflow: hidden; } .row-meta > .chip { flex-shrink: 0; } }
 @media (max-width: 700px) { .pill { min-height: 34px; padding: 0 10px; font-size: 12px; } .ws-btn { width: 36px; height: 36px; } }
+
+/* =====================================================================================
+   COHESION LAYER – one scale for the whole app (phone first)
+   Controls: 40 px (buttons, fields, rows you tap), 32 px (dense: chips, small buttons), icon buttons 40 px hit area.
+   Radius:   6 px (chips), 10 px (buttons, fields, rows, cards). Spacing: 4 / 8 / 12 px. Type: 12 / 13 / 14 / 16 px.
+   Colour:   green = primary action and "fine"; amber = waiting for you; red = problem. Quiet when fine, loud when not.
+   ===================================================================================== */
+:root { --ctl: 40px; --ctl-s: 32px; --r: 10px; --r-s: 6px; }
+.row-id { white-space: nowrap; flex-shrink: 0; }
+.row-meta { flex-wrap: wrap; row-gap: 2px; }
+@media (max-width: 700px) {
+  /* header: title left; one add button, one quiet sync glyph, one neutral team button */
+  .bar > *:not(h1):not(h2):not(.grow) { flex-shrink: 0; }
+  .bar-add { min-width: var(--ctl); height: var(--ctl); padding: 0 10px; background: none; border: 0; color: var(--green); }
+  .bar-add .lbl, .bar-add .chev-d { display: none; }
+  .bar-add svg { width: 22px; height: 22px; }
+  .pill.quiet { width: var(--ctl); height: var(--ctl); min-height: var(--ctl); padding: 0; justify-content: center; border: 0; background: none; color: var(--muted); }
+  .pill.quiet svg { width: 16px; height: 16px; }
+  .pill:not(.quiet) { min-height: var(--ctl-s); padding: 0 10px; }
+  .ws-btn { width: var(--ctl); height: var(--ctl); }
+  .ws-btn .ws-av { width: 28px; height: 28px; background: none; border: 1px solid var(--line2); color: var(--soft); font-size: 13px; border-radius: 50%; }
+  /* controls */
+  .btn { height: var(--ctl); border-radius: var(--r); padding: 0 14px; font-size: 14px; }
+  .btn.small, .btn.small.danger { height: var(--ctl-s); min-height: var(--ctl-s); padding: 0 10px; font-size: 13px; border-radius: var(--r); }
+  .btn.danger { background: none; }
+  .field { height: var(--ctl); border-radius: var(--r); }
+  .filter { min-height: var(--ctl-s); }
+  .tab { padding: 8px 12px; min-height: var(--ctl); }
+  /* surfaces */
+  .page { padding: 10px 12px; gap: 10px; }
+  .card { padding: 12px; gap: 8px; border-radius: var(--r); }
+  .card h2 { font-size: 14px; }
+  .note { font-size: 13px; line-height: 1.4; }
+  .kv { min-height: 40px; }
+  .q { min-height: 44px; }
+  .sect-title { margin: 4px 2px 2px; font: 600 12px var(--sans); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  .sect-title small { text-transform: none; letter-spacing: 0; font-size: 12px; }
+  .gd-row { min-height: 52px; padding: 8px 0; }
+  .gd-empty { padding: 8px 12px; font-size: 13px; border-radius: var(--r); }
+  .found { min-height: 44px; padding: 4px 10px; gap: 10px; margin-bottom: 4px; border-radius: var(--r); }
+  .found .fi { width: 28px; height: 28px; }
+  .dc-item, .fb-item { border-radius: var(--r); padding: 10px; gap: 6px; }
+  .dc-opt { min-height: 40px; padding: 6px 10px; border-radius: var(--r); }
+  .empty { padding: 20px 8px; }
+  /* garden summary: one compact line of figures */
+  .gd-stats { grid-template-columns: auto auto 1fr; gap: 16px; align-items: baseline; }
+  .gd-stats b { font-size: 22px; }
+  .gd-stats span { font-size: 12px; }
+  .gd-sum .note, .hint-card { margin-block: 4px; }
+  /* settings-like pages: tighter forms */
+  .card .btns { gap: 6px; }
+  label.check { min-height: 40px; }
+}
+@media (max-width: 700px) {
+  .bar .btn.primary.bar-add, .bar .bar-add.btn { background: none; border: 0; color: var(--green); box-shadow: none; }
+  .card p, .page > p { line-height: 1.4; margin-block: 0; }
+  .kv a { min-height: 40px; min-width: 40px; }
+}

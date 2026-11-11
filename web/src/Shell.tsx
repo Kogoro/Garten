@@ -17,7 +17,8 @@ export function SyncPill() {
   else if (st.syncing) [cls, text, icon] = ['', 'Syncing…', ic.sync(14)];
   else if (st.error) [cls, text, icon] = ['bad', 'Sync failed', ic.warn(14)];
   else if (q) [cls, text, icon] = ['warn', `${q} queued`, ic.up(14)];
-  return <Link className={`pill ${cls}`} data-pill to="/sync"><span dangerouslySetInnerHTML={{ __html: icon }} />{text}</Link>;
+  const quiet = cls === 'ok'; // quiet when fine, loud when not: only a problem or waiting work gets words and colour
+  return <Link className={`pill ${cls}${quiet ? ' quiet' : ''}`} data-pill to="/sync" title={text}><span dangerouslySetInnerHTML={{ __html: icon }} />{quiet ? <span className="sr">{text}</span> : text}</Link>;
 }
 
 /** Team switcher / account / "more" menus (bottom sheets) and what they do. */

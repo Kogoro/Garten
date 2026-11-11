@@ -155,7 +155,7 @@ function GlossaryList({ selected }: { selected?: string }) {
     <>
       <Bar title="Glossary">
         {can && (
-          <Dropdown className="btn primary" ariaLabel="New" label={<><Icon name="plus" size={14} /> New <Icon name="chevron" size={14} /></>}>
+          <Dropdown className="btn primary bar-add" ariaLabel="New" buttonProps={{ 'aria-label': 'New' }} label={<><Icon name="plus" size={14} /><span className="lbl">New</span><span className="chev-d"><Icon name="chevron" size={14} /></span></>}>
             {(close) => <>
               <button type="button" role="menuitem" onClick={() => { close(); setSheet({ t: 'term' }); }}><Icon name="book" size={16} /><span>Term</span></button>
               <button type="button" role="menuitem" onClick={() => { close(); setSheet({ t: 'folder' }); }}><Icon name="folderPlus" size={16} /><span>Folder</span></button>
