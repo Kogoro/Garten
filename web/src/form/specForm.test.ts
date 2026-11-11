@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BUILTIN_TYPES } from '@shared/spectypes.js';
+import { extractTermRefs, termRef } from '@shared/glossary.js';
 import { cleanForm, formTemplate, parseForm, serializeForm } from '@shared/specForm.js';
 
 const schema = cleanForm({ fields: [
@@ -47,4 +48,14 @@ describe('cleanForm', () => {
     const f = cleanForm({ tabs: [{ key: 'a', label: 'A' }], fields: [{ label: 'Quality target', kind: 'text', tab: 'zzz' }] })!;
     expect(f.fields[0].key).toBe('quality_target'); expect(f.fields[0].tab).toBeUndefined();
   });
+});
+
+describe('glossary references in documents (prefix #)', () => {
+  it('finds #[Term] and #[Term|label]', () => {
+    expect(extractTermRefs('Uses #[Attempt window] and #[Ledger entry|entries] here.')).toEqual(['Attempt window', 'Ledger entry']);
+  });
+  it('ignores headings, issue numbers, URLs fragments and code', () => {
+    expect(extractTermRefs('# Heading\nissue #12, see http://x/#[frag]\n`#[inline]`\n```\n#[fenced]\n```')).toEqual([]);
+  });
+  it('termRef round-trips', () => { expect(extractTermRefs(termRef('Idempotency key'))).toEqual(['Idempotency key']); });
 });

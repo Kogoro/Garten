@@ -203,6 +203,7 @@ try {
   assert.equal(await page.locator('#gd-needs').innerText(), '0');
   await page.locator(`#gd-answered [data-decision="${dec.id}"] .dc-answer`, { hasText: '7 days' }).waitFor();
   assert.equal((await admin.get(`/api/teams/${admin.tid}/feedback?spec=SPEC-012&kind=decision`)).data.feedback[0].status, 'open'); ok('garden: a decision is answered offline and waits on the device');
+  await page.waitForTimeout(500); // let IndexedDB finish writing the queued answer
   await page.reload();
   await page.locator('#gd-waiting').waitFor();
   await page.locator(`#gd-answered [data-decision="${dec.id}"] .dc-answer`, { hasText: '7 days' }).waitFor(); ok('garden: the offline answer survives a reload');
@@ -336,7 +337,12 @@ try {
   await d.locator('#glList .row', { hasText: 'Attempt window' }).click();
   await d.locator('#glDetail h1', { hasText: 'Attempt window' }).waitFor(); await d.locator('#glDetail .gd-def', { hasText: 'time bucket' }).waitFor(); ok('glossary: selecting a term shows its definition in the detail pane');
   await d.click('.bar [data-act=dd-toggle]'); await d.getByRole('menuitem', { name: 'Term' }).click();
-  await d.fill('#termname', 'Dunning'); await d.fill('#termdef', 'Reminding customers about unpaid invoices.'); await d.click('[data-act=create-term]');
+  await d.fill('#termname', 'Dunning');
+  await d.route('**/api/lookup**', (r) => r.fulfill({ json: { query: 'Dunning', lang: 'en', results: [{ source: 'Wikipedia', title: 'Dunning (debt)', text: 'Dunning is the process of communicating with customers to ensure the collection of accounts receivable.', url: 'https://en.wikipedia.org/wiki/Dunning', license: 'CC BY-SA 4.0', licenseUrl: 'https://creativecommons.org/licenses/by-sa/4.0/' }] } }));
+  await d.click('[data-act=lookup]'); await d.locator('[data-lookup-hit]').waitFor(); await d.click('[data-act=lookup-use]');
+  assert.match(await d.inputValue('#termdef'), /Dunning is the process.*\(Source: Wikipedia, CC BY-SA 4\.0 – https:\/\/en\.wikipedia\.org\/wiki\/Dunning\)/); ok('glossary: online lookup offers a definition and copies it with its source');
+  await d.unroute('**/api/lookup**');
+  await d.fill('#termdef', 'Reminding customers about unpaid invoices.'); await d.click('[data-act=create-term]');
   await d.locator('#glDetail h1', { hasText: 'Dunning' }).waitFor(); await d.locator('#glList .row.active', { hasText: 'Dunning' }).waitFor(); ok('glossary: New → Term creates the term and opens it');
   // folder + a term with synonyms and references inside it
   await d.click('.bar [data-act=dd-toggle]'); await d.getByRole('menuitem', { name: 'Folder' }).click();

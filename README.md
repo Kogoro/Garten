@@ -115,6 +115,8 @@ Attempt window
 ```
 
 * **Verweise:** `[[Begriff]]` oder `[[Begriff|Anzeigetext]]` in einer Definition; zusätzlich Felder **Also known as** (Synonyme) und **See also** im Block. Die Glossar-Seite löst Verweise auf (Klick springt zum Begriff), markiert **nicht definierte** Begriffe rot und fasst sie oben zusammen, zeigt *Referenced by* und *Used in* (Specs/Dokumente, die den Begriff oder ein Synonym erwähnen) und findet Begriffe auch über Synonyme.
+* **Online nachschlagen (kostenlos):** Im Dialog *New glossary term* und beim Bearbeiten eines Begriffs sucht **Search definitions online** Definitionen in Wikipedia, Wiktionary und (Englisch) dictionaryapi.dev – ohne Schlüssel, ohne Kosten, in 7 Sprachen wählbar. Die Anfrage läuft über den Specs-Server (`GET /api/lookup?q=&lang=`), nur der Suchbegriff verlässt die Instanz, der Client nennt sich generisch (keine E-Mail-Adresse). **Use as definition** übernimmt den Text **mit Quelle und Lizenz** (CC BY-SA) in das Definitionsfeld; kürzen oder umformulieren kannst du ihn, der Quellenhinweis bleibt. Nur online; `LOOKUP=0` schaltet die Funktion ab, 20 Abfragen pro Minute und Nutzer.
+* **Glossar-Verweise in Dokumenten und Specs:** Im Editor öffnet das Präfix **`#`** eine Liste der Glossarbegriffe; eingefügt wird `#[Begriff]` (auch von Hand: `#[Begriff|Anzeigetext]`). In *Used in* des Begriffs taucht das Dokument dann auf; Agenten lesen den Verweis als normalen Text. `[[Begriff]]` gilt weiterhin innerhalb von Definitionen.
 * **Globales Glossar:** Instanz-Admins pflegen es unter *Admin → Global glossary*. Teams importieren Begriffe über **Glossary → Import** als **editierbare Kopie** in ihr `glossary.md` (mit Herkunftsvermerk `Source: global:<id>@<rev>`). Ändert ein Admin den globalen Begriff, zeigt die Team-Glossar-Seite *Update available* mit **Update from global**; lokale Anpassungen bleiben, bis man das bewusst übernimmt. Bereits vorhandene Begriffe werden beim Import nicht überschrieben. **Datei-Import (Admin):** *Import file…* liest CSV/TSV (Spalten `term, definition, aliases, see`; Trennzeichen automatisch, deutsche Spaltennamen ok), JSON (Liste, `{terms:[…]}` oder `{"Begriff":"Definition"}`) oder Markdown-Definitionslisten, zeigt eine Vorschau (neu / vorhanden / Probleme) und importiert wahlweise *vorhandene behalten* oder *aktualisieren*. *Export* liefert `global-glossary.md`.
 * **Glossar-Seite** wie die Dokumentenseite: links Liste mit Ordnern (Überschriften in `glossary.md`), rechts die Definition mit Synonymen, Verweisen und Bearbeiten – ohne Umweg über `glossary.md`.
 * **Für Agenten:** `get_glossary(term?)` findet auch über Synonyme und liefert `aliases`, `see_also` (explizite Verweise + `[[…]]`), `from_global_glossary` und die Quelle; `get_team_context` listet `**Term** (also: …): Definition — see also: …`. `GLOSSARY.md` im Repo enthält dieselben Angaben.
@@ -214,6 +216,24 @@ Stop when the work list holds nothing you can work on. End with one line per spe
 | Server | Node 24, Express, `node:sqlite`, `git`/`ssh-keygen` CLI, MCP SDK. Ein Container, ein Volume `/data`. |
 | Navigation | **Eine** durchgängige Navigation, keine Seiten-Tabs mehr: Desktop = Sidebar (Team-Wechsler, Content: Specs/Documents/Glossary, Publish: Release, Agents: Garden, Team: Members & Git, Instance: Admin, unten Sync-Status und Benutzermenü); Handy = Tab-Leiste (Specs, Garden, Docs, Release, More; Sync liegt unter More) + Team-Menü oben rechts, Editor im Vollbild. Überall dieselbe kompakte Kopfzeile. |
 | Themes | **System / Hell / Dunkel** (Konto → Appearance oder Benutzermenü); Mermaid-Diagramme und die OAuth-Zustimmungsseite folgen dem Theme. |
+
+## Proxmox: LXC-Container (Community-Scripts-Stil)
+
+Auf dem **Proxmox-Host** (als root) ausführen – das Skript baut auf der Engine der [community-scripts](https://github.com/community-scripts/ProxmoxVE) auf (gleiche Menüs: *Default*, *Advanced*, Storage- und Netzwerkwahl):
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/Kogoro/Garten/main/ct/garten.sh)"
+```
+
+Standard: unprivilegierter Debian-13-Container, 2 CPU, 2 GB RAM, 6 GB Disk (`var_cpu=… var_ram=… var_disk=… bash -c …` überschreibt das). Der Container installiert Garten nach `/opt/garten`, legt die Daten unter `/var/lib/garten/data` ab und startet den Dienst `garten` (nur auf `127.0.0.1`). **Caddy** davor liefert HTTPS auf `https://<Container-IP>` mit einer **eigenen Zertifizierungsstelle** – nötig, weil Browser den Offline-Modus (Service Worker) nur über HTTPS erlauben.
+
+1. **Zugangsdaten:** `pct exec <ID> cat /root/garten.creds` (E-Mail `admin@localhost`, zufälliges Passwort; nach der Anmeldung unter *Account* ändern und die Datei löschen).
+2. **Einmal pro Gerät (Handy/Laptop):** `http://<Container-IP>/` öffnen, das Zertifikat laden und installieren (Android: *Einstellungen → Sicherheit → CA-Zertifikat installieren*; iPhone: Profil laden, installieren und unter *Info → Zertifikatsvertrauen* aktivieren). Danach `https://<Container-IP>` öffnen, anmelden, *Zum Home-Bildschirm hinzufügen* und **jedes Team einmal online öffnen**, damit alles offline verfügbar ist.
+3. **Aktualisieren:** im Container `garten update` (oder das Skript auf dem Host erneut starten und *Update* wählen). Daten und Einstellungen bleiben. **Backup:** `garten backup` (Archiv in `/root`). `garten info`, `garten logs`, `garten url https://spec.example.org` (eigene Adresse, z. B. mit eigenem Reverse-Proxy; dann ohne Caddy).
+
+Ohne Proxmox funktioniert dasselbe auf jedem Debian 12/13 oder Ubuntu 24.04 (VM, Server, selbst angelegter LXC) mit `bash -c "$(curl -fsSL https://raw.githubusercontent.com/Kogoro/Garten/main/scripts/install-debian.sh)"` als root. Einstellungen stehen in `/etc/garten/garten.env` (dieselben Variablen wie in `docker-compose.yml`, zusätzlich `HOST`, `LOOKUP`).
+
+**Grenzen:** Nur per VPN erreichbar heißt: Cloud-Routinen von Claude Code können den Server nicht erreichen (lokale Agenten im VPN schon). Das Skript für den Container selbst wurde in einem Debian-13-Container getestet (Installation, Update, HTTPS mit Zertifikat, Anmeldung); der Lauf der community-scripts-Engine auf einem echten Proxmox-Host ist nicht getestet. Fällt er aus: LXC von Hand anlegen (Debian 13) und darin `install-debian.sh` ausführen.
 
 ## HTTPS / PUBLIC_URL
 

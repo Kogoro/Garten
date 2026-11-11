@@ -694,6 +694,10 @@ try {
   // git authorship
   assert.match(git(`${srv.dir}/repos/${T1}`, 'log', '--format=%an|%s', '--no-merges', '-n', '8'), /approver user\|Release /); ok('git commit is authored by the approver');
 
+  // glossary lookup: input is validated before any third party is asked; sign-in is required
+  assert.equal((await admin.get('/api/lookup?q=a')).status, 400); ok('lookup: a too short term is rejected');
+  assert.equal((await anon.get('/api/lookup?q=idempotence')).status, 401); ok('lookup: needs a sign-in');
+
   console.log(`\n${n} checks passed`);
 } finally {
   srv.stop();

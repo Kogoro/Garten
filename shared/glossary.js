@@ -22,6 +22,14 @@ export function extractRefs(text) {
   return [...String(text ?? '').matchAll(/\[\[([^\]|\n]+)(?:\|[^\]\n]*)?\]\]/g)].map((m) => m[1].trim()).filter(Boolean);
 }
 
+/** Glossary reference in running text (specs, documents): prefix `#`, term in brackets – `#[Attempt window]`. */
+export const termRef = (term) => `#[${String(term).replace(/[\]\n]/g, ' ').trim()}]`;
+/** `#[Term]` / `#[Term|label]` in a document -> ['Term'] (code fences and inline code are ignored) */
+export function extractTermRefs(md) {
+  const text = String(md ?? '').replace(/```[\s\S]*?```/g, '').replace(/`[^`\n]*`/g, '');
+  return [...text.matchAll(/(?<![\w&#/])#\[([^\]|\n]+)(?:\|[^\]\n]*)?\]/g)].map((m) => m[1].trim()).filter(Boolean);
+}
+
 /** The `: …` lines of one entry (without the leading ": ") -> { definition, aliases[], see[], origin } */
 export function parseDefLines(lines) {
   const out = { definition: [], aliases: [], see: [], origin: null };

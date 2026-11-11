@@ -10,6 +10,7 @@ import { PROJECT_NAME, PUBLIC_URL, OIDC, ALLOW_TEAM_CREATION, MAX_TEAMS_PER_USER
 import {
   createTeam, renameTeam, setFoundationAuto, setFeedbackMail, deleteTeamRows, listTeams, teamsCreatedBy, publicGit, saveGitSettings, getTeam, TeamError,
 } from './teams.js';
+import { lookupDefinitions, LookupError } from './lookup.js';
 import { testRemote, pushTeam, generateSshKey } from './gitremote.js';
 import { mailEnabled, mailInfo, sendMail, mailError, invitationMail } from './mailer.js';
 import { createInvite, listInvites, revokeInvite, inviteByToken, registerFromInvite, acceptForUser, declineForUser, invitesForEmail } from './invites.js';
@@ -139,6 +140,9 @@ export function apiRouter() {
   }));
   r.delete('/me/tokens/:id', (req, res) => res.json({ ok: revokePat(req.user.id, req.params.id) }));
   r.delete('/me/connections/:id', (req, res) => res.json({ ok: revokeConnection(req.user.id, req.params.id) }));
+
+  // ---- free definition lookup (Wikipedia / Wiktionary / dictionaryapi.dev), proxied so the browser never talks to third parties
+  r.get('/lookup', wrap(async (req, res) => res.json(await lookupDefinitions(req.query.q, req.query.lang, req.user.id))));
 
   // ---- global glossary: everybody reads it (to import terms), instance admins maintain it
   r.get('/glossary/global', (_req, res) => res.json({ terms: listGlobalTerms() }));
@@ -297,7 +301,7 @@ export function apiRouter() {
   r.delete('/users/:id/connections/:cid', ...admin, (req, res) => res.json({ ok: revokeConnection(req.params.id, req.params.cid) }));
 
   r.use((err, _req, res, next) => {
-    if (err instanceof AuthError || err instanceof TeamError || err instanceof store.ApiError || err instanceof GlossaryError || err instanceof TypeError_) return res.status(err.status).json({ error: err.message });
+    if (err instanceof AuthError || err instanceof TeamError || err instanceof store.ApiError || err instanceof GlossaryError || err instanceof LookupError || err instanceof TypeError_) return res.status(err.status).json({ error: err.message });
     next(err);
   });
   return r;

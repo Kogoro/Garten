@@ -61,3 +61,6 @@ export const SMTP_URL = env('SMTP_URL');
 export const SMTP_FROM = env('SMTP_FROM', 'Specs <no-reply@localhost>');
 /** Refuse to send unless the connection is upgraded to TLS (recommended for anything but a local relay). */
 export const SMTP_REQUIRE_TLS = flag('SMTP_REQUIRE_TLS', false);
+
+/** Online definition lookup for the glossary (Wikipedia, Wiktionary, dictionaryapi.dev). LOOKUP=0 switches it off. */
+export const LOOKUP_ENABLED = env('LOOKUP', '1') !== '0';

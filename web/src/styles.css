@@ -640,3 +640,11 @@ textarea.field.hook-headers { min-height: 76px; font-size: 12.5px; }
   .approve .hint, .approve.queued .lbl { display: none; }
   .tabbar .badge, .badge { font-size: 11px; }
 }
+
+/* Glossary: online lookup */
+.lookup { display: flex; flex-direction: column; gap: 8px; }
+.lookup-row { display: flex; gap: 8px; align-items: center; }
+.lookup-row select { width: 80px; flex-shrink: 0; }
+.lookup-hit { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.lookup-hit p { margin: 0; font-size: 14px; }
+.lookup-hit .btn { align-self: flex-start; }

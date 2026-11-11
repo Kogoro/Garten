@@ -5,9 +5,51 @@ import { Dropdown, FormError, Sheet } from '../dialogs';
 import { Bar, Shell } from '../Shell';
 import { openMenu, useUi } from '../state';
 import { Icon, toast, useStore } from '../ui';
+import { api } from '../store/core';
 import { Linkify, TermRef, glossaryPath, glossaryTerms, groupOf, mentions, plain, termIndex, type Term } from '../glossaryLib';
 
 type Store = ReturnType<typeof useStore>;
+
+/** Free online lookup (Wikipedia, Wiktionary, dictionaryapi.dev through this server). "Use" copies the text with its source into the definition field. */
+function LookupPanel({ termId, defId }: { termId: string; defId: string }) {
+  const S = useStore();
+  const [busy, setBusy] = useState(false);
+  const [lang, setLang] = useState(() => { try { return localStorage.getItem('lookupLang') || 'en'; } catch { return 'en'; } });
+  const [res, setRes] = useState<{ query: string; results: any[] } | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  async function search() {
+    const q = (document.getElementById(termId) as HTMLInputElement | null)?.value.trim() ?? '';
+    if (q.length < 2) return setErr('Type the term first.');
+    setBusy(true); setErr(null);
+    try { localStorage.setItem('lookupLang', lang); } catch { /* storage unavailable */ }
+    try { setRes(await api('GET', `/api/lookup?q=${encodeURIComponent(q)}&lang=${lang}`)); } catch (e: any) { setRes(null); setErr(e.message || 'Lookup failed'); }
+    setBusy(false);
+  }
+  function use(r: any) {
+    const el = document.getElementById(defId) as HTMLTextAreaElement | null; if (!el) return;
+    const text = `${r.text} (Source: ${r.source}, ${r.license} – ${r.url})`;
+    el.value = el.value.trim() ? `${el.value.trim()} ${text}` : text;
+    el.dispatchEvent(new Event('input', { bubbles: true })); el.focus();
+    toast('Definition copied – shorten or reword it, the source stays');
+  }
+  return (
+    <div className="lookup">
+      <div className="lookup-row">
+        <select aria-label="Language" className="field" value={lang} onChange={(e) => setLang(e.target.value)}>{['en', 'de', 'fr', 'es', 'it', 'nl', 'pt'].map((l) => <option key={l} value={l}>{l.toUpperCase()}</option>)}</select>
+        <button type="button" className="btn" data-act="lookup" disabled={busy || !S.state.online} onClick={search}>{busy ? 'Searching…' : S.state.online ? 'Search definitions online' : 'Online lookup needs a connection'}</button>
+      </div>
+      {err && <span className="err-text">{err}</span>}
+      {res && !res.results.length && <p className="note">Nothing found for “{res.query}”. Try another spelling or language.</p>}
+      {res?.results.map((r, i) => (
+        <div className="lookup-hit" key={i} data-lookup-hit>
+          <b>{r.title}</b><p>{r.text}</p>
+          <small className="muted"><a href={r.url} target="_blank" rel="noopener noreferrer">{r.source}</a> · <a href={r.licenseUrl} target="_blank" rel="noopener noreferrer">{r.license}</a></small>
+          <button type="button" className="btn small" data-act="lookup-use" onClick={() => use(r)}>Use as definition</button>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function TermSheet({ initial, folder, onClose }: { initial?: string; folder?: string; onClose: () => void }) {
   const S = useStore(); const nav = useNavigate();
@@ -26,6 +68,7 @@ function TermSheet({ initial, folder, onClose }: { initial?: string; folder?: st
       <h2>New glossary term</h2><p>Added to your glossary. Agents receive it as soon as it is live.</p>
       <label className="sr" htmlFor="termname">Term</label><input id="termname" className="field" placeholder="Term" autoComplete="off" defaultValue={initial ?? ''} />
       <label className="sr" htmlFor="termdef">Definition</label><textarea id="termdef" className="field" style={{ height: 110, padding: 12 }} placeholder="What the term means in this project. Reference other terms with [[Term]]." />
+      <LookupPanel termId="termname" defId="termdef" />
       <label className="sr" htmlFor="termaliases">Also known as</label><input id="termaliases" className="field" placeholder="Also known as (comma separated)" autoComplete="off" />
       <label className="sr" htmlFor="termsee">See also</label><input id="termsee" className="field" placeholder="See also (comma separated terms)" autoComplete="off" />
       <label className="sr" htmlFor="termfolder">Folder</label>
@@ -216,6 +259,7 @@ function TermEdit({ t, own, onDone }: { t: Term; own: any; onDone: (name?: strin
         <form id="glEditForm" className="form" onSubmit={submit}>
           <label className="sr" htmlFor="gd-term">Term</label><input id="gd-term" name="term" className="field" defaultValue={t.term} required maxLength={80} autoComplete="off" />
           <label className="sr" htmlFor="gd-def">Definition</label><textarea id="gd-def" name="def" className="field" style={{ height: 150, padding: 12 }} placeholder="Definition – reference other terms with [[Term]]" required defaultValue={own.definition} />
+          <LookupPanel termId="gd-term" defId="gd-def" />
           <label className="sr" htmlFor="gd-aliases">Also known as</label><input id="gd-aliases" name="aliases" className="field" placeholder="Also known as (comma separated)" defaultValue={own.aliases.join(', ')} autoComplete="off" />
           <label className="sr" htmlFor="gd-see">See also</label><input id="gd-see" name="see" className="field" placeholder="See also (comma separated terms)" defaultValue={own.see.join(', ')} autoComplete="off" />
           <label className="sr" htmlFor="gd-folder">Folder</label><select id="gd-folder" name="folder" className="field" defaultValue={own.folder ?? ''}><option value="">General (no folder)</option>{S.glossaryModel().folders.map((f: string) => <option key={f}>{f}</option>)}</select>

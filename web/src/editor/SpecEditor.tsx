@@ -34,7 +34,9 @@ const CUSTOM = [
 
 /** Block editor for a Markdown body. The Markdown string stays the single source of truth: `value` in, `onChange(md)` out. */
 export type EditorApi = { insert: (key: string) => void; insertText: (t: string) => void };
-export function SpecEditor({ docKey, value, readOnly, onChange, onReady, refs, onRef }: { docKey: string; value: string; readOnly: boolean; onChange: (md: string) => void; onReady?: (api: EditorApi | null) => void; refs?: string[]; onRef?: (docId: string) => void }) {
+import { termRef } from '@shared/glossary.js';
+
+export function SpecEditor({ docKey, value, readOnly, onChange, onReady, refs, onRef, terms }: { docKey: string; value: string; readOnly: boolean; onChange: (md: string) => void; onReady?: (api: EditorApi | null) => void; refs?: string[]; onRef?: (docId: string) => void; terms?: string[] }) {
   const initial = useMemo(() => { const b = mdToBn(value); return b.length ? b : undefined; }, [docKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const editor = useCreateBlockNote({ schema, initialContent: initial as any, extensions: [requirementEnter] }, [docKey]);
   const last = useRef(value);
@@ -106,6 +108,7 @@ export function SpecEditor({ docKey, value, readOnly, onChange, onReady, refs, o
         }}
       >
         <SuggestionMenuController {...({ triggerCharacter: '/', getItems: slash } as any)} />
+        {terms && terms.length > 0 && <SuggestionMenuController {...({ triggerCharacter: '#', getItems: async (q: string) => terms.filter((t) => t.toLowerCase().includes(q.toLowerCase())).slice(0, 12).map((t) => ({ title: t, onItemClick: () => editor.insertInlineContent([{ type: 'text', text: `${termRef(t)} `, styles: {} }]) })) } as any)} />}
         {refs && <SuggestionMenuController {...({ triggerCharacter: '@', getItems: async (q: string) => refs.filter((r) => r.toLowerCase().includes(q.toLowerCase())).slice(0, 12).map((r) => ({ title: r, onItemClick: () => { onRef?.(r); editor.insertInlineContent([{ type: 'text', text: `@${r} `, styles: {} }]); } })) } as any)} />}
       </BlockNoteView>
     </div>

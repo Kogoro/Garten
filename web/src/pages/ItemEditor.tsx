@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Dropdown, Sheet, MenuHost } from '../dialogs';
+import { glossaryTerms } from '../glossaryLib';
 import { SpecEditor, type EditorApi } from '../editor/SpecEditor';
 import { SpecForm } from '../form/SpecForm';
 import { BLOCK_MENU } from '../editor/blockTypes';
@@ -148,7 +149,7 @@ export function ItemEditor({ item }: { item: Item }) {
         {asForm
           ? <div className="blocks" id="form"><SpecForm docKey={`${item.team}|${item.id}|${item.specType}`} schema={form!} value={item.body} readOnly={ro} onChange={(md) => S.edit(item.id, { body: md })} /></div>
           : blocks
-          ? <div className="blocks" id="blocks"><SpecEditor docKey={`${item.team}|${item.id}`} value={item.body} readOnly={ro} onChange={(md) => S.edit(item.id, { body: md })} onReady={(a) => (api.current = a)} refs={isSpec ? S.all('doc').filter((d) => !d.pinned).map((d) => d.id) : undefined} onRef={(id) => !item.links.includes(id) && S.toggleLink(item.id, id)} /></div>
+          ? <div className="blocks" id="blocks"><SpecEditor terms={item.id === 'glossary.md' ? undefined : glossaryTerms(S).map((t) => t.term)} docKey={`${item.team}|${item.id}`} value={item.body} readOnly={ro} onChange={(md) => S.edit(item.id, { body: md })} onReady={(a) => (api.current = a)} refs={isSpec ? S.all('doc').filter((d) => !d.pinned).map((d) => d.id) : undefined} onRef={(id) => !item.links.includes(id) && S.toggleLink(item.id, id)} /></div>
           : <><label className="sr" htmlFor="body">Content</label><textarea id="body" className="ed-body" spellCheck={false} placeholder="Write Markdown…" readOnly={ro} value={item.body} onChange={(e) => S.edit(item.id, { body: e.target.value })} /></>}
       </div>
       {!ro && !asForm && (
