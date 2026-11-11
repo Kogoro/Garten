@@ -110,7 +110,7 @@ export function SpecForm({ docKey, schema, value, readOnly, onChange }: { docKey
   const filled = (f: FormField) => { const x = st.values[f.key]; return Array.isArray(x) ? x.length > 0 : !!String(x ?? '').trim(); };
 
   return (
-    <div className="specform" data-testid="spec-form">
+    <div className="specform" data-testid="spec-form" data-ro={readOnly ? '' : undefined}>
       {showTabs && (
         <div className="tabs form-tabs" role="tablist" aria-label="Spec sections">
           {tabs.map((t) => <button key={t.key} type="button" role="tab" aria-selected={tab === t.key} className={`tab${tab === t.key ? ' on' : ''}`} onClick={() => setTab(t.key)}>{t.label}{schema.fields.some((f) => (f.tab ?? tabs[0].key) === t.key && filled(f)) ? <i className="dot" aria-hidden /> : null}</button>)}

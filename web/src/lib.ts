@@ -14,3 +14,6 @@ export function foundState(d: Item, S: typeof Store): { text: string; cls: strin
 }
 export const initial = (s?: string) => (s ?? '?').trim()[0]?.toUpperCase() ?? '?';
 export { hasContent };
+
+/** Waiting for an approver: a draft with a title, or a released spec with edits that are not released yet. */
+export const awaitsApproval = (S: any, s: { status: string; title: string }): boolean => (s.status !== 'approved' ? !!s.title.trim() : S.hasUnreleased(s));

@@ -8,13 +8,15 @@
     "start": "node server/index.js",
     "pretest": "npm --prefix web run build",
     "build": "npm --prefix web ci && npm --prefix web run build",
-    "test": "node tests/api.test.mjs && node tests/oidc.test.mjs && node tests/unit.test.mjs && npm --prefix web test && node web/e2e/ui.test.mjs"
+    "test": "node tests/api.test.mjs && node tests/oidc.test.mjs && node tests/unit.test.mjs && npm --prefix web test && node web/e2e/ui.test.mjs",
+    "ux-audit": "node scripts/ux-audit.mjs"
   },
   "engines": {
     "node": ">=22.13"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
+    "compression": "^1.8.2",
     "express": "^5.3.0",
     "nodemailer": "^10.5.0",
     "zod": "^4.6.7"

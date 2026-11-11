@@ -6,6 +6,8 @@ import { FormError, Sheet } from '../dialogs';
 import { guard } from '../hooks';
 import { initial } from '../lib';
 import { Bar, Shell } from '../Shell';
+import { Tabs } from '../Tabs';
+import { usePref } from '../prefs';
 import { Icon, ago, toast, useStore } from '../ui';
 import { scopesText } from './Account';
 
@@ -69,6 +71,7 @@ export function AdminPage() {
   const [users, setUsers] = useState<any[] | null>(null);
   const [teams, setTeams] = useState<any[] | null>(null);
   const [mail, setMail] = useState<any>(null);
+  const [tab, setTab] = usePref<'teams' | 'accounts' | 'glossary' | 'email'>('tab-admin', 'teams', ['teams', 'accounts', 'glossary', 'email']);
   const [gl, setGl] = useState<any[] | null>(null);
   const [open, setOpen] = useState<Record<string, any>>({});
   const [sheet, setSheet] = useState<null | { t: 'gterm'; term?: any } | { t: 'gfile'; name: string; parsed: any }>(null);
@@ -99,25 +102,26 @@ export function AdminPage() {
   return (
     <Shell single master={<>
       <Bar title="Admin" />
-      <div className="scroll"><div className="page">
+      <Tabs label="Instance administration" value={tab} onChange={(v) => setTab(v as typeof tab)} tabs={[{ id: 'teams', label: 'Teams', badge: teams ? teams.length : '' }, { id: 'accounts', label: 'Accounts', badge: users ? users.length : '' }, { id: 'glossary', label: 'Glossary' }, { id: 'email', label: 'E-mail' }]} />
+      <div className="scroll"><div className="page" id="tabpanel" role="tabpanel" aria-labelledby={`tab-${tab}`}>
         <p className="note" style={{ margin: 0 }}>People join teams by invitation from a team admin. Here you manage teams and accounts across the whole instance.</p>
-        <section className="card"><div className="card-head"><h2>E-mail</h2>{mail && <span className={`chip ${mail.enabled ? 'ok' : 'warn'}`}>{mail.enabled ? 'configured' : 'not configured'}</span>}</div>
+        {tab === 'email' && <><section className="card"><div className="card-head"><h2>E-mail</h2>{mail && <span className={`chip ${mail.enabled ? 'ok' : 'warn'}`}>{mail.enabled ? 'configured' : 'not configured'}</span>}</div>
           <p className="note">{mail?.enabled ? <>Invitations are sent from <span className="mono">{mail.from}</span> via <span className="mono">{mail.host}</span>.</> : <>Set <span className="mono">SMTP_URL</span> (and <span className="mono">SMTP_FROM</span>) on the server to send invitations by e-mail. Until then team admins copy the invitation link.</>}</p>
-          {mail?.enabled && <div className="btns"><button className="btn small" data-act="mail-test" onClick={guard(async () => { await S.api('POST', '/api/admin/mail/test'); toast(`Test e-mail sent to ${me.email}`); })}>Send test e-mail to {me.email}</button></div>}</section>
-        <section className="card"><div className="card-head"><h2>Global glossary</h2>
+          {mail?.enabled && <div className="btns"><button className="btn small" data-act="mail-test" onClick={guard(async () => { await S.api('POST', '/api/admin/mail/test'); toast(`Test e-mail sent to ${me.email}`); })}>Send test e-mail to {me.email}</button></div>}</section></>}
+        {tab === 'glossary' && <><section className="card"><div className="card-head"><h2>Global glossary</h2>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}><button className="btn small" data-act="gfile-pick" onClick={() => file.current?.click()}>Import file…</button><button className="btn small" data-act="gterm-export" disabled={!gl?.length} onClick={exportMd}>Export</button><button className="btn small" data-act="gterm-new" onClick={() => setSheet({ t: 'gterm' })}><Icon name="plus" size={14} /> New term</button></div>
           <input type="file" id="gfile" ref={file} accept=".csv,.tsv,.json,.md,.markdown,.txt" hidden aria-label="Glossary file" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; pickFile(f); }} /></div>
           <p className="note">Terms every team can import into its own glossary. Teams keep their own copy and see “Update available” when you change a term here. Import a file with <span className="mono">term, definition, aliases, see</span> columns (CSV), a JSON list, or a Markdown definition list.</p>
           {gl ? (gl.length ? gl.map((g) => <div className="rel" style={{ padding: '10px 0' }} key={g.id}><div className="grow"><b>{g.term}{g.aliases.length > 0 && <small className="muted"> also: {g.aliases.join(', ')}</small>} <span className="chip">rev {g.rev}</span></b><span>{g.definition.length > 160 ? `${g.definition.slice(0, 160)}…` : g.definition}</span></div>
             <button className="btn small" data-act="gterm-edit" onClick={() => setSheet({ t: 'gterm', term: g })}>Edit</button>
-            <button className="btn small" data-act="gterm-delete" style={danger} onClick={guard(async () => { if (!confirm(`Delete “${g.term}” from the global glossary? Copies in team glossaries stay as they are.`)) return; const r = await S.api('DELETE', `/api/glossary/global/${g.id}`); setGl(r.terms); await S.loadGlobalGlossary(); })}>Delete</button></div>) : <div className="muted" style={{ fontSize: 13 }}>No global terms yet.</div>) : <div className="muted">Loading…</div>}</section>
-        <section className="card"><div className="card-head"><h2>Teams</h2><small className="muted">{teams ? teams.length : '…'}</small></div>
+            <button className="btn small" data-act="gterm-delete" style={danger} onClick={guard(async () => { if (!confirm(`Delete “${g.term}” from the global glossary? Copies in team glossaries stay as they are.`)) return; const r = await S.api('DELETE', `/api/glossary/global/${g.id}`); setGl(r.terms); await S.loadGlobalGlossary(); })}>Delete</button></div>) : <div className="muted" style={{ fontSize: 13 }}>No global terms yet.</div>) : <div className="muted">Loading…</div>}</section></>}
+        {tab === 'teams' && <><section className="card"><div className="card-head"><h2>Teams</h2><small className="muted">{teams ? teams.length : '…'}</small></div>
           {teams ? teams.map((t) => <div className="user" key={t.id}><div className="user-main"><span className="ws-av">{initial(t.name)}</span><div className="grow"><b>{t.name} <span className="chip">{t.key}</span></b><span className="muted">{t.members} member{t.members === 1 ? '' : 's'} · {t.items} item{t.items === 1 ? '' : 's'}{t.gitUrl ? ' · git connected' : ''}{t.createdBy ? ` · created by ${t.createdBy}` : ''}</span></div></div>
             <div className="user-actions">
               <button className="btn small" data-act="admin-open-team" onClick={guard(async () => { await S.refreshMe(t.id); nav('/'); })}>Open</button>
               <button className="btn small" data-act="admin-rename-team" onClick={guard(async () => { const n = prompt('New team name'); if (!n) return; await S.api('PATCH', `/api/teams/${t.id}`, { name: n }); await S.refreshMe(); await load(); })}>Rename</button>
-              <button className="btn small" data-act="admin-delete-team" style={danger} onClick={guard(async () => { const key = prompt(`Delete this team with all its specs, documents, Git repository and agent tokens?\nType the team key (${t.key}) to confirm.`); if (!key) return; await S.api('DELETE', `/api/teams/${t.id}`, { confirmKey: key }); S.state.maps.delete(t.id); await S.refreshMe(); toast('Team deleted'); await load(); })}>Delete…</button></div></div>) : <div className="muted">Loading…</div>}</section>
-        <section><div className="sect-title"><span>Accounts</span><small>{users ? users.length : '…'}</small></div>
+              <button className="btn small" data-act="admin-delete-team" style={danger} onClick={guard(async () => { const key = prompt(`Delete this team with all its specs, documents, Git repository and agent tokens?\nType the team key (${t.key}) to confirm.`); if (!key) return; await S.api('DELETE', `/api/teams/${t.id}`, { confirmKey: key }); S.state.maps.delete(t.id); await S.refreshMe(); toast('Team deleted'); await load(); })}>Delete…</button></div></div>) : <div className="muted">Loading…</div>}</section></>}
+        {tab === 'accounts' && <><section><div className="sect-title"><span>Accounts</span><small>{users ? users.length : '…'}</small></div>
           {users ? users.map((u) => (
             <div className={`user ${u.disabled ? 'off' : ''}`} key={u.id}>
               <div className="user-main"><span className="avatar">{u.name[0].toUpperCase()}</span><div className="grow"><b>{u.name}{u.id === me.id && <> <span className="chip">you</span></>}{u.admin && <> <span className="chip ok">instance admin</span></>}{u.sso && <> <span className="chip">SSO</span></>}{u.disabled && <> <span className="chip warn">disabled</span></>}</b><span className="muted">{u.email}</span>
@@ -132,7 +136,7 @@ export function AdminPage() {
                 {open[u.id].tokens.map((k: any) => <div className="rel" style={{ padding: '8px 0' }} key={k.id}><div className="grow"><b>{k.name}</b><span className="mono">{k.teamName} · {k.prefix}… · {scopesText(k.scopes)} · {k.lastUsedAt ? `used ${ago(Date.parse(k.lastUsedAt))}` : 'never used'}</span></div><button className="btn small" onClick={guard(async () => { await S.api('DELETE', `/api/users/${u.id}/tokens/${k.id}`); await reloadTokens(u.id); await load(); })}>Revoke</button></div>)}
                 {open[u.id].connections.map((c: any) => <div className="rel" style={{ padding: '8px 0' }} key={c.id}><div className="grow"><b>{c.clientName}</b><span>OAuth · {c.teamName} · {scopesText(c.scopes)}</span></div><button className="btn small" onClick={guard(async () => { await S.api('DELETE', `/api/users/${u.id}/connections/${c.id}`); await reloadTokens(u.id); await load(); })}>Disconnect</button></div>)}
                 {!open[u.id].tokens.length && !open[u.id].connections.length && <div className="muted" style={{ fontSize: 13 }}>No tokens or connected apps.</div>}</div>}
-            </div>)) : <div className="muted">Loading…</div>}</section>
+            </div>)) : <div className="muted">Loading…</div>}</section></>}
       </div></div>
       {sheet?.t === 'gterm' && <GTermSheet term={sheet.term} onClose={() => setSheet(null)} onDone={setGl} />}
       {sheet?.t === 'gfile' && <GFileSheet name={sheet.name} parsed={sheet.parsed} existing={gl ?? []} onClose={() => setSheet(null)} onDone={setGl} />}

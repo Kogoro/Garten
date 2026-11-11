@@ -275,6 +275,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS hook_outbox (
   created_at TEXT NOT NULL,
   PRIMARY KEY (team_id, kind, key)
 )`);
+addColumn('teams', 'agent_paused', 'INTEGER NOT NULL DEFAULT 0');   // a person paused the agents: empty work list, no webhook calls
 
 // v0.12: re-runnable evidence. A check says how a claim of an agent can be verified again (a test, a CI job, a metric, a command);
 // every run of it is kept. Checks belong to a spec and survive new versions, so they can be run after every change.

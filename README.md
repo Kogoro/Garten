@@ -220,6 +220,13 @@ Stop when the work list holds nothing you can work on. End with one line per spe
 
 **API:** `GET /api/teams/:id/reports?spec=`, `GET /api/teams/:id/checks?spec=`, `POST /api/ci/checks/results`, `GET /api/teams/:id/feedback?spec=&kind=decision`, `PATCH /api/teams/:id {hook: {url, token?, clearToken?, headers?, events?, format?}}`, `POST /api/teams/:id/hook/test`. Antworten und Triage vom Gerät laufen über den Sync (`feedbackOps`), Entscheidungen und neueste Berichte kommen mit jedem Sync zurück.
 
+## Bedienung: Tastatur, Barrierefreiheit, Qualitätsprüfung
+
+* **Tastatur:** `Strg/⌘ K` öffnet die Befehlspalette (Specs, Dokumente und Begriffe finden, Seiten wechseln, Neuer Spec, Sync, Darstellung, Dichte), `?` zeigt alle Kürzel (`g` dann `s`/`d`/`l`/`r`/`a`/`t`/`y` springt zu Specs, Dokumenten, Glossar, Release, Garden, Members & Git, Sync; `n` neuer Spec; `/` sucht in der Liste). Der erste Tab-Stopp ist ein Sprunglink zum Inhalt; jede Seite hat einen eigenen Fenstertitel.
+* **Persönliches:** Sortierung, Filter, Typ und Listendichte merkt sich das Gerät (Menü *Account* → *Lists*, oder Palette). *Garden* zeigt *Agents at work* und bietet **Pause/Resume agents** (Team-Admins): pausierte Agenten bekommen eine leere Arbeitsliste und keine Webhook-Aufrufe, Antworten und Berichte werden weiter angenommen. *Team health* (Garden) rechnet Durchlaufzeiten und Umsetzungsstand aus den vorhandenen Daten – nichts wird gesammelt oder gesendet.
+* **Prüfung:** `npm run ux-audit` startet eine Wegwerf-Instanz mit Stressdaten und prüft die gerenderte App auf Handy und Desktop (axe-core WCAG 2.2 AA, Fokus, Touch-Ziele, Titel/Landmarken, Sicherheits-Header, Ladezeit auf einem langsamen Handy). Einordnung gegen die Enterprise-UX-Leitfäden: `docs/UX-SCORECARD.md`; Begriffe: `docs/UI-VOCABULARY.md`; Design-Tokens und Komponenten: `docs/DESIGN-SYSTEM.md`.
+* **Sicherheits-Header:** Die App liefert eine Content-Security-Policy (nur eigene Skripte, keine fremden Verbindungen), `frame-ancestors 'none'`, `nosniff`, Referrer- und Permissions-Policy; Assets sind komprimiert und mit Hash dauerhaft gecacht.
+
 ## Wie es funktioniert
 
 | Teil | Umsetzung |
@@ -253,6 +260,38 @@ Ohne Proxmox funktioniert dasselbe auf jedem Debian 12/13 oder Ubuntu 24.04 (VM,
 ## HTTPS / PUBLIC_URL
 
 Service Worker („Offline-Start“, Installation auf dem Handy) brauchen **HTTPS** (Ausnahme `localhost`). Hinter einem Reverse Proxy mit TLS `PUBLIC_URL=https://…` und `TRUST_PROXY=1` (= genau ein Proxy davor; eine Zahl gibt die Anzahl der Proxys an, Express-Werte wie `loopback` sind möglich – nie „allen vertrauen“, sonst lässt sich die Anmelde-Drossel mit einem erfundenen `X-Forwarded-For` umgehen) setzen – `PUBLIC_URL` muss stimmen, sonst funktioniert OAuth für MCP nicht.
+
+### Eigene Domain: HTTPS am Proxy, HTTP zum Server
+
+Der Proxy beendet TLS und leitet an `http://<Server>:3000` weiter. In der Umgebung des Servers (`docker-compose.yml`, `.env` oder `/etc/garten/garten.env`):
+
+```
+PUBLIC_URL=https://specs.example.org     # genau die Adresse, die der Browser sieht (auch für MCP und OAuth)
+TRUST_PROXY=1                            # ein Proxy davor: echte Client-Adresse für die Login-Begrenzung
+```
+
+Der Proxy muss `Host` und `X-Forwarded-For`/`X-Forwarded-Proto` weiterreichen; WebSockets braucht die App nicht. Mit `https://` in `PUBLIC_URL` sind Cookies `Secure`, und der Server sendet `Strict-Transport-Security`. Danach lässt sich die App am Handy installieren und arbeitet offline.
+
+```caddy
+specs.example.org {
+	reverse_proxy 192.168.10.47:3000
+}
+```
+
+```nginx
+server {
+  listen 443 ssl http2; server_name specs.example.org;
+  location / {
+    proxy_pass http://192.168.10.47:3000;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    client_max_body_size 8m;
+  }
+}
+```
+
+Im Proxmox-Container: `garten url https://specs.example.org` stellt die Einstellungen um (ohne Caddy davor).
 
 ### Von unterwegs erreichbar: `scripts/go-public.sh`
 

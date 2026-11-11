@@ -1,4 +1,5 @@
 import express from 'express';
+import compression from 'compression';
 import path from 'node:path';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -51,6 +52,7 @@ app.use((req, res, next) => {
   if (SECURE_COOKIES) res.set('Strict-Transport-Security', 'max-age=31536000');
   next();
 });
+app.use(compression({ threshold: 1024, filter: (req, res) => (req.path === '/mcp' ? false : compression.filter(req, res)) }));
 app.get('/healthz', (_req, res) => {
   try { db.prepare('SELECT 1').get(); res.json({ ok: true }); } catch (e) { console.error('healthz:', e); res.status(503).json({ ok: false }); }
 });
@@ -88,7 +90,9 @@ if (!webDir) console.warn('No web build found – run "npm run build" (web/dist)
 else app.use(
   express.static(webDir, {
     setHeaders: (res, file) => {
-      if (/(^|\/)(sw\.js|index\.html|workbox-[^/]*\.js)$/.test(file)) res.setHeader('Cache-Control', 'no-cache');
+      if (/(^|\/)(sw\.js|index\.html|workbox-[^/]*\.js|manifest\.webmanifest|theme-init\.js)$/.test(file)) res.setHeader('Cache-Control', 'no-cache');
+      else if (/\/assets\//.test(file)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable'); // file names carry a content hash
+      else res.setHeader('Cache-Control', 'public, max-age=86400');
     },
   }),
 );

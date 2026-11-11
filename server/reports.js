@@ -91,6 +91,9 @@ export function latestReports(teamId) {
 /** What is left to do, from the agent's point of view: released specs without a current "implemented" report, and decisions. */
 export function workList(team) {
   const t = team.id;
+  if (team.row.agent_paused) {
+    return { team: team.name, paused: true, work: [], note: 'A person has paused the agents of this team. Do not start new work; try again later. Answers to your questions and reports are still accepted.' };
+  }
   const latest = latestReports(t);
   const decisions = db.prepare("SELECT * FROM feedback WHERE team_id=? AND kind=? AND status IN ('open','answered') ORDER BY created_at").all(t, DECISION);
   const feedbackOpen = Object.fromEntries(db.prepare("SELECT spec_id, COUNT(*) AS n FROM feedback WHERE team_id=? AND status='open' AND kind<>? GROUP BY spec_id").all(t, DECISION).map((r) => [r.spec_id, r.n]));

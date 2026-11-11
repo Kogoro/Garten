@@ -1,17 +1,24 @@
-import { useRef, useState } from 'react';
+import { Suspense, lazy, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Dropdown, Sheet, MenuHost } from '../dialogs';
 import { glossaryTerms } from '../glossaryLib';
-import { SpecEditor, type EditorApi } from '../editor/SpecEditor';
-import { SpecForm } from '../form/SpecForm';
+import type { EditorApi } from '../editor/SpecEditor';
 import { BLOCK_MENU } from '../editor/blockTypes';
+import { Hint } from '../Hint';
+import { useMedia } from '../prefs';
 import { CORE_LABEL, enc, foundState, hasContent, rawMode } from '../lib';
 import { ConflictSheet, LinkSheet, PathSheet } from '../sheets';
 import { openMenu, useUi } from '../state';
 import type { Item } from '../store/types';
 import { FeedbackSheet } from '../feedback';
 import { ImplChip, ReportSheet, implState } from '../reports';
-import { Icon, toast, useStore } from '../ui';
+import { Icon, ago, toast, touched, useStore } from '../ui';
+
+// The editor (BlockNote, Mermaid …) is the bulk of the code: it loads when a spec or document is opened, not with the first screen.
+// The service worker precaches it, so opening works offline as before.
+const SpecEditor = lazy(() => import('../editor/SpecEditor').then((m) => ({ default: m.SpecEditor })));
+const SpecForm = lazy(() => import('../form/SpecForm').then((m) => ({ default: m.SpecForm })));
+const EditorFallback = () => <div className="editor-skeleton" role="status" aria-label="Loading the editor"><i /><i /><i /></div>;
 
 type Store = ReturnType<typeof useStore>;
 
@@ -22,8 +29,19 @@ export const StatusChip = ({ i, S }: { i: Item; S: Store }) => {
   return i.approve ? <span className="chip warn">Approval queued</span> : i.status === 'approved' ? <span className="chip ok">Approved v{i.version}{S.hasUnreleased(i) ? ' · edited' : ''}</span> : <span className="chip">Draft</span>;
 };
 
-export const ItemSync = ({ i, S }: { i: Item; S: Store }) =>
-  i.conflict ? <span className="st bad"><Icon name="warn" size={12} />Conflict</span> : S.isPending(i) ? <span className="st warn"><Icon name="up" />Not synced</span> : <span className="st"><Icon name="check" />Synced</span>;
+/** Sync state of one item. `quiet` (lists): say nothing while everything is fine, so only the exceptions stand out. */
+export const ItemSync = ({ i, S, quiet }: { i: Item; S: Store; quiet?: boolean }) =>
+  i.conflict ? <span className="st bad"><Icon name="warn" size={12} />Conflict</span> : S.isPending(i) ? <span className="st warn"><Icon name="up" />Not synced</span> : quiet ? null : <span className="st"><Icon name="check" />Synced</span>;
+
+/** An address that leads nowhere (deleted item, old link): say so and offer the way back – never a blank screen. */
+export function NotFound({ what, to, back }: { what: string; to: string; back: string }) {
+  return (
+    <div className="notfound">
+      <header className="bar"><Link className="icon-btn back" to={to} aria-label={`Back to ${back}`}><Icon name="back" /></Link><h1>Not found</h1></header>
+      <div className="scroll"><div className="page"><p>This {what} does not exist (anymore). It may have been deleted, or the link is from another team.</p><div className="btns"><Link className="btn primary" to={to}>Back to {back}</Link></div></div></div>
+    </div>
+  );
+}
 
 export function saveState(i: Item, S: Store) {
   if (!S.can('write')) return 'ro';
@@ -41,16 +59,16 @@ export function SaveInd({ i, S }: { i: Item; S: Store }) {
 function approve(i: Item, S: Store) {
   if (i.kind === 'spec' && !i.title.trim()) return toast('Add a title first');
   S.requestApprove(i.id);
-  toast(S.state.online && !S.state.sessionExpired ? (i.kind === 'doc' ? 'Publishing…' : 'Approving…') : 'Queued — released after next sync');
+  toast(S.state.online && !S.state.sessionExpired ? (i.kind === 'doc' ? 'Releasing…' : 'Approving…') : 'Queued — released after next sync');
 }
 
 export function ApproveButton({ i, S }: { i: Item; S: Store }) {
   if (i.kind === 'doc' && i.pinned) {
     const auto = S.team()?.foundationAuto !== false;
     if (!S.can('approve')) return <span className="muted hint">{auto ? 'Goes live automatically after you stop typing' : 'An approver publishes this'}</span>;
-    if (i.approve) return <button className="approve queued" type="button" aria-label="Approval queued" data-act="cancel-approve" onClick={() => S.cancelApprove(i.id)}><Icon name="clock" />Publish queued</button>;
+    if (i.approve) return <button className="approve queued" type="button" aria-label="Approval queued" data-act="cancel-approve" onClick={() => S.cancelApprove(i.id)}><Icon name="clock" />Release queued</button>;
     if (foundState(i, S).live || !hasContent(i.body)) return <span className="muted hint">{hasContent(i.body) ? `Live v${i.version}` : 'Empty – not published'}</span>;
-    return <button className="approve" type="button" data-act="approve" onClick={() => approve(i, S)}>Publish now<Icon name="check" size={16} /></button>;
+    return <button className="approve" type="button" data-act="approve" onClick={() => approve(i, S)}>Release now<Icon name="check" size={16} /></button>;
   }
   if (i.kind !== 'spec') return <span className="muted hint">Released with the specs that link it</span>;
   if (!S.can('approve')) return <span className="muted hint">{i.status === 'approved' ? `Approved v${i.version}` : 'An approver releases this'}</span>;
@@ -111,7 +129,10 @@ export function ItemEditor({ item }: { item: Item }) {
       : item.core ? [{ key: 'none', label: 'Foundation document – every team has it', disabled: true }]
       : [{ key: 'move', label: 'Move / rename…' }, { key: 'pin', label: item.pinned ? 'Unpin: no longer always available to agents' : 'Pin: always available to agents' }, { key: 'delete', label: 'Delete document', danger: true }];
     const impl = isSpec && item.status === 'approved' ? [{ key: 'report', label: `Implementation: ${implState(item, S.latestReport(item.id)).text}` }] : [];
-    const key = await openMenu(item.id, [...info, ...impl, ...modeItems, ...typeItem, ...actions]);
+    const phoneItems = phone && isSpec ? [{ key: 'feedback', label: `Feedback: ${S.feedbackCount(item.id)} open` }, { key: 'docs', label: `Linked documents: ${item.links.length}` }] : [];
+    const key = await openMenu(item.id, [...info, ...phoneItems, ...impl, ...modeItems, ...typeItem, ...actions]);
+    if (key === 'feedback') return setSheet('feedback');
+    if (key === 'docs') return setSheet('link');
     if (key === 'report') return setSheet('report');
     if (key === 'type') {
       const k = await openMenu('Spec type', S.specTypes().map((t) => ({ key: t.key, label: t.label, current: t.key === item.specType })));
@@ -130,29 +151,63 @@ export function ItemEditor({ item }: { item: Item }) {
   }
   const insertRef = (id: string) => api.current?.insertText(`@${id} `);
 
+  const phone = useMedia('(max-width: 700px)');
+  // On a phone an item opens to read first (status, feedback, documents, what the agent did) and switches to editing on purpose.
+  // A brand-new, empty item opens ready to type.
+  const [editing, setEditing] = useState(() => !phone || (!item.title.trim() && !hasContent(item.body)));
+  const locked = ro || (phone && !editing);
+  const metaLine = [isSpec ? S.specType(item.specType).label : item.core ? 'Foundation document' : 'Document',
+    item.approve ? 'Approval queued' : item.status === 'approved' ? `Approved v${item.version}${S.hasUnreleased(item) ? ' · edited since' : ''}` : 'Draft',
+    ...(saveState(item, S) === 'synced' || saveState(item, S) === 'ro' ? [] : [saveState(item, S) === 'dirty' ? 'Saved on device, not synced' : saveState(item, S) === 'conflict' ? 'Conflict with server' : 'Sync problem'])].join(' · ');
+  const approveLine = isSpec && S.can('approve') && !item.approve && (item.status !== 'approved' || S.hasUnreleased(item))
+    ? `Becomes v${item.version + 1} · ${S.feedbackCount(item.id)} open feedback · ${item.links.length} document${item.links.length === 1 ? '' : 's'}` : '';
+  const titleEl = (
+    <>
+      {isSpec
+                ? phone && locked ? <h1 className="ed-title view" title={path}>{item.title || <span className="muted">Untitled spec</span>}</h1> : <><label className="sr" htmlFor="title">Title</label><input id="title" className="ed-title" placeholder="Spec title" value={item.title} autoComplete="off" title={path} readOnly={locked} onChange={(e) => S.edit(item.id, { title: e.target.value })} /></>
+                : <h1 className="ed-title" title={path} style={item.core ? undefined : { fontFamily: 'var(--mono)', fontSize: 15 }}>{CORE_LABEL[item.id] ?? item.id}</h1>}
+    </>
+  );
   return (
-    <div className="editor" data-editor={item.id}>
+    <div className="editor" data-editor={item.id} data-locked={phone && locked ? '' : undefined}>
       <header className="bar ed-bar">
+        {isSpec && !(phone && locked) && <h1 className="sr">{item.title || item.id}</h1>}
         <Link className="icon-btn back" to={back} aria-label="Back"><Icon name="back" /></Link>
-        {isSpec
-          ? <><label className="sr" htmlFor="title">Title</label><input id="title" className="ed-title" placeholder="Spec title" value={item.title} autoComplete="off" title={path} readOnly={ro} onChange={(e) => S.edit(item.id, { title: e.target.value })} /></>
-          : <h1 className="ed-title" title={path} style={item.core ? undefined : { fontFamily: 'var(--mono)', fontSize: 15 }}>{CORE_LABEL[item.id] ?? item.id}</h1>}
+        {phone ? <div className="ed-titlebox">{titleEl}<div className="ed-meta" id="edMeta">{metaLine}</div></div> : titleEl}
+        {!phone && <>
+        <span className="ed-break" aria-hidden="true" />
         <span id="chips" className="barchips">{isSpec && <TypeChip s={item} S={S} />}<StatusChip i={item} S={S} /><AgentChip s={item} S={S} />{isSpec && item.status === 'approved' && <button type="button" className="chipbtn" data-act="report" onClick={() => setSheet('report')}><ImplChip spec={item} always /></button>}</span>
         <span id="docsSlot"><DocsDd i={item} S={S} onNew={() => setSheet('newdoc')} /></span>
         {isSpec && <button type="button" className={`fbbtn${S.feedbackCount(item.id) ? ' has' : ''}`} data-act="feedback" aria-label={`Feedback: ${S.feedbackCount(item.id)} open`} title="Feedback from agents and colleagues" onClick={() => setSheet('feedback')}><Icon name="warn" size={14} /><span className="lbl">Feedback</span>{S.feedbackCount(item.id) > 0 && <span className="cnt">{S.feedbackCount(item.id)}</span>}</button>}
         <SaveInd i={item} S={S} />
-        <span id="approveSlot"><ApproveButton i={item} S={S} /></span>
+        </>}
+        {!phone && <span id="approveSlot"><ApproveButton i={item} S={S} /></span>}
+        {phone && editing && !ro && <button type="button" className="ed-done" data-act="edit-done" onClick={() => setEditing(false)}>Done</button>}
         <button type="button" className="icon-btn" data-act="item-menu" aria-label="More actions" aria-haspopup="menu" onClick={itemMenu}><Icon name="more" /></button>
       </header>
+      {phone && locked && isSpec && (
+        <section className="sumstrip" aria-label="Overview">
+          {item.status === 'approved' && <button type="button" className="sumcell" data-act="report" onClick={() => setSheet('report')}><small>Agent</small><span>{implState(item, S.latestReport(item.id)).text.replace(/ · built.*$/, '')}</span></button>}
+          <button type="button" className="sumcell" data-act="feedback" aria-label={`Feedback: ${S.feedbackCount(item.id)} open`} onClick={() => setSheet('feedback')}><small>Feedback</small><span className={S.feedbackCount(item.id) ? 'hot' : ''}>{S.feedbackCount(item.id) ? `${S.feedbackCount(item.id)} open` : 'None open'}</span></button>
+          <button type="button" className="sumcell" data-act="link-docs" onClick={() => setSheet('link')}><small>Documents</small><span>{item.links.length} linked</span></button>
+        </section>
+      )}
+      {phone && locked && !isSpec && (
+        <section className="sumstrip" aria-label="Overview">
+          <div className="sumcell"><small>{item.pinned ? 'Reaches' : 'Used by'}</small><span>{item.pinned ? 'every agent' : S.usedBy(item.id).length ? S.usedBy(item.id).map((x) => x.id).join(', ') : 'no spec yet'}</span></div>
+          <div className="sumcell"><small>Edited</small><span>{ago(touched(item))}</span></div>
+        </section>
+      )}
       {item.conflict && <div id="banner"><div className="card bad banner"><div className="grow"><b>Changed on the server</b><span>Your edits and the server version differ.</span></div><button className="btn danger" data-act="conflict" onClick={() => setSheet('conflict')}>Review</button></div></div>}
       <div id="editorBody" className="ed-scroll">
+        {!asForm && !locked && <Hint id="editor-links">Type <kbd>/</kbd> for blocks, <kbd>@</kbd> to link a document and <kbd>#</kbd> to link a glossary term.</Hint>}
         {asForm
-          ? <div className="blocks" id="form"><SpecForm docKey={`${item.team}|${item.id}|${item.specType}`} schema={form!} value={item.body} readOnly={ro} onChange={(md) => S.edit(item.id, { body: md })} /></div>
+          ? <div className="blocks" id="form"><Suspense fallback={<EditorFallback />}><SpecForm docKey={`${item.team}|${item.id}|${item.specType}`} schema={form!} value={item.body} readOnly={locked} onChange={(md) => S.edit(item.id, { body: md })} /></Suspense></div>
           : blocks
-          ? <div className="blocks" id="blocks"><SpecEditor terms={item.id === 'glossary.md' ? undefined : glossaryTerms(S).map((t) => t.term)} docKey={`${item.team}|${item.id}`} value={item.body} readOnly={ro} onChange={(md) => S.edit(item.id, { body: md })} onReady={(a) => (api.current = a)} refs={isSpec ? S.all('doc').filter((d) => !d.pinned).map((d) => d.id) : undefined} onRef={(id) => !item.links.includes(id) && S.toggleLink(item.id, id)} /></div>
-          : <><label className="sr" htmlFor="body">Content</label><textarea id="body" className="ed-body" spellCheck={false} placeholder="Write Markdown…" readOnly={ro} value={item.body} onChange={(e) => S.edit(item.id, { body: e.target.value })} /></>}
+          ? <div className="blocks" id="blocks"><Suspense fallback={<EditorFallback />}><SpecEditor terms={item.id === 'glossary.md' ? undefined : glossaryTerms(S).map((t) => t.term)} docKey={`${item.team}|${item.id}`} value={item.body} readOnly={locked} onChange={(md) => S.edit(item.id, { body: md })} onReady={(a) => (api.current = a)} refs={isSpec ? S.all('doc').filter((d) => !d.pinned).map((d) => d.id) : undefined} onRef={(id) => !item.links.includes(id) && S.toggleLink(item.id, id)} /></Suspense></div>
+          : <><label className="sr" htmlFor="body">Content</label><textarea id="body" className="ed-body" spellCheck={false} placeholder="Write Markdown…" readOnly={locked} value={item.body} onChange={(e) => S.edit(item.id, { body: e.target.value })} /></>}
       </div>
-      {!ro && !asForm && (
+      {!locked && !asForm && (
         <div className="toolbar"><div className="tools" id="tools" onPointerDown={(e) => (e.target as HTMLElement).closest('button') && e.preventDefault()}>
           {blocks ? <>
             <button type="button" data-act="t-add" aria-label="Add block" title="Add block at cursor" onClick={addBlock}><Icon name="plus" size={20} /></button>
@@ -165,6 +220,13 @@ export function ItemEditor({ item }: { item: Item }) {
             {isSpec && <button type="button" className="at" data-act="t-ref" aria-label="Reference a document" title="Reference a document" onClick={() => setSheet('ref')}>@</button>}
           </> : isSpec && <button type="button" className="at" data-act="t-ref" aria-label="Reference a document" onClick={() => setSheet('ref')}>@</button>}
         </div></div>
+      )}
+      {phone && locked && (
+        <footer className="approve-bar">
+          {approveLine && <span className="approve-line">{approveLine}</span>}
+          {!ro && <button type="button" className="btn ghost" data-act="edit" onClick={() => setEditing(true)}>Edit</button>}
+          <span id="approveSlot"><ApproveButton i={item} S={S} /></span>
+        </footer>
       )}
       {sheet === 'ref' && <LinkSheet specId={item.id} onClose={() => setSheet(null)} onPick={(id) => (blocks ? insertRef(id) : (() => { const t = document.getElementById('body') as HTMLTextAreaElement | null; if (t) S.edit(item.id, { body: `${item.body}${item.body.endsWith('\n') || !item.body ? '' : ' '}@${id} ` }); })())} />}
       {sheet === 'link' && <LinkSheet specId={item.id} onClose={() => setSheet(null)} />}

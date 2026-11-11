@@ -5,15 +5,25 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0F1214" />
     <meta name="color-scheme" content="dark light" />
+    <meta name="description" content="Self-hosted, offline-first specifications for people and AI agents." />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
-    <link rel="apple-touch-icon" href="/icon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <script src="/theme-init.js"></script>
     <title>Specs</title>
   </head>
   <body>
-    <div id="root"></div>
+    <style>
+      .boot { max-width: 720px; margin: 0 auto; padding: 16px; font-family: system-ui, sans-serif; }
+      .boot i { display: block; border-radius: 10px; background: rgba(128,136,144,.18); margin: 0 0 12px; }
+      .boot i.h { height: 28px; width: 40%; margin-bottom: 20px; } .boot i.r { height: 64px; }
+      @media (prefers-reduced-motion: no-preference) { .boot i { animation: bootp 1.4s ease-in-out infinite; } }
+      @keyframes bootp { 50% { opacity: .5; } }
+      body:has(.boot) { background: #0F1214; } @media (prefers-color-scheme: light) { body:has(.boot) { background: #F4F5F7; } }
+    </style>
+    <noscript><p style="font:16px system-ui;padding:24px;max-width:36rem">Specs needs JavaScript. Enable it for this site and reload.</p></noscript>
+    <div id="root"><div class="boot" role="status" aria-label="Loading"><i class="h"></i><i class="r"></i><i class="r"></i><i class="r"></i><i class="r"></i></div></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

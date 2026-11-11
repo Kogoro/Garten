@@ -38,7 +38,7 @@ import { termRef } from '@shared/glossary.js';
 
 export function SpecEditor({ docKey, value, readOnly, onChange, onReady, refs, onRef, terms }: { docKey: string; value: string; readOnly: boolean; onChange: (md: string) => void; onReady?: (api: EditorApi | null) => void; refs?: string[]; onRef?: (docId: string) => void; terms?: string[] }) {
   const initial = useMemo(() => { const b = mdToBn(value); return b.length ? b : undefined; }, [docKey]); // eslint-disable-line react-hooks/exhaustive-deps
-  const editor = useCreateBlockNote({ schema, initialContent: initial as any, extensions: [requirementEnter] }, [docKey]);
+  const editor = useCreateBlockNote({ schema, initialContent: initial as any, extensions: [requirementEnter], domAttributes: { editor: { 'aria-label': 'Content', 'aria-multiline': 'true' } } as any }, [docKey]);
   const last = useRef(value);
 
   /** Splits the current text block at the caret (head stays, tail becomes a paragraph) – returns the block to insert after. */

@@ -36,7 +36,7 @@ export function ReleasePage() {
         </section>
         <section className="card"><div className="card-head"><h2>Always available to agents</h2></div>
           {S.foundationDocs().map((d) => { const f = foundState(d, S); return <div className="kv" key={d.id}><Link to={d.id === 'glossary.md' ? '/glossary' : `/doc/${enc(d.id)}`}>{CORE_LABEL[d.id] ?? d.id}</Link><span><span className={`chip ${f.cls}`}>{f.text}</span></span></div>; })}
-          <p className="note">Served via <span className="mono">get_team_context</span> as soon as they contain something{S.team()?.foundationAuto === false ? ' and have been approved' : ' – they go live automatically after edits'}.</p></section>
+          <p className="note">Served via <span className="mono">get_team_context</span> as soon as they contain something{S.team()?.foundationAuto === false ? ' and have been approved' : ' – they are released automatically after edits'}.</p></section>
         <section className="card"><div className="card-head"><h2><Icon name="git" size={16} /> Git repository</h2>{g?.url && <span className={`st ${g.lastOk === false ? 'bad' : ''}`}><Icon name={g.lastOk === false ? 'warn' : 'check'} size={12} /> {g.lastOk === false ? 'Failed' : g.lastPushAt ? 'Pushed' : 'Connected'}</span>}</div>
           <p className="note">{g?.url && <><span className="mono">{g.url}</span> · branch <span className="mono">{g.branch}</span> · folder <span className="mono">{g.root}/</span><br /></>}{gitLine}</p>
           <div className="btns">{g?.url && S.can('approve') && <button className="btn small" data-act="git-push" onClick={push}>Push now</button>}<Link className="btn small" to="/team">{S.can('admin') ? 'Git settings' : 'Team'}</Link></div>

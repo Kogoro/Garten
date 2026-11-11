@@ -10,15 +10,16 @@ import { db } from './db.js';
 import { listConnections, revokeConnection } from './oauth.js';
 import { PROJECT_NAME, PUBLIC_URL, OIDC, ALLOW_TEAM_CREATION, MAX_TEAMS_PER_USER } from './config.js';
 import {
-  createTeam, renameTeam, setFoundationAuto, setFeedbackMail, deleteTeamRows, listTeams, teamsCreatedBy, publicGit, saveGitSettings, getTeam, TeamError,
+  createTeam, renameTeam, setFoundationAuto, setAgentPaused, setFeedbackMail, deleteTeamRows, listTeams, teamsCreatedBy, publicGit, saveGitSettings, getTeam, TeamError,
 } from './teams.js';
 import { lookupDefinitions, LookupError } from './lookup.js';
 import { testRemote, pushTeam, generateSshKey, forgetHostKey } from './gitremote.js';
 import { mailEnabled, mailInfo, sendMail, mailError, invitationMail } from './mailer.js';
 import { createInvite, listInvites, revokeInvite, inviteByToken, registerFromInvite, acceptForUser, declineForUser, invitesForEmail } from './invites.js';
 import { listGlobalTerms, createGlobalTerm, updateGlobalTerm, deleteGlobalTerm, importGlobalTerms, GlossaryError } from './globalGlossary.js';
-import { addFeedback, listFeedback, setFeedback, openCounts, applyFeedbackOps, gardenFeedback, gardenRev } from './feedback.js';
+import { bumpGarden, addFeedback, listFeedback, setFeedback, openCounts, applyFeedbackOps, gardenFeedback, gardenRev } from './feedback.js';
 import { listReports, latestReports } from './reports.js';
+import { teamMetrics } from './metrics.js';
 import { recordRun, listChecks, runHistory, checksBySpec } from './checks.js';
 import { publicHook, saveHook, testHook } from './hooks.js';
 import { listTypes, createType, updateType, deleteType, TypeError_ } from './specTypes.js';
@@ -97,7 +98,7 @@ async function applyChange(ch, team, user, role) {
 const order = (c) => (c.delete ? (c.kind === 'folder' ? 3 : 2) : c.kind === 'folder' ? -1 : c.kind === 'doc' ? 0 : 1); // folders/docs first, deletions last
 
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
-const teamView = (team, role) => ({ id: team.id, key: team.key, name: team.name, role, foundationAuto: !!team.row.foundation_auto, feedbackMail: !!team.row.feedback_mail, mailEnabled, git: publicGit(team), ...(role === 'admin' ? { hook: publicHook(team) } : {}) });
+const teamView = (team, role) => ({ id: team.id, key: team.key, name: team.name, role, foundationAuto: !!team.row.foundation_auto, agentPaused: !!team.row.agent_paused, feedbackMail: !!team.row.feedback_mail, mailEnabled, git: publicGit(team), ...(role === 'admin' ? { hook: publicHook(team) } : {}) });
 
 // keeps one admin from using the invite form as a mail cannon
 const inviteLimiter = new Limiter({ windowMs: 3600_000, max: 30 });
@@ -257,6 +258,7 @@ export function apiRouter() {
   // implementation reports: agents write them through MCP, everyone in the team reads them
   team.get('/reports', requireTeam('read'), (req, res) => res.json({ reports: listReports(req.team.id, { specId: req.query.spec ? String(req.query.spec) : undefined }) }));
 
+  team.get('/metrics', requireTeam('read'), (req, res) => res.json({ metrics: teamMetrics(req.team) }));
   team.get('/checks', requireTeam('read'), (req, res) => {
     const specId = req.query.spec ? String(req.query.spec) : undefined;
     res.json({ checks: listChecks(req.team.id, { specId }).map((c) => ({ ...c, runs: runHistory(req.team.id, c.specId, c.name, 10) })) });
@@ -271,6 +273,7 @@ export function apiRouter() {
       if (t.row.foundation_auto) await store.startupSweep(); // catch up on documents edited while auto-release was off
     }
     if (req.body?.feedbackMail !== undefined) t = setFeedbackMail(t.id, !!req.body.feedbackMail);
+    if (req.body?.agentPaused !== undefined) { t = setAgentPaused(t.id, !!req.body.agentPaused); bumpGarden(t.id); }
     if (req.body?.hook !== undefined) t = saveHook(t.id, req.body.hook ?? {});
     audit(req, 'team.update', { team: t.id, detail: { fields: Object.keys(req.body ?? {}).filter((k) => ['name', 'foundationAuto', 'feedbackMail', 'hook'].includes(k)), ...(req.body?.hook !== undefined ? { hookHost: (() => { try { return new URL(t.row.hook_url).host; } catch { return null; } })() } : {}) } });
     res.json({ team: teamView(t, req.role) });

@@ -40,6 +40,11 @@ export function renameTeam(id, name) {
   db.prepare('UPDATE teams SET name=? WHERE id=?').run(name, id);
   return getTeam(id);
 }
+export function setAgentPaused(id, on) {
+  db.prepare('UPDATE teams SET agent_paused=? WHERE id=?').run(on ? 1 : 0, id);
+  return getTeam(id);
+}
+
 export function setFoundationAuto(id, on) {
   db.prepare('UPDATE teams SET foundation_auto=? WHERE id=?').run(on ? 1 : 0, id);
   return getTeam(id);

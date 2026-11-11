@@ -55,7 +55,7 @@ try {
   await page.getByText('Wrong e-mail or password').waitFor(); ok('wrong password shows an error');
   await signIn(page, 'admin@localhost', 'adminpass1');
   await page.locator('.row', { hasText: 'SPEC-012' }).waitFor();
-  await page.locator('.bar [data-pill].ok').first().waitFor(); ok('sign in + initial sync');
+  await page.locator('.bar [data-pill].sync-ok').first().waitFor(); ok('sign in + initial sync');
   await shot(page, '02-list');
 
   // offline reload must not ask for a login again
@@ -134,8 +134,9 @@ try {
   // @ reference + approve
   await page.click('[data-act=t-ref]');
   await page.locator('.pick', { hasText: 'ADR-007.md' }).click();
-  await page.click('#docsDd [data-act=dd-toggle]'); await page.locator('#docsDd [aria-checked=true]', { hasText: 'ADR-007.md' }).waitFor(); await page.keyboard.press('Escape'); ok('@ reference links the document (shown in the documents dropdown)');
-  await page.locator('#saveInd[data-state="dirty"]').waitFor();
+  await page.click('[data-act=edit-done]');                      // phone: back to the read view with the overview list
+  await page.locator('[data-act=link-docs]', { hasText: '1 linked' }).waitFor(); ok('@ reference links the document (shown in the overview)');
+  await page.locator('#edMeta', { hasText: 'not synced' }).waitFor();
   await page.click('[data-act=approve]');
   await page.getByRole('button', { name: /Approval queued/ }).waitFor(); ok('approve offline is queued');
   const specId = await page.evaluate(() => decodeURIComponent(location.hash.split('/').pop()));
@@ -145,6 +146,7 @@ try {
 
   // conflict: edit SPEC-014 offline while the server changes it
   await page.locator('.row', { hasText: 'SPEC-014' }).click();
+  await page.click('[data-act=edit]');                           // phone: items open to read first
   const stamp = Date.now();
   await page.locator('.bn-inline-content').last().click();
   await page.keyboard.press('Control+End');
@@ -154,7 +156,7 @@ try {
 
   await ctx.setOffline(false);
   await page.evaluate(() => dispatchEvent(new Event('online')));
-  await page.locator('#saveInd[data-state="conflict"]').waitFor({ timeout: 10000 }); ok('conflicting edit is detected, not overwritten');
+  await page.locator('#edMeta', { hasText: 'Conflict' }).waitFor({ timeout: 10000 }); ok('conflicting edit is detected, not overwritten');
   const released = await serverItem(specId);
   assert.equal(released.status, 'approved'); assert.equal(released.updatedBy, 'Admin');
   assert.match(released.body, /```mermaid\nflowchart LR/); ok('queued approval released on reconnect (with the diagram)');
@@ -163,7 +165,7 @@ try {
   await page.getByText('Choose which version to keep').waitFor();
   await shot(page, '04-conflict-sheet');
   await page.click('[data-act=keep-mine]');
-  await page.locator('#saveInd[data-state="synced"]').waitFor({ timeout: 10000 });
+  await page.waitForFunction(() => !/Saved on device|Conflict|Sync problem/.test(document.getElementById('edMeta')?.textContent ?? ''), null, { timeout: 10000 });
   assert.match((await serverItem('SPEC-014')).body, new RegExp(`LOCAL${stamp}`)); ok('"Keep mine" resolves the conflict');
 
   // agent sees the diagram
@@ -242,6 +244,42 @@ try {
   await page.keyboard.press('Escape').catch(() => {});
   await page.click('[data-act=more-menu]'); await page.getByRole('button', { name: /^Sync/ }).click();
   await page.waitForFunction(() => location.hash === '#/sync'); ok('the sync page moved into the More menu');
+
+  // keyboard: command palette, shortcuts, skip link, one title per page
+  await page.locator('body').click({ position: { x: 5, y: 5 } }).catch(() => {});
+  await page.keyboard.press('Control+k');
+  const pal = page.locator('[data-palette]'); await pal.waitFor();
+  await pal.locator('input').fill('webhook sig'); await pal.locator('[role=option]', { hasText: 'Webhook signature rotation' }).waitFor();
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() => location.hash === '#/spec/SPEC-012');
+  await page.waitForFunction(() => /^Webhook signature rotation · Specs · /.test(document.title)); ok('keyboard: Ctrl+K finds a spec by title and opens it; the window title names page and team');
+  await page.keyboard.press('Escape').catch(() => {});
+  await page.locator('body').click({ position: { x: 5, y: 5 } }).catch(() => {});
+  await page.keyboard.press('g'); await page.keyboard.press('y');
+  await page.waitForFunction(() => location.hash === '#/sync'); await page.waitForFunction(() => /^Sync · /.test(document.title)); ok('keyboard: "g" then "y" goes to Sync');
+  await page.keyboard.press('?'); await page.getByRole('dialog', { name: /Keyboard shortcuts/ }).waitFor(); await page.keyboard.press('Escape'); ok('keyboard: "?" lists the shortcuts');
+  await page.evaluate(() => document.body.focus()); await page.keyboard.press('Tab');
+  assert.equal(await page.evaluate(() => document.activeElement?.textContent), 'Skip to content'); ok('the first Tab stop is a skip link');
+  // phone toolbar: one row, sort and type live in a sheet
+  await page.evaluate(() => { location.hash = '#/'; });
+  await page.click('[data-act=filters]'); await page.getByRole('dialog', { name: 'Sort and filter' }).waitFor();
+  await page.getByRole('button', { name: /^Show \d+/ }).click(); ok('specs on a phone: sorting and type filter open from one button');
+  // phone: an existing spec opens to read; editing is a deliberate switch
+  await page.evaluate(() => { location.hash = '#/spec/SPEC-012'; });
+  await page.locator('.sumstrip').waitFor();
+  assert.equal(await page.locator('.toolbar').count(), 0); assert.equal(await page.locator('[data-act=edit-done]').count(), 0);
+  assert.match(await page.locator('#edMeta').innerText(), /Approved v\d/);
+  assert.ok(await page.locator('.sumcell', { hasText: 'Feedback' }).isVisible() && await page.locator('.sumcell', { hasText: 'Documents' }).isVisible()); ok('phone: a spec opens read-only with status, feedback and documents at a glance');
+  await page.click('[data-act=edit]'); await page.locator('[data-act=edit-done]').waitFor(); assert.equal(await page.locator('.sumstrip').count(), 0); await page.click('[data-act=edit-done]'); await page.locator('.sumstrip').waitFor(); ok('phone: Edit switches to editing, Done returns to reading');
+  // an address that leads nowhere offers the way back
+  await page.evaluate(() => { location.hash = '#/spec/NOPE-999'; });
+  await page.getByText('does not exist (anymore)').waitFor(); await page.getByRole('link', { name: /Back to Specs/ }).first().click();
+  await page.waitForFunction(() => location.hash === '#/'); ok('a missing spec shows a message with a way back, not a blank page');
+  // pause and resume the agents
+  await page.evaluate(() => { location.hash = '#/garden'; });
+  page.once('dialog', (dlg) => dlg.accept());
+  await page.click('[data-act=agent-pause]'); await page.locator('#gd-paused').waitFor();
+  await page.click('[data-act=agent-resume]'); await page.locator('#gd-paused').waitFor({ state: 'detached' }); ok('garden: agents can be paused and resumed');
 
   // account on mobile
   await page.click('[data-act=more-menu]'); await page.getByRole('button', { name: 'Account & agent access' }).click();
@@ -546,7 +584,7 @@ try {
   await setMode(d, 'markdown'); assert.match(await d.inputValue('#body'), /## ENDPOINTS[\s\S]*```endpoint POST \/orders/); ok('sections the new type does not know are kept (shown under "Other content")');
   await setMode(d, 'blocks');
   // team-defined type
-  await d.click('.sidebar a[href="#/team"]');
+  await d.click('.sidebar a[href="#/team"]'); await d.click('[data-tab=types]');
   await d.getByText('Spec types').first().waitFor();
   await d.click('[data-act=stype-new]');
   await d.fill('#st-label', 'Runbook'); await d.fill('#st-desc', 'Operational procedure');
@@ -558,7 +596,7 @@ try {
   await d.getByRole('button', { name: /^Runbook/ }).click();
   await d.locator('[data-content-type=heading] .bn-inline-content', { hasText: 'ROLLBACK' }).waitFor(); ok('the custom type is offered when creating a spec and applies its template');
   // team-defined FORM type
-  await d.click('.sidebar a[href="#/team"]');
+  await d.click('.sidebar a[href="#/team"]'); await d.click('[data-tab=types]');
   await d.click('[data-act=stype-new]');
   await d.fill('#st-label', 'Checklist type'); await d.fill('#st-desc', 'Release checklist');
   await d.check('#st-useform'); await d.check('#st-formview');
@@ -605,17 +643,19 @@ try {
   await d.locator('.row', { hasText: 'SPEC-014' }).waitFor();
 
   // --- team page: members + git connection per team
-  await d.click('.sidebar a[href="#/team"]');
-  await d.getByText('Git connection').first().waitFor();
+  await d.click('.sidebar a[href="#/team"]'); await d.click('[data-tab=git]');
+  await d.getByText('Git connection').first().waitFor(); await d.click('[data-tab=team]');
   await d.locator('#fb-mail:checked').waitFor(); await d.uncheck('#fb-mail');
   await d.waitForFunction(async () => true); assert.equal((await admin.get(`/api/teams/${admin.tid}`)).data.team.feedbackMail, false); await d.check('#fb-mail');
   await d.waitForFunction(() => document.querySelector('#fb-mail')?.checked); ok('team admins switch the feedback e-mails on and off');
+  await d.click('[data-tab=git]');
   await d.fill('#g-url', remote); await d.fill('#g-branch', 'main'); await d.fill('#g-root', 'specs');
   await d.click('#gitForm button[type=submit]');
   await d.waitForFunction((u) => document.querySelector('#g-url')?.value === u, remote);
   await d.click('[data-act=git-test]');
   await d.getByText(/Connection works/).waitFor(); ok('team page: git connection can be saved and tested');
   // --- agent trigger: a webhook per team (e.g. a Claude Code routine) + what an agent needs to connect
+  await d.click('[data-tab=agents]');
   await d.click('[data-act=hook-preset]');
   assert.equal(await d.inputValue('#h-format'), 'text'); assert.match(await d.inputValue('#h-headers'), /anthropic-beta: experimental-cc-routine/);
   await d.fill('#h-url', `http://127.0.0.1:${sink.address().port}/v1/claude_code/routines/trig_test/fire`); await d.fill('#h-token', 'sk-routine-token');
@@ -629,6 +669,7 @@ try {
   await d.locator('#hookStatus a', { hasText: 'Open the run' }).waitFor(); ok('team page: "Send test" calls the routine the way Claude Code expects and links the started run');
   assert.match(await d.locator('#as-prompt').innerText(), /get_work_list[\s\S]*request_decision[\s\S]*report_implementation/);
   assert.match(await d.locator('#as-json').innerText(), /"url": "http:\/\/[^"]+\/mcp"[\s\S]*SPECS_TOKEN/); ok('team page: agent setup offers the MCP connection and the standing instruction to copy');
+  await d.click('[data-tab=git]');
   await d.selectOption('#g-auth', 'ssh');
   assert.ok(await d.locator('.g-ssh').isVisible()); assert.ok(!(await d.locator('.g-token').isVisible()));
   await d.selectOption('#g-auth', 'none');
@@ -637,6 +678,7 @@ try {
   const cloned = path.join(tmp, 'clone'); execFileSync('git', ['clone', '-q', remote, cloned]);
   assert.ok(existsSync(path.join(cloned, 'specs', 'SPEC-012.md')) && existsSync(path.join(cloned, 'specs', 'docs', 'adr', 'webhook-keys.md'))); ok('released specs and folders arrive in the team’s git repository');
   await shot(d, '07-desktop-team');
+  await d.click('[data-tab=members]');
   await d.locator('.user-main', { hasText: 'Vera' }).locator('select').selectOption('editor');
   await d.waitForFunction(async () => true);
   await new Promise((r) => setTimeout(r, 400));
@@ -663,6 +705,7 @@ try {
   await shot(d, '08-desktop-account');
 
   // theme: light / dark / system, remembered
+  await d.click('[data-tab=settings]');
   await d.locator('[data-act=set-theme][data-v=light]').click();
   assert.equal(await d.evaluate(() => document.documentElement.dataset.theme), 'light');
   assert.equal(await d.evaluate(() => getComputedStyle(document.body).backgroundColor), 'rgb(244, 245, 247)'); ok('appearance: light mode');
@@ -682,7 +725,8 @@ try {
   assert.equal(await d.locator('.found', { hasText: 'Glossary' }).count(), 0); ok('a new team starts with vision and strategy under Documents; the glossary lives on its own page, not in the document list');
 
   // invitation flow: team admin invites, the invitee registers through the link
-  await d.click('.sidebar a[href="#/team"]');
+  await d.click('.sidebar a[href="#/team"]'); await d.click('[data-tab=members]');
+  await d.focus('[data-tab=members]'); await d.keyboard.press('ArrowRight'); await d.locator('[data-tab=types][aria-selected=true]').waitFor(); await d.click('[data-tab=members]'); ok('tabs: arrow keys move between the sections of a page');
   await d.fill('#inv-email', 'ed@example.com'); await d.selectOption('#inv-role', 'editor');
   await d.click('#inviteForm button[type=submit]');
   await d.locator('.ok-card .code').waitFor();
@@ -711,12 +755,13 @@ try {
   await ictx.close();
 
   // admin page: teams + accounts, delete an account
-  await d.click('.sidebar a[href="#/admin"]');
+  await d.click('.sidebar a[href="#/admin"]'); await d.click('[data-tab=email]');
   await d.getByText('configured', { exact: true }).waitFor();
   await d.click('[data-act=mail-test]');
   await d.waitForFunction(() => /Test e-mail sent/.test(document.querySelector('#toast')?.textContent ?? ''));
   assert.ok(smtp.mails.some((m) => m.to.includes('admin@localhost') && /test e-mail/.test(m.subject))); ok('admin page: e-mail status and test e-mail');
   // global glossary: import a file (CSV), preview, conflict mode
+  await d.click('[data-tab=glossary]');
   await d.locator('#gfile').setInputFiles({ name: 'terms.csv', mimeType: 'text/csv', buffer: Buffer.from('term,definition,aliases\nChargeback,Changed text,dispute\nRefund,Money returned to the customer,reimbursement\n"Bad [term]",x,\n') });
   await d.getByRole('heading', { name: /Import “terms.csv”/ }).waitFor();
   await d.getByText(/found:/).waitFor();
@@ -731,7 +776,9 @@ try {
   assert.match((await admin.get('/api/glossary/global')).data.terms.find((t) => t.term === 'Chargeback').definition, /Updated from a Markdown file/); ok('admin: "update existing" overwrites terms from a Markdown file');
   const dl = d.waitForEvent('download'); await d.click('[data-act=gterm-export]');
   assert.equal((await dl).suggestedFilename(), 'global-glossary.md'); ok('admin: the global glossary can be exported as Markdown');
+  await d.click('[data-tab=teams]');
   await d.locator('.user:has(.ws-av)', { hasText: 'Platform Crew' }).waitFor(); await d.locator('.user:has(.ws-av)', { hasText: 'Payments' }).waitFor();
+  await d.click('[data-tab=accounts]');
   await d.locator('.user:has(.avatar)', { hasText: 'Ed Editor' }).waitFor();
   assert.equal(await d.locator('#userForm').count(), 0); ok('admin page lists teams and accounts (no account creation form – people are invited)');
   await shot(d, '09c-desktop-admin');
@@ -755,7 +802,7 @@ try {
   assert.equal(await v.locator('.sidebar a[href="#/admin"]').count(), 0);
   assert.equal(await v.locator('.bn-editor').first().getAttribute('contenteditable'), 'false');
   await v.locator('#saveInd[data-state="ro"]').waitFor(); ok('viewer: read-only editor, no drag handles, no create/approve/admin');
-  await v.click('.sidebar a[href="#/team"]');
+  await v.click('.sidebar a[href="#/team"]'); await v.click('[data-tab=git]');
   await v.locator('#g-url[readonly]').waitFor(); assert.equal(await v.locator('#gitForm button[type=submit]').count(), 0); ok('viewer: git connection is read-only');
   await shot(v, '10-viewer');
   await vctx.close();

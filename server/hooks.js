@@ -142,7 +142,7 @@ function arm(teamId, delay) {
 }
 function queue(teamId, kind, key, entry) {
   const team = getTeam(teamId);
-  if (!team?.row.hook_url || !String(team.row.hook_events).split(',').includes(kind)) return;
+  if (!team?.row.hook_url || team.row.agent_paused || !String(team.row.hook_events).split(',').includes(kind)) return;
   db.prepare('INSERT OR REPLACE INTO hook_outbox (team_id,kind,key,entry,created_at) VALUES (?,?,?,?,?)').run(teamId, kind, key, JSON.stringify(entry), new Date().toISOString());
   arm(teamId, HOOK_DEBOUNCE_MS);
 }

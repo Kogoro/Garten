@@ -5,9 +5,10 @@ import { Bar, Shell } from '../Shell';
 import { CORE_LABEL, enc, foundState, hasContent } from '../lib';
 import { PathSheet, type PathSheetKind } from '../sheets';
 import { openMenu, useUi } from '../state';
+import { Fab } from '../Fab';
 import type { Item } from '../store/types';
 import { Icon, ago, toast, touched, useStore } from '../ui';
-import { ItemEditor, ItemSync } from './ItemEditor';
+import { ItemEditor, ItemSync, NotFound } from './ItemEditor';
 
 type Store = ReturnType<typeof useStore>;
 interface Node { folders: Map<string, Node>; docs: Item[] }
@@ -53,7 +54,7 @@ function DocsList({ selected }: { selected?: string }) {
       const used = S.usedBy(d.id);
       out.push(
         <Link key={d.id} className={`row docrow ${selected === d.id ? 'active' : ''}`} style={{ ['--d' as any]: depth }} to={`/doc/${enc(d.id)}`}>
-          <div className="row-top"><span className="row-title mono" style={{ fontSize: 13.5 }}>{S.baseName(d.id)}</span><ItemSync i={d} S={S} /></div>
+          <div className="row-top"><span className="row-title mono" style={{ fontSize: 13.5 }}>{S.baseName(d.id)}</span><ItemSync i={d} S={S} quiet /></div>
           <div className="row-meta"><span>{used.length ? `Used by ${used.map((u) => u.id).join(', ')}` : 'Not linked to a spec'}</span><span>Edited {ago(touched(d))}</span></div>
         </Link>,
       );
@@ -65,7 +66,7 @@ function DocsList({ selected }: { selected?: string }) {
     <>
       <Bar title="Documents">
         {can && (
-          <Dropdown className="btn primary" ariaLabel="New" label={<><Icon name="plus" size={14} /> New <Icon name="chevron" size={14} /></>}>
+          <Dropdown className="btn primary only-desktop" ariaLabel="New" label={<><Icon name="plus" size={14} /> New <Icon name="chevron" size={14} /></>}>
             {(close) => <>
               <button type="button" role="menuitem" onClick={() => { close(); setSheet({ kind: 'newdoc', value: ui.lastFolder ? `${ui.lastFolder}/` : '' }); }}><Icon name="file" size={16} /><span>Document</span></button>
               <button type="button" role="menuitem" onClick={() => { close(); setSheet({ kind: 'newfolder', value: '' }); }}><Icon name="folderPlus" size={16} /><span>Folder <small>with README.md</small></span></button>
@@ -78,12 +79,13 @@ function DocsList({ selected }: { selected?: string }) {
         {found.map((d) => {
           const st = foundState(d, S);
           const sub = d.core ? (hasContent(d.body) ? 'Always available to agents' : 'Write it once – agents always get it') : 'Pinned document';
-          return <Link key={d.id} className={`found ${selected === d.id ? 'active' : ''}`} to={`/doc/${enc(d.id)}`}><span className="fi"><Icon name={d.id === 'vision.md' ? 'release' : 'file'} size={18} /></span><span className="fb"><b>{CORE_LABEL[d.id] ?? d.id}</b><span>{sub}</span></span><span className={`chip ${st.cls}`}>{st.text}</span></Link>;
+          return <Link key={d.id} className={`found ${selected === d.id ? 'active' : ''}`} to={`/doc/${enc(d.id)}`}><span className="fi"><Icon name={d.id === 'vision.md' ? 'release' : 'file'} size={18} /></span><span className="fb"><b>{CORE_LABEL[d.id] ?? d.id}</b>{!(d.core && hasContent(d.body)) && <span>{sub}</span>}</span><span className={`chip ${st.cls}`}>{st.text}</span></Link>;
         })}
         <div className="sect-title" style={{ marginTop: 14 }}><span>Documents</span><small>{nDocs}</small></div>
         {tree.folders.size || tree.docs.length ? renderNode(tree, '', 0) : <div className="empty">No documents yet.<br />Add ADRs, schemas or notes and link them to specs. Organise them in folders.</div>}
       </div>
       {sheet && <PathSheet kind={sheet.kind} value={sheet.value} from={sheet.from} onClose={() => setSheet(null)} />}
+      {can && <Fab label="New" act="new-doc" onClick={async () => { const k = await openMenu('New', [{ key: 'doc', label: 'Document' }, { key: 'folder', label: 'Folder with README.md' }]); if (k === 'doc') setSheet({ kind: 'newdoc', value: ui.lastFolder ? `${ui.lastFolder}/` : '' }); else if (k === 'folder') setSheet({ kind: 'newfolder', value: '' }); }} />}
     </>
   );
 }
@@ -93,5 +95,5 @@ export function DocsPage() {
   const { '*': rest } = useParams();
   const id = rest ? decodeURIComponent(rest) : undefined;
   const item = id ? S.get(id) : undefined;
-  return <Shell master={<DocsList selected={id} />} detail={id ? (item && item.kind === 'doc' ? <ItemEditor key={id} item={item} /> : <div className="placeholder"><p>This document does not exist (anymore).</p></div>) : undefined} />;
+  return <Shell master={<DocsList selected={id} />} detail={id ? (item && item.kind === 'doc' ? <ItemEditor key={id} item={item} /> : <NotFound what="document" to="/docs" back="Documents" />) : undefined} />;
 }
