@@ -3,7 +3,9 @@ import { Link } from 'react-router-dom';
 import { DecisionCard, FbItem, useFbAct } from '../feedback';
 import { ImplChip, ReportSheet, implState } from '../reports';
 import { Bar, Shell } from '../Shell';
-import { Icon, ago, toast, useStore } from '../ui';
+import { Icon, ago, toast, touched, useStore } from '../ui';
+import { Hint } from '../Hint';
+import { awaitsApproval } from '../lib';
 
 const dur = (h: number | null | undefined) => (h == null ? '–' : h < 1 ? `${Math.max(1, Math.round(h * 60))} min` : h < 48 ? `${Math.round(h)} h` : `${Math.round(h / 24)} days`);
 /** How the process runs, from data the app already has: nothing is collected or sent anywhere. */
@@ -35,6 +37,7 @@ export function GardenPage() {
   const [report, setReport] = useState<string | null>(null);
   const decisions = S.openDecisions(), feedback = S.openFeedback(), answered = S.answeredDecisions().slice(0, 10);
   const waiting = S.fbPending();
+  const toApprove = S.can('approve') ? S.all('spec').filter((x) => awaitsApproval(S, x)).sort((a, b) => touched(b) - touched(a)) : [];
   const rows = S.all('spec').filter((s) => s.status === 'approved').map((s) => ({ s, r: S.latestReport(s.id), st: implState(s, S.latestReport(s.id)) }))
     .sort((a, b) => a.st.rank - b.st.rank || a.s.id.localeCompare(b.s.id));
   const done = rows.filter((x) => x.st.key === 'implemented').length;
@@ -55,7 +58,7 @@ export function GardenPage() {
             <div className={needs ? 'hot' : ''}><b id="gd-needs">{needs}</b><span>{needs === 1 ? 'waits for you' : 'wait for you'}{blocking ? ` · ${blocking} block${blocking === 1 ? 's' : ''} an agent` : ''}</span></div>
             <div><b id="gd-done">{done}<small> / {rows.length}</small></b><span>released specs implemented</span></div>
           </div>
-          <p className="note">Agents build what you release. They ask here when a spec leaves a choice open, and report what they built. You answer and adjust the specs – also offline; answers are sent with the next sync.</p>
+          <Hint id="garden-intro">Agents build what you release. They ask here when a spec leaves a choice open, and report what they built. You answer and adjust the specs – also offline; answers are sent with the next sync.</Hint>
           {!synced && <p className="note">Nothing loaded from the server yet – open the app once while online.</p>}
         </section>
         {paused && <section className="card warn" id="gd-paused" role="status"><span style={{ color: 'var(--amber)' }}><Icon name="warn" size={18} /></span><div className="grow"><b>Agents are paused</b><span>They get an empty work list and no webhook calls. Answers and reports are still accepted. When you resume, they pick up everything that is open on their next run.</span></div>{S.can('admin') && <button type="button" className="btn small" data-act="agent-resume" onClick={() => setPaused(false)}>Resume agents</button>}</section>}
@@ -65,6 +68,12 @@ export function GardenPage() {
         {working.length > 0 && <section id="gd-working">
           <div className="sect-title"><span>Agents at work</span><small>{working.length}</small></div>
           {working.map(({ s, r }) => <button type="button" className="gd-row" key={s.id} data-spec={s.id} onClick={() => setReport(s.id)}><span className="grow"><b><span className="mono">{s.id}</span> {s.title}</b><span>{r ? `${r.via ?? r.author} · started ${ago(Date.parse(r.createdAt))} · ${String(r.summary).split('\n')[0].slice(0, 140)}` : ''}</span></span><ImplChip spec={s} always /></button>)}
+        </section>}
+
+        {toApprove.length > 0 && <section id="gd-approve">
+          <div className="sect-title"><span>Ready to approve</span><small>{toApprove.length}</small></div>
+          {toApprove.slice(0, 8).map((x) => <Link key={x.id} className="gd-row" to={`/spec/${encodeURIComponent(x.id)}`} data-spec={x.id}><span className="grow"><b><span className="mono">{x.id}</span> {x.title}</b><span>{x.status === 'approved' ? `Edited since v${x.version}` : 'Draft'} · {ago(touched(x))}</span></span><span className="chip">{x.status === 'approved' ? `v${x.version + 1}` : 'new'}</span></Link>)}
+          {toApprove.length > 8 && <Link className="btn" to="/" onClick={() => { try { localStorage.setItem("specs-pref-specs-filter", "pending"); } catch { /* private mode */ } }}>Show all {toApprove.length} in Specs</Link>}
         </section>}
 
         <section id="gd-needs-list">

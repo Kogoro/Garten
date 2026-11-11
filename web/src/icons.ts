@@ -9,6 +9,7 @@ export const ic = {
   account: (s?: number) => svg('<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/>', s),
   glossary: (s?: number) => svg('<path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19V5"/><path d="M9 8h6"/><path d="M9 12h4"/>', s),
   more: (s: number = 22) => svg('<circle cx="5" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="19" cy="12" r="1.6" fill="currentColor"/>', s, 1),
+  filter: (s: number = 22) => svg('<path d="M4 6h16"/><path d="M7 12h10"/><path d="M10 18h4"/>', s),
   shield: (s: number = 22) => svg('<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/>', s),
   team: (s?: number) => svg('<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.5 3-6 6.5-6s6.5 2.5 6.5 6"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8"/><path d="M18 14.3c2.2.8 3.5 2.8 3.5 5.7"/>', s),
   off: (s: number = 14, sw: number = 2) => svg('<path d="M2 2l20 20"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><path d="M5 12.9a10 10 0 0 1 5.2-2.7"/><path d="M19 12.9a10 10 0 0 0-2.2-1.6"/><path d="M12 20h.01"/>', s, sw),

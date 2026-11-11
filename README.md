@@ -246,6 +246,38 @@ Ohne Proxmox funktioniert dasselbe auf jedem Debian 12/13 oder Ubuntu 24.04 (VM,
 
 Service Worker („Offline-Start“, Installation auf dem Handy) brauchen **HTTPS** (Ausnahme `localhost`). Hinter einem Reverse Proxy mit TLS `PUBLIC_URL=https://…` und `TRUST_PROXY=1` setzen – `PUBLIC_URL` muss stimmen, sonst funktioniert OAuth für MCP nicht.
 
+### Eigene Domain: HTTPS am Proxy, HTTP zum Server
+
+Der Proxy beendet TLS und leitet an `http://<Server>:3000` weiter. In der Umgebung des Servers (`docker-compose.yml`, `.env` oder `/etc/garten/garten.env`):
+
+```
+PUBLIC_URL=https://specs.example.org     # genau die Adresse, die der Browser sieht (auch für MCP und OAuth)
+TRUST_PROXY=1                            # ein Proxy davor: echte Client-Adresse für die Login-Begrenzung
+```
+
+Der Proxy muss `Host` und `X-Forwarded-For`/`X-Forwarded-Proto` weiterreichen; WebSockets braucht die App nicht. Mit `https://` in `PUBLIC_URL` sind Cookies `Secure`, und der Server sendet `Strict-Transport-Security`. Danach lässt sich die App am Handy installieren und arbeitet offline.
+
+```caddy
+specs.example.org {
+	reverse_proxy 192.168.10.47:3000
+}
+```
+
+```nginx
+server {
+  listen 443 ssl http2; server_name specs.example.org;
+  location / {
+    proxy_pass http://192.168.10.47:3000;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    client_max_body_size 8m;
+  }
+}
+```
+
+Im Proxmox-Container: `garten url https://specs.example.org` stellt die Einstellungen um (ohne Caddy davor).
+
 ### Von unterwegs erreichbar: `scripts/go-public.sh`
 
 Für das Handy unterwegs und für Agenten in der Cloud, ohne Portfreigabe am Router – über einen Cloudflare-Tunnel (Container `cloudflare/cloudflared`, Compose-Profil `public`):

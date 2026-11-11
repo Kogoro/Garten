@@ -5,6 +5,7 @@ import { glossaryTerms } from '../glossaryLib';
 import type { EditorApi } from '../editor/SpecEditor';
 import { BLOCK_MENU } from '../editor/blockTypes';
 import { Hint } from '../Hint';
+import { useMedia } from '../prefs';
 import { CORE_LABEL, enc, foundState, hasContent, rawMode } from '../lib';
 import { ConflictSheet, LinkSheet, PathSheet } from '../sheets';
 import { openMenu, useUi } from '../state';
@@ -147,6 +148,9 @@ export function ItemEditor({ item }: { item: Item }) {
   }
   const insertRef = (id: string) => api.current?.insertText(`@${id} `);
 
+  const phone = useMedia('(max-width: 700px)');
+  const approveLine = isSpec && S.can('approve') && !item.approve && (item.status !== 'approved' || S.hasUnreleased(item))
+    ? `Becomes v${item.version + 1} · ${S.feedbackCount(item.id)} open feedback · ${item.links.length} document${item.links.length === 1 ? '' : 's'}` : '';
   return (
     <div className="editor" data-editor={item.id}>
       <header className="bar ed-bar">
@@ -155,11 +159,12 @@ export function ItemEditor({ item }: { item: Item }) {
         {isSpec
           ? <><label className="sr" htmlFor="title">Title</label><input id="title" className="ed-title" placeholder="Spec title" value={item.title} autoComplete="off" title={path} readOnly={ro} onChange={(e) => S.edit(item.id, { title: e.target.value })} /></>
           : <h1 className="ed-title" title={path} style={item.core ? undefined : { fontFamily: 'var(--mono)', fontSize: 15 }}>{CORE_LABEL[item.id] ?? item.id}</h1>}
+        <span className="ed-break" aria-hidden="true" />
         <span id="chips" className="barchips">{isSpec && <TypeChip s={item} S={S} />}<StatusChip i={item} S={S} /><AgentChip s={item} S={S} />{isSpec && item.status === 'approved' && <button type="button" className="chipbtn" data-act="report" onClick={() => setSheet('report')}><ImplChip spec={item} always /></button>}</span>
         <span id="docsSlot"><DocsDd i={item} S={S} onNew={() => setSheet('newdoc')} /></span>
         {isSpec && <button type="button" className={`fbbtn${S.feedbackCount(item.id) ? ' has' : ''}`} data-act="feedback" aria-label={`Feedback: ${S.feedbackCount(item.id)} open`} title="Feedback from agents and colleagues" onClick={() => setSheet('feedback')}><Icon name="warn" size={14} /><span className="lbl">Feedback</span>{S.feedbackCount(item.id) > 0 && <span className="cnt">{S.feedbackCount(item.id)}</span>}</button>}
         <SaveInd i={item} S={S} />
-        <span id="approveSlot"><ApproveButton i={item} S={S} /></span>
+        {!phone && <span id="approveSlot"><ApproveButton i={item} S={S} /></span>}
         <button type="button" className="icon-btn" data-act="item-menu" aria-label="More actions" aria-haspopup="menu" onClick={itemMenu}><Icon name="more" /></button>
       </header>
       {item.conflict && <div id="banner"><div className="card bad banner"><div className="grow"><b>Changed on the server</b><span>Your edits and the server version differ.</span></div><button className="btn danger" data-act="conflict" onClick={() => setSheet('conflict')}>Review</button></div></div>}
@@ -184,6 +189,12 @@ export function ItemEditor({ item }: { item: Item }) {
             {isSpec && <button type="button" className="at" data-act="t-ref" aria-label="Reference a document" title="Reference a document" onClick={() => setSheet('ref')}>@</button>}
           </> : isSpec && <button type="button" className="at" data-act="t-ref" aria-label="Reference a document" onClick={() => setSheet('ref')}>@</button>}
         </div></div>
+      )}
+      {phone && (
+        <footer className="approve-bar">
+          {approveLine && <span className="approve-line">{approveLine}</span>}
+          <span id="approveSlot"><ApproveButton i={item} S={S} /></span>
+        </footer>
       )}
       {sheet === 'ref' && <LinkSheet specId={item.id} onClose={() => setSheet(null)} onPick={(id) => (blocks ? insertRef(id) : (() => { const t = document.getElementById('body') as HTMLTextAreaElement | null; if (t) S.edit(item.id, { body: `${item.body}${item.body.endsWith('\n') || !item.body ? '' : ' '}@${id} ` }); })())} />}
       {sheet === 'link' && <LinkSheet specId={item.id} onClose={() => setSheet(null)} />}

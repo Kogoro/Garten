@@ -240,6 +240,10 @@ try {
   await page.keyboard.press('?'); await page.getByRole('dialog', { name: /Keyboard shortcuts/ }).waitFor(); await page.keyboard.press('Escape'); ok('keyboard: "?" lists the shortcuts');
   await page.evaluate(() => document.body.focus()); await page.keyboard.press('Tab');
   assert.equal(await page.evaluate(() => document.activeElement?.textContent), 'Skip to content'); ok('the first Tab stop is a skip link');
+  // phone toolbar: one row, sort and type live in a sheet
+  await page.evaluate(() => { location.hash = '#/'; });
+  await page.click('[data-act=filters]'); await page.getByRole('dialog', { name: 'Sort and filter' }).waitFor();
+  await page.getByRole('button', { name: /^Show \d+/ }).click(); ok('specs on a phone: sorting and type filter open from one button');
   // an address that leads nowhere offers the way back
   await page.evaluate(() => { location.hash = '#/spec/NOPE-999'; });
   await page.getByText('does not exist (anymore)').waitFor(); await page.getByRole('link', { name: /Back to Specs/ }).first().click();

@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js';
 import { mcpAuthRouter, getOAuthProtectedResourceMetadataUrl } from '@modelcontextprotocol/sdk/server/auth/router.js';
 import { db } from './db.js';
-import { PORT, HOST, DATA_DIR, SEED_DEMO, PUBLIC_URL, TRUST_PROXY, OIDC } from './config.js';
+import { SECURE_COOKIES, PORT, HOST, DATA_DIR, SEED_DEMO, PUBLIC_URL, TRUST_PROXY, OIDC } from './config.js';
 import { apiRouter } from './api.js';
 import { mcpHandler } from './mcp.js';
 import { provider, consentRouter } from './oauth.js';
@@ -40,6 +40,7 @@ app.use((_req, res, next) => {
   res.set('Referrer-Policy', 'same-origin');
   res.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()');
   res.set('Cross-Origin-Opener-Policy', 'same-origin');
+  if (SECURE_COOKIES) res.set('Strict-Transport-Security', 'max-age=15552000'); // the public address is https: browsers keep using it (6 months)
   // pages of this server cannot be framed or re-targeted; the web app gets the full policy below
   res.set('Content-Security-Policy', "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'");
   next();

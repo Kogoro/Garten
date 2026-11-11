@@ -730,3 +730,23 @@ kbd { display: inline-block; min-width: 22px; padding: 1px 6px; border: 1px soli
 .onb li.done a:not(.btn):not(.src) { text-decoration: line-through; }
 .notfound { display: flex; flex-direction: column; height: 100%; }
 @media (max-width: 700px) { .list { padding-bottom: calc(96px + env(safe-area-inset-bottom)); } }  /* room for the New spec button */
+
+/* phase 2: one toolbar row on phones */
+.toolrow { display: flex; align-items: center; gap: 6px; }
+.toolrow .search { flex: 1; min-width: 0; }
+.filterbtn { position: relative; flex-shrink: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.filterbtn .badge-dot { top: 6px; right: 6px; }
+
+/* phone editor: row 1 = back, title, menu; row 2 = chips and tools; the approval sits in a bar at the thumb */
+.ed-break { display: none; }
+.approve-bar { position: sticky; bottom: 0; z-index: 5; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: var(--panel); }
+.approve-bar:not(:has(.approve, .approve-line, .hint)) { display: none; }
+.approve-line { font-size: 12px; color: var(--muted); min-width: 0; overflow-wrap: anywhere; }
+.approve-bar .approve { margin-left: auto; }
+@media (max-width: 700px) {
+  .editor > .ed-bar { flex-wrap: wrap; height: auto; padding-bottom: 6px; row-gap: 2px; }
+  .ed-bar .back { order: 1; } .ed-bar .ed-title { order: 2; flex: 1 1 0; min-width: 0; font-size: 18px; }
+  .ed-bar [data-act=item-menu] { order: 3; } .ed-break { display: block; order: 4; flex-basis: 100%; height: 0; }
+  .ed-bar .barchips, .ed-bar #docsSlot, .ed-bar .fbbtn, .ed-bar .save-ind { order: 5; }
+  .ed-bar .barchips { display: inline-flex; flex-wrap: nowrap; gap: 6px; }
+}
