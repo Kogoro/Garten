@@ -134,8 +134,9 @@ try {
   // @ reference + approve
   await page.click('[data-act=t-ref]');
   await page.locator('.pick', { hasText: 'ADR-007.md' }).click();
-  await page.click('#docsDd [data-act=dd-toggle]'); await page.locator('#docsDd [aria-checked=true]', { hasText: 'ADR-007.md' }).waitFor(); await page.keyboard.press('Escape'); ok('@ reference links the document (shown in the documents dropdown)');
-  await page.locator('#saveInd[data-state="dirty"]').waitFor();
+  await page.click('[data-act=edit-done]');                      // phone: back to the read view with the overview list
+  await page.locator('[data-act=link-docs]', { hasText: '1 linked' }).waitFor(); ok('@ reference links the document (shown in the overview)');
+  await page.locator('#edMeta', { hasText: 'not synced' }).waitFor();
   await page.click('[data-act=approve]');
   await page.getByRole('button', { name: /Approval queued/ }).waitFor(); ok('approve offline is queued');
   const specId = await page.evaluate(() => decodeURIComponent(location.hash.split('/').pop()));
@@ -145,6 +146,7 @@ try {
 
   // conflict: edit SPEC-014 offline while the server changes it
   await page.locator('.row', { hasText: 'SPEC-014' }).click();
+  await page.click('[data-act=edit]');                           // phone: items open to read first
   const stamp = Date.now();
   await page.locator('.bn-inline-content').last().click();
   await page.keyboard.press('Control+End');
@@ -154,7 +156,7 @@ try {
 
   await ctx.setOffline(false);
   await page.evaluate(() => dispatchEvent(new Event('online')));
-  await page.locator('#saveInd[data-state="conflict"]').waitFor({ timeout: 10000 }); ok('conflicting edit is detected, not overwritten');
+  await page.locator('#edMeta', { hasText: 'Conflict' }).waitFor({ timeout: 10000 }); ok('conflicting edit is detected, not overwritten');
   const released = await serverItem(specId);
   assert.equal(released.status, 'approved'); assert.equal(released.updatedBy, 'Admin');
   assert.match(released.body, /```mermaid\nflowchart LR/); ok('queued approval released on reconnect (with the diagram)');
@@ -163,7 +165,7 @@ try {
   await page.getByText('Choose which version to keep').waitFor();
   await shot(page, '04-conflict-sheet');
   await page.click('[data-act=keep-mine]');
-  await page.locator('#saveInd[data-state="synced"]').waitFor({ timeout: 10000 });
+  await page.waitForFunction(() => !/Saved on device|Conflict|Sync problem/.test(document.getElementById('edMeta')?.textContent ?? ''), null, { timeout: 10000 });
   assert.match((await serverItem('SPEC-014')).body, new RegExp(`LOCAL${stamp}`)); ok('"Keep mine" resolves the conflict');
 
   // agent sees the diagram
@@ -244,6 +246,13 @@ try {
   await page.evaluate(() => { location.hash = '#/'; });
   await page.click('[data-act=filters]'); await page.getByRole('dialog', { name: 'Sort and filter' }).waitFor();
   await page.getByRole('button', { name: /^Show \d+/ }).click(); ok('specs on a phone: sorting and type filter open from one button');
+  // phone: an existing spec opens to read; editing is a deliberate switch
+  await page.evaluate(() => { location.hash = '#/spec/SPEC-012'; });
+  await page.locator('.sumcard').waitFor();
+  assert.equal(await page.locator('.toolbar').count(), 0); assert.equal(await page.locator('[data-act=edit-done]').count(), 0);
+  assert.match(await page.locator('#edMeta').innerText(), /Approved v\d/);
+  assert.ok(await page.locator('.sumrow', { hasText: 'Feedback' }).isVisible() && await page.locator('.sumrow', { hasText: 'Documents' }).isVisible()); ok('phone: a spec opens read-only with status, feedback and documents at a glance');
+  await page.click('[data-act=edit]'); await page.locator('[data-act=edit-done]').waitFor(); assert.equal(await page.locator('.sumcard').count(), 0); await page.click('[data-act=edit-done]'); await page.locator('.sumcard').waitFor(); ok('phone: Edit switches to editing, Done returns to reading');
   // an address that leads nowhere offers the way back
   await page.evaluate(() => { location.hash = '#/spec/NOPE-999'; });
   await page.getByText('does not exist (anymore)').waitFor(); await page.getByRole('link', { name: /Back to Specs/ }).first().click();

@@ -129,7 +129,10 @@ export function ItemEditor({ item }: { item: Item }) {
       : item.core ? [{ key: 'none', label: 'Foundation document – every team has it', disabled: true }]
       : [{ key: 'move', label: 'Move / rename…' }, { key: 'pin', label: item.pinned ? 'Unpin: no longer always available to agents' : 'Pin: always available to agents' }, { key: 'delete', label: 'Delete document', danger: true }];
     const impl = isSpec && item.status === 'approved' ? [{ key: 'report', label: `Implementation: ${implState(item, S.latestReport(item.id)).text}` }] : [];
-    const key = await openMenu(item.id, [...info, ...impl, ...modeItems, ...typeItem, ...actions]);
+    const phoneItems = phone && isSpec ? [{ key: 'feedback', label: `Feedback: ${S.feedbackCount(item.id)} open` }, { key: 'docs', label: `Linked documents: ${item.links.length}` }] : [];
+    const key = await openMenu(item.id, [...info, ...phoneItems, ...impl, ...modeItems, ...typeItem, ...actions]);
+    if (key === 'feedback') return setSheet('feedback');
+    if (key === 'docs') return setSheet('link');
     if (key === 'report') return setSheet('report');
     if (key === 'type') {
       const k = await openMenu('Spec type', S.specTypes().map((t) => ({ key: t.key, label: t.label, current: t.key === item.specType })));
@@ -149,34 +152,52 @@ export function ItemEditor({ item }: { item: Item }) {
   const insertRef = (id: string) => api.current?.insertText(`@${id} `);
 
   const phone = useMedia('(max-width: 700px)');
+  // On a phone an item opens to read first (status, feedback, documents, what the agent did) and switches to editing on purpose.
+  // A brand-new, empty item opens ready to type.
+  const [editing, setEditing] = useState(() => !phone || (!item.title.trim() && !hasContent(item.body)));
+  const locked = ro || (phone && !editing);
+  const metaLine = [isSpec ? S.specType(item.specType).label : item.core ? 'Foundation document' : 'Document',
+    item.approve ? 'Approval queued' : item.status === 'approved' ? `Approved v${item.version}${S.hasUnreleased(item) ? ' · edited since' : ''}` : 'Draft',
+    ...(saveState(item, S) === 'synced' || saveState(item, S) === 'ro' ? [] : [saveState(item, S) === 'dirty' ? 'Saved on device, not synced' : saveState(item, S) === 'conflict' ? 'Conflict with server' : 'Sync problem'])].join(' · ');
   const approveLine = isSpec && S.can('approve') && !item.approve && (item.status !== 'approved' || S.hasUnreleased(item))
     ? `Becomes v${item.version + 1} · ${S.feedbackCount(item.id)} open feedback · ${item.links.length} document${item.links.length === 1 ? '' : 's'}` : '';
   return (
     <div className="editor" data-editor={item.id}>
       <header className="bar ed-bar">
-        {isSpec && <h1 className="sr">{item.title || item.id}</h1>}
+        {isSpec && !(phone && locked) && <h1 className="sr">{item.title || item.id}</h1>}
         <Link className="icon-btn back" to={back} aria-label="Back"><Icon name="back" /></Link>
         {isSpec
-          ? <><label className="sr" htmlFor="title">Title</label><input id="title" className="ed-title" placeholder="Spec title" value={item.title} autoComplete="off" title={path} readOnly={ro} onChange={(e) => S.edit(item.id, { title: e.target.value })} /></>
+          ? phone && locked ? <h1 className="ed-title view" title={path}>{item.title || <span className="muted">Untitled spec</span>}</h1> : <><label className="sr" htmlFor="title">Title</label><input id="title" className="ed-title" placeholder="Spec title" value={item.title} autoComplete="off" title={path} readOnly={locked} onChange={(e) => S.edit(item.id, { title: e.target.value })} /></>
           : <h1 className="ed-title" title={path} style={item.core ? undefined : { fontFamily: 'var(--mono)', fontSize: 15 }}>{CORE_LABEL[item.id] ?? item.id}</h1>}
+        {!phone && <>
         <span className="ed-break" aria-hidden="true" />
         <span id="chips" className="barchips">{isSpec && <TypeChip s={item} S={S} />}<StatusChip i={item} S={S} /><AgentChip s={item} S={S} />{isSpec && item.status === 'approved' && <button type="button" className="chipbtn" data-act="report" onClick={() => setSheet('report')}><ImplChip spec={item} always /></button>}</span>
         <span id="docsSlot"><DocsDd i={item} S={S} onNew={() => setSheet('newdoc')} /></span>
         {isSpec && <button type="button" className={`fbbtn${S.feedbackCount(item.id) ? ' has' : ''}`} data-act="feedback" aria-label={`Feedback: ${S.feedbackCount(item.id)} open`} title="Feedback from agents and colleagues" onClick={() => setSheet('feedback')}><Icon name="warn" size={14} /><span className="lbl">Feedback</span>{S.feedbackCount(item.id) > 0 && <span className="cnt">{S.feedbackCount(item.id)}</span>}</button>}
         <SaveInd i={item} S={S} />
+        </>}
         {!phone && <span id="approveSlot"><ApproveButton i={item} S={S} /></span>}
+        {phone && editing && !ro && <button type="button" className="btn primary small ed-done" data-act="edit-done" onClick={() => setEditing(false)}>Done</button>}
         <button type="button" className="icon-btn" data-act="item-menu" aria-label="More actions" aria-haspopup="menu" onClick={itemMenu}><Icon name="more" /></button>
       </header>
+      {phone && <div className="ed-meta" id="edMeta">{metaLine}</div>}
+      {phone && locked && isSpec && (
+        <section className="sumcard" aria-label="Overview">
+          {item.status === 'approved' && <button type="button" className="sumrow" data-act="report" onClick={() => setSheet('report')}><span>Implementation</span><span className="sumval"><ImplChip spec={item} always /></span><span className="chev"><Icon name="chevron" size={16} /></span></button>}
+          <button type="button" className="sumrow" data-act="feedback" aria-label={`Feedback: ${S.feedbackCount(item.id)} open`} onClick={() => setSheet('feedback')}><span>Feedback</span><span className={`sumval${S.feedbackCount(item.id) ? ' hot' : ''}`}>{S.feedbackCount(item.id) ? `${S.feedbackCount(item.id)} open` : 'None open'}</span><span className="chev"><Icon name="chevron" size={16} /></span></button>
+          <button type="button" className="sumrow" data-act="link-docs" onClick={() => setSheet('link')}><span>Documents</span><span className="sumval">{item.links.length} linked</span><span className="chev"><Icon name="chevron" size={16} /></span></button>
+        </section>
+      )}
       {item.conflict && <div id="banner"><div className="card bad banner"><div className="grow"><b>Changed on the server</b><span>Your edits and the server version differ.</span></div><button className="btn danger" data-act="conflict" onClick={() => setSheet('conflict')}>Review</button></div></div>}
       <div id="editorBody" className="ed-scroll">
-        {!asForm && !ro && <Hint id="editor-links">Type <kbd>/</kbd> for blocks, <kbd>@</kbd> to link a document and <kbd>#</kbd> to link a glossary term.</Hint>}
+        {!asForm && !locked && <Hint id="editor-links">Type <kbd>/</kbd> for blocks, <kbd>@</kbd> to link a document and <kbd>#</kbd> to link a glossary term.</Hint>}
         {asForm
-          ? <div className="blocks" id="form"><Suspense fallback={<EditorFallback />}><SpecForm docKey={`${item.team}|${item.id}|${item.specType}`} schema={form!} value={item.body} readOnly={ro} onChange={(md) => S.edit(item.id, { body: md })} /></Suspense></div>
+          ? <div className="blocks" id="form"><Suspense fallback={<EditorFallback />}><SpecForm docKey={`${item.team}|${item.id}|${item.specType}`} schema={form!} value={item.body} readOnly={locked} onChange={(md) => S.edit(item.id, { body: md })} /></Suspense></div>
           : blocks
-          ? <div className="blocks" id="blocks"><Suspense fallback={<EditorFallback />}><SpecEditor terms={item.id === 'glossary.md' ? undefined : glossaryTerms(S).map((t) => t.term)} docKey={`${item.team}|${item.id}`} value={item.body} readOnly={ro} onChange={(md) => S.edit(item.id, { body: md })} onReady={(a) => (api.current = a)} refs={isSpec ? S.all('doc').filter((d) => !d.pinned).map((d) => d.id) : undefined} onRef={(id) => !item.links.includes(id) && S.toggleLink(item.id, id)} /></Suspense></div>
-          : <><label className="sr" htmlFor="body">Content</label><textarea id="body" className="ed-body" spellCheck={false} placeholder="Write Markdown…" readOnly={ro} value={item.body} onChange={(e) => S.edit(item.id, { body: e.target.value })} /></>}
+          ? <div className="blocks" id="blocks"><Suspense fallback={<EditorFallback />}><SpecEditor terms={item.id === 'glossary.md' ? undefined : glossaryTerms(S).map((t) => t.term)} docKey={`${item.team}|${item.id}`} value={item.body} readOnly={locked} onChange={(md) => S.edit(item.id, { body: md })} onReady={(a) => (api.current = a)} refs={isSpec ? S.all('doc').filter((d) => !d.pinned).map((d) => d.id) : undefined} onRef={(id) => !item.links.includes(id) && S.toggleLink(item.id, id)} /></Suspense></div>
+          : <><label className="sr" htmlFor="body">Content</label><textarea id="body" className="ed-body" spellCheck={false} placeholder="Write Markdown…" readOnly={locked} value={item.body} onChange={(e) => S.edit(item.id, { body: e.target.value })} /></>}
       </div>
-      {!ro && !asForm && (
+      {!locked && !asForm && (
         <div className="toolbar"><div className="tools" id="tools" onPointerDown={(e) => (e.target as HTMLElement).closest('button') && e.preventDefault()}>
           {blocks ? <>
             <button type="button" data-act="t-add" aria-label="Add block" title="Add block at cursor" onClick={addBlock}><Icon name="plus" size={20} /></button>
@@ -190,9 +211,10 @@ export function ItemEditor({ item }: { item: Item }) {
           </> : isSpec && <button type="button" className="at" data-act="t-ref" aria-label="Reference a document" onClick={() => setSheet('ref')}>@</button>}
         </div></div>
       )}
-      {phone && (
+      {phone && locked && (
         <footer className="approve-bar">
           {approveLine && <span className="approve-line">{approveLine}</span>}
+          {!ro && <button type="button" className="btn" data-act="edit" onClick={() => setEditing(true)}><Icon name="file" size={16} /> Edit</button>}
           <span id="approveSlot"><ApproveButton i={item} S={S} /></span>
         </footer>
       )}

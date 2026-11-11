@@ -750,3 +750,20 @@ kbd { display: inline-block; min-width: 22px; padding: 1px 6px; border: 1px soli
   .ed-bar .barchips, .ed-bar #docsSlot, .ed-bar .fbbtn, .ed-bar .save-ind { order: 5; }
   .ed-bar .barchips { display: inline-flex; flex-wrap: nowrap; gap: 6px; }
 }
+
+/* phone editor, read first: one quiet meta line, a short overview list, Edit on purpose */
+.ed-meta { padding: 0 16px 10px 52px; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+.ed-bar .ed-title.view { font: 600 20px/1.25 var(--display); white-space: normal; overflow: visible; text-overflow: clip; margin: 0; padding: 4px 0; }
+.ed-done { flex-shrink: 0; order: 3; color: var(--on-green); background: var(--green-solid); border-color: var(--green-solid); font-weight: 600; }
+.sumcard { margin: 4px 12px 8px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); overflow: hidden; }
+.sumrow { width: 100%; display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 0 14px; border: 0; border-top: 1px solid var(--line); background: none; color: var(--text); font: 500 15px var(--sans); text-align: left; }
+.sumrow:first-child { border-top: 0; }
+.sumrow > span:first-child { flex: 1; }
+.sumval { color: var(--muted); font-size: 14px; display: inline-flex; align-items: center; }
+.sumval.hot { color: var(--amber); font-weight: 600; }
+.sumrow .chev { color: var(--muted); display: inline-flex; transform: rotate(-90deg); }
+.approve-bar:not(:has(.approve, .approve-line, .hint, .btn)) { display: none; }
+@media (max-width: 700px) {
+  .editor > .ed-bar { flex-wrap: nowrap; padding-bottom: 0; }
+  .ed-bar .ed-title { flex: 1 1 0; }
+}
