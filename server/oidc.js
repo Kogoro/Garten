@@ -126,11 +126,13 @@ export function oidcRouter() {
       const claims = await verifyIdToken(tok.id_token, m, { nonce: st.nonce });
       // profile and e-mail come from the provider's userinfo endpoint (TLS, fresh access token); it must describe the same person as the ID token
       const info = await (await fetch(m.userinfo_endpoint, { headers: { authorization: `Bearer ${tok.access_token}` }, signal: AbortSignal.timeout(10_000) })).json();
-      if (!info.sub || !info.email) throw new Error('provider returned no sub/email');
+      if (!info.sub) throw new Error('provider returned no sub');
       if (info.sub !== claims.sub) throw new Error('userinfo and ID token describe different subjects');
-      const email = String(info.email).trim().toLowerCase();
+      const rawEmail = info.email ?? claims.email; // some providers put the e-mail claims only into the (verified) ID token
+      if (!rawEmail) throw new Error('provider returned no e-mail address');
+      const email = String(rawEmail).trim().toLowerCase();
       if (!isEmail(email)) throw new Error('provider returned an invalid e-mail address');
-      if (!confirmed(info.email_verified) && !OIDC.trustUnverifiedEmail) return fail(res, 'Your e-mail address is not verified at the identity provider');
+      if (!confirmed(info.email_verified ?? claims.email_verified) && !OIDC.trustUnverifiedEmail) return fail(res, 'Your e-mail address is not verified at the identity provider');
 
       let user = getUserBySub(info.sub);
       if (!user) {

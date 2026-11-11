@@ -4,12 +4,20 @@ import { AUDIT_RETENTION_DAYS } from './config.js';
 
 const clip = (s, n) => (s == null ? null : String(s).replace(/[\r\n\0]+/g, ' ').slice(0, n));
 
+/** Detail as JSON of bounded size: long values are shortened one by one, so the stored text always stays valid JSON. */
+function safeDetail(detail) {
+  const short = (v) => (typeof v === 'string' ? clip(v, 300) : Array.isArray(v) ? v.slice(0, 20).map(short) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).slice(0, 20).map(([k, x]) => [clip(k, 60), short(x)])) : v);
+  const json = JSON.stringify(short(detail));
+  return json.length <= 4000 ? json : JSON.stringify({ truncated: true });
+}
+const parseDetail = (s) => { if (!s) return null; try { return JSON.parse(s); } catch { return { raw: String(s).slice(0, 300) }; } };
+
 /** audit(req, 'team.git.update', { team: id, target: 'SPEC', detail: { url } }) – `req` may be null (system actions); `actor` overrides req.user. */
 export function audit(req, action, { team = null, target = null, detail = null, actor = null } = {}) {
   try {
     const u = actor ?? req?.user ?? null;
     db.prepare('INSERT INTO audit_log (at,actor_id,actor,team_id,action,target,ip,detail) VALUES (?,?,?,?,?,?,?,?)')
-      .run(new Date().toISOString(), u?.id ?? null, clip(u?.email ?? null, 254), team, clip(action, 80), clip(target, 200), clip(req?.ip ?? null, 64), detail ? clip(JSON.stringify(detail), 1000) : null);
+      .run(new Date().toISOString(), u?.id ?? null, clip(u?.email ?? null, 254), team, clip(action, 80), clip(target, 200), clip(req?.ip ?? null, 64), detail ? safeDetail(detail) : null);
   } catch (e) { console.error('audit:', e.message); }
 }
 
@@ -19,7 +27,7 @@ export function listAudit({ limit = 200, before, action, teamId } = {}) {
   if (action) { where.push('action LIKE ?'); args.push(`${String(action).replace(/[%_]/g, '')}%`); }
   if (teamId) { where.push('team_id = ?'); args.push(String(teamId)); }
   const rows = db.prepare(`SELECT * FROM audit_log ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY id DESC LIMIT ?`).all(...args, Math.min(Math.max(Number(limit) || 200, 1), 1000));
-  return rows.map((r) => ({ id: r.id, at: r.at, actorId: r.actor_id, actor: r.actor, teamId: r.team_id, action: r.action, target: r.target, ip: r.ip, detail: r.detail ? JSON.parse(r.detail) : null }));
+  return rows.map((r) => ({ id: r.id, at: r.at, actorId: r.actor_id, actor: r.actor, teamId: r.team_id, action: r.action, target: r.target, ip: r.ip, detail: parseDetail(r.detail) }));
 }
 
 export function pruneAudit() {

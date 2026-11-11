@@ -36,7 +36,7 @@ function changeProblem(ch) {
   if (f === undefined) return null;
   if (!f || typeof f !== 'object' || Array.isArray(f)) return 'Invalid fields.';
   if (!isStr(f.title, 300)) return 'The title is too long (300 characters at most).';
-  if (!isStr(f.body, 500_000)) return 'The text is too long (500 000 characters at most).';
+  if (!isStr(f.body, 2_000_000)) return 'The text is too long (2 000 000 characters at most).';
   if (!isStr(f.specType, 40)) return 'Invalid spec type.';
   if (f.pinned != null && typeof f.pinned !== 'boolean') return 'Invalid pinned flag.';
   if (f.links != null && (!Array.isArray(f.links) || f.links.length > 100 || f.links.some((l) => typeof l !== 'string' || l.length > 120))) return 'Invalid links.';
@@ -116,7 +116,7 @@ export function apiRouter() {
     csrf(req);
     let user;
     try { user = await loginWithPassword(req.body?.email, req.body?.password, req.ip); }
-    catch (e) { if (e instanceof AuthError) audit(req, 'auth.login.failed', { target: String(req.body?.email ?? '').slice(0, 254).toLowerCase(), detail: { status: e.status } }); throw e; }
+    catch (e) { if (e instanceof AuthError && e.status !== 429) audit(req, 'auth.login.failed', { target: String(req.body?.email ?? '').slice(0, 254).toLowerCase(), detail: { status: e.status } }); throw e; }
     startSession(res, user, req.get('user-agent'));
     audit(req, 'auth.login', { actor: user });
     res.json({ me: me(user) });

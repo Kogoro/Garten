@@ -128,6 +128,9 @@ srv = await startServer({ ...oidcEnv, OIDC_AUTO_CREATE: '1', OIDC_DEFAULT_ROLE: 
 try {
   const { c } = await ssoLogin(srv.base);
   assert.equal((await c.get('/api/me')).data.me.teams[0].role, 'viewer'); ok('auto-create provisions new users into the default team with the default role');
+  nextIdentity = { sub: 'u-5' }; tweakClaims = (x) => ({ ...x, email: 'idtoken@example.com', email_verified: true }); // e-mail claims only in the ID token
+  const viaToken = await ssoLogin(srv.base); tweakClaims = (x) => x;
+  assert.equal((await viaToken.c.get('/api/me')).data.me.email, 'idtoken@example.com'); ok('e-mail claims that are only in the ID token are used');
 } finally { srv.stop(); }
 
 // providers that never send email_verified can be trusted explicitly

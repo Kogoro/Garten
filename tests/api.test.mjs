@@ -844,7 +844,9 @@ try {
   { // SEC-11: audit log
     const log = (await admin.get('/api/admin/audit?limit=500')).data.entries; const acts = new Set(log.map((e) => e.action));
     for (const a of ['auth.login', 'auth.login.failed', 'team.create', 'team.git.update', 'user.create', 'token.create', 'user.password.change']) assert.ok(acts.has(a), a);
-    assert.ok(!JSON.stringify(log).match(/tok-1|ghp_SECRET123|hook-secret-1|brand-new-pass|password-editor/)); assert.equal((await viewer.c.get('/api/admin/audit')).status, 403); ok('SEC-11: security-relevant actions are logged without secrets; only instance admins read the log');
+    assert.ok(!JSON.stringify(log).match(/tok-1|ghp_SECRET123|hook-secret-1|brand-new-pass|password-editor/)); assert.equal((await viewer.c.get('/api/admin/audit')).status, 403);
+    await admin.req('PUT', `/api/teams/${T1}/git`, { url: `https://git.example/${'long/'.repeat(600)}r.git`, branch: 'main', root: 'specs', auth: 'none' }); // a very long value must not break the log
+    const big = await admin.get('/api/admin/audit?limit=5'); assert.equal(big.status, 200); assert.ok(big.data.entries.some((e) => e.action === 'team.git.update' && e.detail.url.length <= 300)); ok('SEC-11: security-relevant actions are logged without secrets; only instance admins read the log');
   }
 
   { // SEC-12: malformed input does not crash the server
