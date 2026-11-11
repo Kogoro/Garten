@@ -5,6 +5,7 @@ import { initial } from './lib';
 import { CreateTeamSheet } from './sheets';
 import { openMenu, type MenuItem } from './state';
 import { Icon, setTheme, themePref, toast, useStore } from './ui';
+import { densityPref, setDensity } from './prefs';
 
 export function SyncPill() {
   const S = useStore();
@@ -26,6 +27,7 @@ export function useMenus() {
   const invites: any[] = S.state.me?.invites ?? [];
   const teamName = S.team()?.name ?? S.state.project;
   const themeItems = (['system', 'light', 'dark'] as const).map((t): MenuItem => ({ key: `theme:${t}`, label: `Appearance: ${{ system: 'System', light: 'Light', dark: 'Dark' }[t]}`, current: themePref() === t }));
+  const densityItems = (['comfortable', 'compact'] as const).map((d): MenuItem => ({ key: `density:${d}`, label: `Lists: ${d === 'compact' ? 'Compact' : 'Comfortable'}`, current: densityPref() === d }));
   const workspaceItems = (): MenuItem[] => {
     const others = Object.fromEntries(S.otherTeams().map((t: any) => [t.id, t]));
     return [
@@ -40,6 +42,7 @@ export function useMenus() {
     if (key.startsWith('invite:')) { await S.acceptInvite(key.slice(7)); toast('Joined the team'); nav('/'); return; }
     if (key.startsWith('go:')) return void nav(`/${key.slice(3)}`);
     if (key.startsWith('theme:')) return setTheme(key.slice(6));
+    if (key.startsWith('density:')) return setDensity(key.slice(8) as 'compact' | 'comfortable');
     if (key === 'create-team') return setCreateTeam(true);
     if (key === 'switch') return pick(await openMenu('Team', workspaceItems()));
     if (key === 'logout') {
@@ -50,12 +53,12 @@ export function useMenus() {
   }
   return {
     workspace: async () => pick(await openMenu('Team', workspaceItems())),
-    user: async () => pick(await openMenu(S.state.me!.name, [{ key: 'go:account', label: 'Account & agent access' }, ...themeItems, { key: 'logout', label: 'Sign out', danger: true }])),
+    user: async () => pick(await openMenu(S.state.me!.name, [{ key: 'go:account', label: 'Account & agent access' }, ...themeItems, ...densityItems, { key: 'logout', label: 'Sign out', danger: true }])),
     more: async () => pick(await openMenu('More', [
       { key: 'go:glossary', label: 'Glossary' }, { key: 'go:sync', label: `Sync${S.queue().length + S.fbPending() + S.conflicts().length ? ` · ${S.queue().length + S.fbPending() + S.conflicts().length} waiting` : ''}` }, { key: 'go:team', label: 'Members & Git' },
       ...(S.isInstanceAdmin() ? [{ key: 'go:admin', label: 'Admin' }] : []), { key: 'go:account', label: 'Account & agent access' },
       ...invites.map((i) => ({ key: `invite:${i.id}`, label: `Join “${i.teamName}” as ${i.role} (invitation)` })),
-      { key: 'switch', label: `Team: ${teamName} – switch or create…` }, ...themeItems, { key: 'logout', label: 'Sign out', danger: true },
+      { key: 'switch', label: `Team: ${teamName} – switch or create…` }, ...themeItems, ...densityItems, { key: 'logout', label: 'Sign out', danger: true },
     ])),
     sheet: createTeam ? <CreateTeamSheet onClose={() => setCreateTeam(false)} /> : null,
     invites: invites.length, teamName,
@@ -108,7 +111,7 @@ export function Shell({ master, detail, single, active }: { master: ReactNode; d
         <button type="button" className="ws" aria-label="Switch team" onClick={m.workspace}><span className="ws-av">{initial(m.teamName)}</span><b>{m.teamName}</b><Icon name="chevron" size={14} />{m.invites > 0 && <span className="navitem badge" style={{ marginLeft: 6 }}>{m.invites}</span>}</button>
         <div className="navlabel">Content</div>
         {link('/', 'Specs', 'specs', nSpecs ? <span className="muted" style={{ marginLeft: 'auto', fontSize: 12 }}>{nSpecs}</span> : null)}{link('/docs', 'Documents', 'docs')}{link('/glossary', 'Glossary', 'glossary')}
-        <div className="navlabel">Publish</div>
+        <div className="navlabel">Release</div>
         {link('/release', 'Release', 'release')}
         <div className="navlabel">Agents</div>
         {link('/garden', 'Garden', 'garden', needs > 0 ? <span className="badge" title="Decisions and feedback that wait for a person">{needs}</span> : null)}

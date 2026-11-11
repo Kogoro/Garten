@@ -5,13 +5,16 @@ import { AgentChip, ItemEditor, ItemSync, StatusChip, TypeChip } from './ItemEdi
 import { NewSpecSheet } from '../sheets';
 import { ImplChip } from '../reports';
 import { Icon, ago, touched, useStore } from '../ui';
+import { usePref } from '../prefs';
+import { implState } from '../reports';
 import type { Item } from '../store/types';
 
 function SpecList({ selected }: { selected?: string }) {
   const S = useStore();
   const [q, setQ] = useState('');
-  const [filter, setFilter] = useState<'all' | 'draft' | 'approved'>('all');
-  const [type, setType] = useState('');
+  const [filter, setFilter] = usePref<'all' | 'draft' | 'approved'>('specs-filter', 'all', ['all', 'draft', 'approved']);
+  const [type, setType] = usePref<string>('specs-type', '');
+  const [sort, setSort] = usePref<'updated' | 'id' | 'title' | 'status' | 'impl'>('specs-sort', 'updated', ['updated', 'id', 'title', 'status', 'impl']);
   const all = S.all('spec');
   const specs = useMemo(() => {
     const ql = q.trim().toLowerCase();
@@ -19,8 +22,14 @@ function SpecList({ selected }: { selected?: string }) {
       .filter((s) => filter === 'all' || (filter === 'approved') === (s.status === 'approved'))
       .filter((s) => !type || s.specType === type)
       .filter((s) => !ql || `${s.id} ${s.title} ${s.body}`.toLowerCase().includes(ql))
-      .sort((a, b) => touched(b) - touched(a));
-  }, [all, q, filter, type, S.getVersion()]); // eslint-disable-line react-hooks/exhaustive-deps
+      .sort((a, b) => {
+        if (sort === 'id') return a.id.localeCompare(b.id, undefined, { numeric: true });
+        if (sort === 'title') return (a.title || '\uffff').localeCompare(b.title || '\uffff');
+        if (sort === 'status') return Number(b.status === 'approved') - Number(a.status === 'approved') || touched(b) - touched(a);
+        if (sort === 'impl') return implState(a, S.latestReport(a.id)).rank - implState(b, S.latestReport(b.id)).rank || touched(b) - touched(a);
+        return touched(b) - touched(a);
+      });
+  }, [all, q, filter, type, sort, S.getVersion()]); // eslint-disable-line react-hooks/exhaustive-deps
   const n = (f: (s: Item) => boolean) => all.filter(f).length;
   const [newSpec, setNewSpec] = useState(false);
   const create = () => setNewSpec(true);
@@ -31,6 +40,7 @@ function SpecList({ selected }: { selected?: string }) {
         <div className="search"><Icon name="search" /><label className="sr" htmlFor="search">Search specs</label><input id="search" type="search" placeholder="Search specs" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         <div className="filters">
           {([['all', 'All', all.length], ['draft', 'Draft', n((s) => s.status !== 'approved')], ['approved', 'Approved', n((s) => s.status === 'approved')]] as const).map(([k, l, c]) => <button key={k} className="filter" type="button" aria-pressed={filter === k} onClick={() => setFilter(k)}>{l} {c}</button>)}
+          <select id="sortBy" className="filter sel" aria-label="Sort by" value={sort} onChange={(e) => setSort(e.target.value as typeof sort)}><option value="updated">Recently edited</option><option value="id">ID</option><option value="title">Title A–Z</option><option value="status">Approved first</option><option value="impl">Needs attention first</option></select>
           <select id="typeFilter" className="filter sel" aria-label="Filter by type" value={type} onChange={(e) => setType(e.target.value)}><option value="">All types</option>{S.specTypes().map((t) => <option key={t.key} value={t.key}>{t.label}{all.some((x) => x.specType === t.key) ? '' : ' (none)'}</option>)}</select>
         </div>
       </div>

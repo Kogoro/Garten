@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { DecisionCard, FbItem, useFbAct } from '../feedback';
 import { ImplChip, ReportSheet, implState } from '../reports';
 import { Bar, Shell } from '../Shell';
-import { Icon, ago, useStore } from '../ui';
+import { Icon, ago, toast, useStore } from '../ui';
 
 /** The gardener's view: what agents ask, what they found, and how far they are with every released spec. Works offline. */
 export function GardenPage() {
@@ -17,6 +17,11 @@ export function GardenPage() {
   const done = rows.filter((x) => x.st.key === 'implemented').length;
   const needs = decisions.length + feedback.length;
   const blocking = decisions.filter((d) => d.blocking).length;
+  const paused = !!S.team()?.agentPaused;
+  const working = rows.filter((x) => x.st.key === 'in_progress');
+  async function setPaused(on: boolean) {
+    try { await S.teamApi('PATCH', '', { agentPaused: on }); await S.refreshMe(); toast(on ? 'Agents paused' : 'Agents resumed'); } catch (e: any) { toast(e instanceof TypeError ? 'Pausing needs a connection to the server.' : e.message); }
+  }
   const synced = !!S.state.garden[S.state.teamId] && S.state.garden[S.state.teamId].rev >= 0;
   return (
     <Shell single master={<>
@@ -30,8 +35,14 @@ export function GardenPage() {
           <p className="note">Agents build what you release. They ask here when a spec leaves a choice open, and report what they built. You answer and adjust the specs – also offline; answers are sent with the next sync.</p>
           {!synced && <p className="note">Nothing loaded from the server yet – open the app once while online.</p>}
         </section>
+        {paused && <section className="card warn" id="gd-paused" role="status"><span style={{ color: 'var(--amber)' }}><Icon name="warn" size={18} /></span><div className="grow"><b>Agents are paused</b><span>They get an empty work list and no webhook calls. Answers and reports are still accepted. When you resume, they pick up everything that is open on their next run.</span></div>{S.can('admin') && <button type="button" className="btn small" data-act="agent-resume" onClick={() => setPaused(false)}>Resume agents</button>}</section>}
         {waiting > 0 && <section className="card warn" id="gd-waiting"><span style={{ color: 'var(--amber)' }}><Icon name="up" size={18} /></span><div className="grow"><b>{waiting} answer{waiting === 1 ? '' : 's'} waiting to sync</b><span>Saved on this device. {S.state.online ? 'Sending…' : 'Sent as soon as the server is reachable – the agent continues after that.'}</span></div></section>}
         {S.state.gardenNotice && <section className="card bad" id="gd-notice"><span style={{ color: 'var(--red)' }}><Icon name="warn" size={18} /></span><div className="grow"><b>Not accepted by the server</b><span>{S.state.gardenNotice}</span></div><button className="btn small" style={{ flex: 'none' }} onClick={S.dismissGardenNotice}>OK</button></section>}
+
+        {working.length > 0 && <section id="gd-working">
+          <div className="sect-title"><span>Agents at work</span><small>{working.length}</small></div>
+          {working.map(({ s, r }) => <button type="button" className="gd-row" key={s.id} data-spec={s.id} onClick={() => setReport(s.id)}><span className="grow"><b><span className="mono">{s.id}</span> {s.title}</b><span>{r ? `${r.via ?? r.author} · started ${ago(Date.parse(r.createdAt))} · ${String(r.summary).split('\n')[0].slice(0, 140)}` : ''}</span></span><ImplChip spec={s} always /></button>)}
+        </section>}
 
         <section id="gd-needs-list">
           <div className="sect-title"><span>Needs you</span><small style={{ color: needs ? 'var(--amber)' : undefined }}>{decisions.length} decision{decisions.length === 1 ? '' : 's'} · {feedback.length} feedback</small></div>
@@ -58,6 +69,7 @@ export function GardenPage() {
           <div className="fb-list">{answered.map((d) => <DecisionCard key={d.id} f={d} showSpec act={act} />)}</div>
         </section>}
 
+        {S.can('admin') && !paused && <div className="btns"><button type="button" className="btn small" data-act="agent-pause" onClick={() => { if (confirm('Pause the agents? They get no new work and no webhook calls until you resume.')) setPaused(true); }}>Pause agents</button></div>}
         {S.can('admin') && <p className="note gd-foot">Agents are connected under <Link to="/team">Members &amp; Git</Link>: the trigger that starts them on a release, and the prompt they work with.</p>}
       </div></div>
       {report && <ReportSheet specId={report} link onClose={() => setReport(null)} />}

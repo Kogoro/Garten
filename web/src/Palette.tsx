@@ -4,6 +4,7 @@ import { Sheet } from './dialogs';
 import { glossaryTerms, glossaryPath } from './glossaryLib';
 import { NewSpecSheet } from './sheets';
 import { setTheme, toast, useStore } from './ui';
+import { setDensity } from './prefs';
 
 /** Keyboard shortcuts: one list drives the help dialog and the handler. */
 export const SHORTCUTS: { keys: string; what: string }[] = [
@@ -68,6 +69,7 @@ function PaletteDialog({ onClose, onNewSpec }: { onClose: () => void; onNewSpec:
     { id: 'go-release', label: 'Go to Release', hint: 'g r', run: go('/release') }, { id: 'go-garden', label: 'Go to Garden', hint: 'g a', run: go('/garden') }, { id: 'go-team', label: 'Go to Members & Git', hint: 'g t', run: go('/team') },
     { id: 'go-sync', label: 'Go to Sync', hint: 'g y', run: go('/sync') }, { id: 'go-account', label: 'Go to Account & agent access', hint: 'g c', run: go('/account') },
     { id: 'sync', label: 'Sync now', run: () => { onClose(); S.sync().then(() => toast(S.state.error ?? 'Synced')); } },
+    { id: 'density-compact', label: 'Density: Compact lists', run: () => { onClose(); setDensity('compact'); } }, { id: 'density-comfortable', label: 'Density: Comfortable lists', run: () => { onClose(); setDensity('comfortable'); } },
     ...(['light', 'dark', 'system'] as const).map((t) => ({ id: `theme-${t}`, label: `Appearance: ${t[0].toUpperCase()}${t.slice(1)}`, run: () => { onClose(); setTheme(t); } })),
   ], []); // eslint-disable-line react-hooks/exhaustive-deps
   const items: Cmd[] = useMemo(() => {

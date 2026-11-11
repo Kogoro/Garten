@@ -5,8 +5,10 @@ import './styles.css';
 import App from './App';
 import * as S from './store/core';
 import { applyTheme } from './ui';
+import { applyDensity } from './prefs';
 
 applyTheme();
+applyDensity();
 if ('serviceWorker' in navigator) {
   // A new version takes over by itself (skipWaiting + clientsClaim). The open page still runs the old code, whose lazy chunks may be
   // gone – so reload once the new worker is in charge, but never while edits are still waiting on this device.

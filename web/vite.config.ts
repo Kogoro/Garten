@@ -22,5 +22,5 @@ export default defineConfig({
   resolve: { alias: { '@shared': fileURLToPath(new URL('../shared', import.meta.url)) } },
   build: { outDir: 'dist', sourcemap: false, chunkSizeWarningLimit: 1500 },
   server: { fs: { allow: ['..'] }, port: 5173, proxy: { '/api': api, '/mcp': api, '/oauth': api, '/.well-known': api, '/healthz': api, '/invite': api } },
-  test: { environment: 'node', include: ['src/**/*.test.ts'] },
+  test: { environment: 'node', include: ['src/**/*.test.ts', 'tests/**/*.test.mjs'] },
 });

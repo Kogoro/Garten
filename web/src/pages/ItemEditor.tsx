@@ -41,16 +41,16 @@ export function SaveInd({ i, S }: { i: Item; S: Store }) {
 function approve(i: Item, S: Store) {
   if (i.kind === 'spec' && !i.title.trim()) return toast('Add a title first');
   S.requestApprove(i.id);
-  toast(S.state.online && !S.state.sessionExpired ? (i.kind === 'doc' ? 'Publishing…' : 'Approving…') : 'Queued — released after next sync');
+  toast(S.state.online && !S.state.sessionExpired ? (i.kind === 'doc' ? 'Releasing…' : 'Approving…') : 'Queued — released after next sync');
 }
 
 export function ApproveButton({ i, S }: { i: Item; S: Store }) {
   if (i.kind === 'doc' && i.pinned) {
     const auto = S.team()?.foundationAuto !== false;
     if (!S.can('approve')) return <span className="muted hint">{auto ? 'Goes live automatically after you stop typing' : 'An approver publishes this'}</span>;
-    if (i.approve) return <button className="approve queued" type="button" aria-label="Approval queued" data-act="cancel-approve" onClick={() => S.cancelApprove(i.id)}><Icon name="clock" />Publish queued</button>;
+    if (i.approve) return <button className="approve queued" type="button" aria-label="Approval queued" data-act="cancel-approve" onClick={() => S.cancelApprove(i.id)}><Icon name="clock" />Release queued</button>;
     if (foundState(i, S).live || !hasContent(i.body)) return <span className="muted hint">{hasContent(i.body) ? `Live v${i.version}` : 'Empty – not published'}</span>;
-    return <button className="approve" type="button" data-act="approve" onClick={() => approve(i, S)}>Publish now<Icon name="check" size={16} /></button>;
+    return <button className="approve" type="button" data-act="approve" onClick={() => approve(i, S)}>Release now<Icon name="check" size={16} /></button>;
   }
   if (i.kind !== 'spec') return <span className="muted hint">Released with the specs that link it</span>;
   if (!S.can('approve')) return <span className="muted hint">{i.status === 'approved' ? `Approved v${i.version}` : 'An approver releases this'}</span>;

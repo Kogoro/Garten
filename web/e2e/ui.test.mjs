@@ -240,6 +240,11 @@ try {
   await page.keyboard.press('?'); await page.getByRole('dialog', { name: /Keyboard shortcuts/ }).waitFor(); await page.keyboard.press('Escape'); ok('keyboard: "?" lists the shortcuts');
   await page.evaluate(() => document.body.focus()); await page.keyboard.press('Tab');
   assert.equal(await page.evaluate(() => document.activeElement?.textContent), 'Skip to content'); ok('the first Tab stop is a skip link');
+  // pause and resume the agents
+  await page.evaluate(() => { location.hash = '#/garden'; });
+  page.once('dialog', (dlg) => dlg.accept());
+  await page.click('[data-act=agent-pause]'); await page.locator('#gd-paused').waitFor();
+  await page.click('[data-act=agent-resume]'); await page.locator('#gd-paused').waitFor({ state: 'detached' }); ok('garden: agents can be paused and resumed');
 
   // account on mobile
   await page.click('[data-act=more-menu]'); await page.getByRole('button', { name: 'Account & agent access' }).click();

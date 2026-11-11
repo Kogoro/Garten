@@ -738,6 +738,22 @@ try {
     } finally { b.stop(); late.close(); }
   }
 
+  // pausing the agents: empty work list, no webhook calls, a person can resume
+  {
+    const pEd = await mk('editor', 'pz');
+    const tok = (await admin.post('/api/me/tokens', { name: 'pause probe', scopes: ['mcp:read'], teamId: admin.tid })).data.token;
+    const probe = await mcp(tok);
+    const wl = async () => JSON.parse((await call(probe, 'get_work_list')).text);
+    assert.equal((await pEd.c.req('PATCH', `/api/teams/${admin.tid}`, { agentPaused: true })).status, 403); ok('only team admins can pause the agents');
+    const before = await wl(); assert.equal(before.paused, undefined);
+    const off = (await admin.req('PATCH', `/api/teams/${admin.tid}`, { agentPaused: true })).data.team; assert.equal(off.agentPaused, true);
+    const paused = await wl(); assert.equal(paused.paused, true); assert.deepEqual(paused.work, []); assert.match(paused.note, /paused/);
+    assert.equal((await admin.get('/api/me')).data.me.teams.find((t) => t.id === admin.tid).agentPaused, true); ok('paused agents get an empty work list with a note; everybody sees that they are paused');
+    await admin.req('PATCH', `/api/teams/${admin.tid}`, { agentPaused: false });
+    const after = await wl(); assert.equal(after.paused, undefined); assert.ok(after.released_specs >= 0); ok('resuming gives the agents their work list back');
+    await probe.close();
+  }
+
   // glossary lookup: input is validated before any third party is asked; sign-in is required
   assert.equal((await admin.get('/api/lookup?q=a')).status, 400); ok('lookup: a too short term is rejected');
   assert.equal((await anon.get('/api/lookup?q=idempotence')).status, 401); ok('lookup: needs a sign-in');

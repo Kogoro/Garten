@@ -690,3 +690,9 @@ kbd { display: inline-block; min-width: 22px; padding: 1px 6px; border: 1px soli
   label:has(> input[type=checkbox]), label:has(> input[type=radio]) { min-height: 44px; display: flex; align-items: center; gap: 10px; }
 }
 @media (max-width: 700px) { .kv a { display: inline-flex; align-items: center; min-height: 44px; } }
+
+/* density: compact lists for people who scan many items */
+[data-density=compact] .row { padding-top: 8px; padding-bottom: 8px; gap: 2px; }
+[data-density=compact] .row-meta { gap: 6px; }
+[data-density=compact] .kv, [data-density=compact] .gd-row { padding-top: 6px; padding-bottom: 6px; }
+@media (max-width: 700px) { [data-density=compact] .row { padding-top: 10px; padding-bottom: 10px; } }

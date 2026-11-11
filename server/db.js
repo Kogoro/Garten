@@ -271,3 +271,4 @@ db.exec(`CREATE TABLE IF NOT EXISTS hook_outbox (
   created_at TEXT NOT NULL,
   PRIMARY KEY (team_id, kind, key)
 )`);
+addColumn('teams', 'agent_paused', 'INTEGER NOT NULL DEFAULT 0');   // a person paused the agents: empty work list, no webhook calls
