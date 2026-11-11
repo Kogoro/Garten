@@ -82,7 +82,7 @@ export function AccountPage() {
 
         <section className="card"><div className="card-head"><h2>Security</h2></div>
           <form id="pwForm" className="form" onSubmit={pw}><label className="sr" htmlFor="pwcur">Current password</label><input className="field" id="pwcur" name="cur" type="password" placeholder="Current password" autoComplete="current-password" disabled={!online} />
-            <label className="sr" htmlFor="pwnew">New password</label><input className="field" id="pwnew" name="new" type="password" placeholder="New password (min. 8 characters)" autoComplete="new-password" minLength={8} disabled={!online} />
+            <label className="sr" htmlFor="pwnew">New password</label><input className="field" id="pwnew" name="new" type="password" placeholder="New password (min. 10 characters)" autoComplete="new-password" minLength={8} disabled={!online} />
             <button className="btn" type="submit" disabled={!online}>Change password</button></form>
           <button className="btn danger" data-act="logout" onClick={logout}><Icon name="logout" size={16} /> Sign out &amp; remove local data</button>
         </section>

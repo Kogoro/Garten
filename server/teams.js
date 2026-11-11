@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { db } from './db.js';
 import { encrypt } from './secrets.js';
-import { GIT_ALLOW_HTTP, GIT_ALLOW_LOCAL } from './config.js';
+import { GIT_ALLOW_HTTP, GIT_ALLOW_LOCAL, GIT_ALLOW_PRIVATE } from './config.js';
+import { gitHost, isPrivateHostLiteral } from './netguard.js';
 
 export class TeamError extends Error {
   constructor(message, status = 400) { super(message); this.status = status; }
@@ -49,7 +50,7 @@ export function setFeedbackMail(id, on) {
 }
 /** Removes a team and everything that belongs to it (the Git repository directory is removed by the caller). */
 export function deleteTeamRows(id) {
-  for (const t of ['items', 'feedback', 'reports', 'pats', 'oauth_tokens', 'oauth_codes']) db.prepare(`DELETE FROM ${t} WHERE team_id=?`).run(id);
+  for (const t of ['items', 'feedback', 'reports', 'pats', 'oauth_tokens', 'oauth_codes', 'hook_outbox']) db.prepare(`DELETE FROM ${t} WHERE team_id=?`).run(id);
   db.prepare('DELETE FROM teams WHERE id=?').run(id); // memberships + invites cascade
 }
 
@@ -62,11 +63,22 @@ export function validateGitUrl(url) {
   url = String(url ?? '').trim();
   if (!url) return '';
   if (/[\s\0]/.test(url) || url.startsWith('-')) throw new TeamError('Invalid repository URL');
-  if (/^https:\/\/[^/]+\/.+/.test(url)) return url;
-  if (/^http:\/\/[^/]+\/.+/.test(url)) { if (GIT_ALLOW_HTTP) return url; throw new TeamError('Plain http:// remotes are disabled (set GIT_ALLOW_HTTP=1 on the server to allow them)'); }
-  if (/^ssh:\/\/[\w.-]+@[\w.-]+(:\d+)?\/.+/.test(url) || /^[\w.-]+@[\w.-]+:[^\s:][^\s]*$/.test(url)) return url;
+  // The server must not be turned into a scanner of its own network: loopback, private and link-local targets are refused
+  // (names are resolved again right before every connection, see gitremote.js).
+  const publicHost = () => { if (!GIT_ALLOW_PRIVATE && isPrivateHostLiteral(gitHost(url))) throw new TeamError('This address points into a private or local network (set GIT_ALLOW_PRIVATE=1 on the server to allow that)'); return url; };
+  if (/^https:\/\/[^/]+\/.+/.test(url)) return publicHost();
+  if (/^http:\/\/[^/]+\/.+/.test(url)) { if (GIT_ALLOW_HTTP) return publicHost(); throw new TeamError('Plain http:// remotes are disabled (set GIT_ALLOW_HTTP=1 on the server to allow them)'); }
+  if (/^ssh:\/\/[\w.-]+@[\w.-]+(:\d+)?\/.+/.test(url) || /^[\w.-]+@[\w.-]+:[^\s:][^\s]*$/.test(url)) return publicHost();
   if (url.startsWith('/') && GIT_ALLOW_LOCAL) return url;
   throw new TeamError('Use an https:// or SSH (git@host:org/repo.git) repository URL');
+}
+
+/** scheme://host:port of a remote – what a stored credential is bound to. */
+export function remoteOrigin(url) {
+  const u = String(url ?? '').trim();
+  try { if (/^[a-z][a-z0-9+.-]*:\/\//i.test(u)) { const x = new URL(u); return `${x.protocol}//${x.hostname.toLowerCase()}:${x.port || ''}`; } } catch { /* fall through */ }
+  const m = /^[\w.-]+@([\w.-]+):/.exec(u);
+  return m ? `ssh://${m[1].toLowerCase()}:` : u;
 }
 
 export const publicGit = (t) => {
@@ -91,6 +103,8 @@ export function saveGitSettings(teamId, s, { rootLocked }) {
   if (auth === 'token' && !/^https?:\/\//.test(url) && url) throw new TeamError('Token authentication needs an https:// URL');
   let secret = t.row.git_secret;
   if (auth === 'token' && s.token) secret = encrypt(s.token);
+  // A stored token belongs to the server it was entered for: it is not sent to another one.
+  else if (auth === 'token' && url && t.row.git_url && remoteOrigin(url) !== remoteOrigin(t.row.git_url)) secret = null;
   if (auth === 'none') secret = null;
   if (auth === 'ssh' && t.row.git_auth !== 'ssh') secret = null; // a token must never be reused as key
   if (auth === 'token' && t.row.git_auth === 'ssh' && !s.token) secret = null;

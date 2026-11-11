@@ -8,13 +8,14 @@ services:
     environment:
       # Externally visible URL (OAuth issuer + redirect URLs). Use your https:// URL behind a reverse proxy.
       PUBLIC_URL: ${PUBLIC_URL:-http://localhost:3000}
-      TRUST_PROXY: ${TRUST_PROXY:-0}          # 1 when running behind a reverse proxy
+      TRUST_PROXY: ${TRUST_PROXY:-0}          # number of reverse proxies in front (1 = one: Caddy, a tunnel …). Never a blanket "trust all".
       PROJECT_NAME: ${PROJECT_NAME:-specs}
       DEFAULT_TEAM_NAME: ${DEFAULT_TEAM_NAME:-specs}   # the team created on first start
       DEFAULT_TEAM_KEY: ${DEFAULT_TEAM_KEY:-SPEC}      # prefix of its spec ids (SPEC-001 …)
       # Key for encrypting git tokens / SSH keys at rest. Empty = generated once into the data volume.
       SECRET_KEY: ${SECRET_KEY:-}
       GIT_ALLOW_HTTP: ${GIT_ALLOW_HTTP:-0}      # 1 = allow plain http:// git remotes (LAN Gitea etc.)
+      GIT_ALLOW_PRIVATE: ${GIT_ALLOW_PRIVATE:-0} # 1 = git remotes may be on loopback / private addresses (a Gitea in your LAN)
       ALLOW_TEAM_CREATION: ${ALLOW_TEAM_CREATION:-1}   # 0 = only instance admins may create teams
       MAX_TEAMS_PER_USER: ${MAX_TEAMS_PER_USER:-5}
       INVITE_TTL_DAYS: ${INVITE_TTL_DAYS:-7}
@@ -22,7 +23,7 @@ services:
       #   smtp://user:pass@mail.example.com:587   (STARTTLS)    smtps://user:pass@mail.example.com:465   (implicit TLS)
       SMTP_URL: ${SMTP_URL:-}
       SMTP_FROM: ${SMTP_FROM:-Specs <no-reply@localhost>}
-      SMTP_REQUIRE_TLS: ${SMTP_REQUIRE_TLS:-0}   # 1 = refuse to send over an unencrypted connection
+      SMTP_REQUIRE_TLS: ${SMTP_REQUIRE_TLS:-}    # 1 = refuse to send over an unencrypted connection. Empty = on, except for a mail server on this machine
       # Agent trigger (webhook per team): one call this long after the last release / answer.
       HOOK_DEBOUNCE_MS: ${HOOK_DEBOUNCE_MS:-5000}
       HOOK_ALLOW_LOCAL: ${HOOK_ALLOW_LOCAL:-0}   # 1 = webhooks may call http:// and private addresses (LAN runner)
@@ -40,6 +41,9 @@ services:
       OIDC_AUTO_CREATE: ${OIDC_AUTO_CREATE:-0}      # 1 = create unknown users on first SSO login
       OIDC_DEFAULT_ROLE: ${OIDC_DEFAULT_ROLE:-viewer}
       OIDC_DEFAULT_TEAM: ${OIDC_DEFAULT_TEAM:-}      # team key new SSO users are added to (empty = first team)
+      OIDC_TRUST_UNVERIFIED_EMAIL: ${OIDC_TRUST_UNVERIFIED_EMAIL:-0}  # 1 = accept providers that do not confirm the e-mail address (no email_verified claim)
+      SESSION_IDLE_DAYS: ${SESSION_IDLE_DAYS:-14}     # sessions unused for this long end
+      AUDIT_RETENTION_DAYS: ${AUDIT_RETENTION_DAYS:-180}  # how long the audit log is kept
     volumes:
       - specs-data:/data           # SQLite (users, teams, sync state) + one Git repo per team at /data/repos/<team id>
     restart: unless-stopped
@@ -47,12 +51,12 @@ services:
   # Optional: reach the server from the internet without opening a port (phone on the road, Claude Code in the cloud).
   # Started by scripts/go-public.sh, which also sets PUBLIC_URL – do not start it by hand.
   tunnel:            # quick tunnel: https://<random>.trycloudflare.com, no account; the address changes when it restarts
-    image: cloudflare/cloudflared:latest
+    image: cloudflare/cloudflared:2026.10.7@sha256:4955524aeaa379e154023d5a027c250f7b35041a2e7e950cf13f144bc9b9c5ba
     profiles: [public]
     command: tunnel --no-autoupdate --url http://specs:3000
     restart: unless-stopped
   tunnel-named:      # your own Cloudflare tunnel with a fixed address: TUNNEL_TOKEN + PUBLIC_URL in .env
-    image: cloudflare/cloudflared:latest
+    image: cloudflare/cloudflared:2026.10.7@sha256:4955524aeaa379e154023d5a027c250f7b35041a2e7e950cf13f144bc9b9c5ba
     profiles: [public-named]
     command: tunnel --no-autoupdate run
     environment:

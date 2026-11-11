@@ -1,8 +1,12 @@
 import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
+import { chmodSync } from 'node:fs';
 import { DATA_DIR } from './config.js';
 
-export const db = new DatabaseSync(path.join(DATA_DIR, 'specs.db'));
+const DB_FILE = path.join(DATA_DIR, 'specs.db');
+export const db = new DatabaseSync(DB_FILE);
+// databases of earlier versions were created world-readable
+for (const f of [DB_FILE, `${DB_FILE}-wal`, `${DB_FILE}-shm`]) { try { chmodSync(f, 0o600); } catch { /* does not exist (yet) */ } }
 {
   const hasUsers = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='users'").get();
   const old = hasUsers && db.prepare("SELECT 1 FROM pragma_table_info('users') WHERE name='role'").get();
@@ -309,3 +313,20 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS check_runs_check ON check_runs(check_id, at);
 `);
+
+// v0.12 (security review): sessions record their last use, refresh tokens remember their predecessor (reuse detection), audit log
+addColumn('sessions', 'last_seen_at', 'INTEGER');
+addColumn('oauth_tokens', 'prev_refresh_hash', 'TEXT');
+db.exec(`CREATE TABLE IF NOT EXISTS audit_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at TEXT NOT NULL,
+  actor_id TEXT,
+  actor TEXT,
+  team_id TEXT,
+  action TEXT NOT NULL,
+  target TEXT,
+  ip TEXT,
+  detail TEXT
+);
+CREATE INDEX IF NOT EXISTS audit_at ON audit_log(at);`);
+for (const f of [`${DB_FILE}-wal`, `${DB_FILE}-shm`]) { try { chmodSync(f, 0o600); } catch { /* no WAL file */ } }

@@ -10,6 +10,7 @@ import {
   sha, allowedScopes, getUser, userFromRequest, loginWithPassword, startSession, verifyPat, AuthError, MCP_SCOPES, roleIn, teamsFor,
 } from './auth.js';
 import { getTeam } from './teams.js';
+import { audit } from './audit.js';
 
 const now = () => Math.floor(Date.now() / 1000);
 const iso = () => new Date().toISOString();
@@ -58,8 +59,15 @@ export const provider = {
   },
 
   async exchangeRefreshToken(client, refreshToken, scopes) {
-    const r = db.prepare('SELECT * FROM oauth_tokens WHERE refresh_hash=? AND revoked=0').get(sha(refreshToken));
-    if (!r || r.client_id !== client.client_id || r.refresh_expires_at < now()) throw new InvalidGrantError('Invalid refresh token');
+    const h = sha(refreshToken);
+    const r = db.prepare('SELECT * FROM oauth_tokens WHERE refresh_hash=? AND revoked=0').get(h);
+    if (!r) {
+      // A refresh token that was already exchanged is shown again: it was copied. The whole grant ends, the thief and the owner must sign in again.
+      const reused = db.prepare('SELECT id, user_id, team_id FROM oauth_tokens WHERE prev_refresh_hash=? AND client_id=?').get(h, client.client_id);
+      if (reused) { db.prepare('UPDATE oauth_tokens SET revoked=1 WHERE id=?').run(reused.id); audit(null, 'oauth.refresh.reuse', { team: reused.team_id, target: reused.user_id }); }
+      throw new InvalidGrantError('Invalid refresh token');
+    }
+    if (r.client_id !== client.client_id || r.refresh_expires_at < now()) throw new InvalidGrantError('Invalid refresh token');
     const user = getUser(r.user_id);
     const role = user && !user.disabled ? roleIn(user, r.team_id) : null;
     if (!role) throw new InvalidGrantError('User is disabled or no longer in this team');
@@ -68,8 +76,11 @@ export const provider = {
       if (!scopes.every((s) => granted.includes(s))) throw new InvalidGrantError('Cannot widen scopes on refresh');
       granted = scopes;
     }
-    db.prepare('DELETE FROM oauth_tokens WHERE id=?').run(r.id); // rotate
-    return issue({ clientId: client.client_id, userId: r.user_id, teamId: r.team_id, scopes: granted, resource: r.resource, reuseId: r.id, createdAt: r.created_at });
+    const access = rand('spo');
+    const refresh = rand('spr');
+    db.prepare('UPDATE oauth_tokens SET access_hash=?, refresh_hash=?, prev_refresh_hash=?, scopes=?, expires_at=?, refresh_expires_at=?, last_used_at=? WHERE id=?')
+      .run(sha(access), sha(refresh), h, granted.join(' '), now() + ACCESS_TTL, now() + REFRESH_TTL, iso(), r.id); // rotate in place
+    return { access_token: access, token_type: 'Bearer', expires_in: ACCESS_TTL, refresh_token: refresh, scope: granted.join(' ') };
   },
 
   async verifyAccessToken(token) {
@@ -137,10 +148,12 @@ const loadRequest = (id) => {
   const r = db.prepare('SELECT * FROM oauth_requests WHERE id=?').get(String(id ?? ''));
   return r && r.expires_at >= now() ? { id: r.id, clientId: r.client_id, ...JSON.parse(r.data) } : null;
 };
+/** The form posts come from our own pages: Origin must be this server's public origin; without Origin the browser's Fetch-Metadata must say so. */
 const sameOrigin = (req) => {
   const o = req.get('origin');
-  if (!o) return true; // non-browser form post; SameSite=Lax cookie + unguessable request id still protect it
-  try { return new URL(o).host === new URL(PUBLIC_URL).host || new URL(o).host === req.get('host'); } catch { return false; }
+  if (o) { try { return new URL(o).origin === new URL(PUBLIC_URL).origin; } catch { return false; } }
+  const site = req.get('sec-fetch-site');
+  return !site || site === 'same-origin' || site === 'none';
 };
 
 export function consentRouter() {
@@ -183,9 +196,11 @@ export function consentRouter() {
     try {
       const user = await loginWithPassword(req.body.email, req.body.password, req.ip);
       startSession(res, user, req.get('user-agent'));
+      audit(req, 'auth.login', { actor: user, detail: { via: 'oauth-consent' } });
       res.redirect(`/oauth/consent?request=${reqd.id}`);
     } catch (e) {
       if (!(e instanceof AuthError)) throw e;
+      audit(req, 'auth.login.failed', { target: String(req.body.email ?? '').slice(0, 254).toLowerCase(), detail: { via: 'oauth-consent' } });
       res.redirect(`/oauth/consent?request=${reqd.id}&error=${encodeURIComponent(e.message)}`);
     }
   });
@@ -199,6 +214,7 @@ export function consentRouter() {
     if (reqd.state) target.searchParams.set('state', reqd.state);
     if (req.body.decision !== 'allow') {
       target.searchParams.set('error', 'access_denied');
+      audit(req, 'oauth.consent.deny', { target: reqd.clientId, actor: user });
       return res.redirect(target.href);
     }
     const role = roleIn(user, String(req.body.team ?? ''));
@@ -213,6 +229,7 @@ export function consentRouter() {
       sha(code), reqd.clientId, user.id, String(req.body.team), reqd.codeChallenge, reqd.redirectUri, scopes.join(' '), reqd.resource ?? null, now() + 300,
     );
     target.searchParams.set('code', code);
+    audit(req, 'oauth.consent.allow', { team: String(req.body.team), target: clientsStore.getClient(reqd.clientId)?.client_name ?? reqd.clientId, detail: { scopes }, actor: user });
     res.redirect(target.href);
   });
   return r;
