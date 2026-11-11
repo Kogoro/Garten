@@ -27,7 +27,6 @@ main() {
   local APP_DIR=/opt/garten HOME_DIR=/var/lib/garten DATA_DIR=/var/lib/garten/data ETC_DIR=/etc/garten WWW_DIR=/var/www/garten
   local ENVF=$ETC_DIR/garten.env CREDS=/root/garten.creds
   local REPO="${GARTEN_REPO:-https://github.com/Kogoro/Garten.git}" REF="${GARTEN_REF:-main}"
-  local CA_SRC=/var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt
 
   step() { printf '\n==> %s\n' "$*"; }
   die() { printf '\n✗ %s\n' "$*" >&2; exit 1; }
@@ -215,9 +214,13 @@ $names {
 EOF
     systemctl enable --quiet caddy
     systemctl restart caddy
-    for _ in $(seq 30); do [ -s "$CA_SRC" ] && break; sleep 1; done
-    [ -s "$CA_SRC" ] || die "Caddy did not create its certificate authority – see: journalctl -u caddy"
-    install -m 644 "$CA_SRC" "$WWW_DIR/garten-ca.crt"
+    local ca=""
+    for _ in $(seq 30); do
+      ca="$(find /var/lib/caddy /root/.local/share/caddy -path '*pki/authorities/local/root.crt' -size +0 2>/dev/null | head -1)"
+      [ -n "$ca" ] && break; sleep 1
+    done
+    [ -n "$ca" ] || die "Caddy did not create its certificate authority – see: journalctl -u caddy"
+    install -m 644 "$ca" "$WWW_DIR/garten-ca.crt"
     cat > "$WWW_DIR/index.html" <<EOF
 <!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Garten – set up this device</title>
