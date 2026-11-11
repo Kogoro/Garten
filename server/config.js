@@ -5,6 +5,8 @@ const env = (k, d = '') => (process.env[k] ?? d) || d;
 const flag = (k, d = false) => (process.env[k] === undefined || process.env[k] === '' ? d : !['0', 'false', 'no'].includes(process.env[k].toLowerCase()));
 
 export const PORT = Number(env('PORT', '3000'));
+/** Address to listen on. Empty = all interfaces; 127.0.0.1 when a reverse proxy on the same machine is the only way in. */
+export const HOST = env('HOST');
 export const DATA_DIR = path.resolve(env('DATA_DIR', './data'));
 export const PROJECT_NAME = env('PROJECT_NAME', 'specs');
 export const SEED_DEMO = flag('SEED_DEMO', false);
