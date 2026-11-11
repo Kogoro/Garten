@@ -715,3 +715,12 @@ kbd { display: inline-block; min-width: 22px; padding: 1px 6px; border: 1px soli
 .editor-skeleton i:nth-child(2) { width: 80%; } .editor-skeleton i:nth-child(3) { width: 55%; }
 @media (prefers-reduced-motion: no-preference) { .editor-skeleton i { animation: bootp 1.4s ease-in-out infinite; } }
 @keyframes bootp { 50% { opacity: .5; } }
+
+.onb { margin: 8px 12px; padding: 10px 12px; border: 1px solid var(--line2); border-radius: 12px; background: var(--panel); }
+.onb header { display: flex; align-items: center; gap: 10px; }
+.onb header .btn { margin-left: auto; }
+.onb ol { list-style: none; margin: 6px 0 0; padding: 0; }
+.onb li a { display: flex; align-items: center; gap: 10px; min-height: 44px; color: var(--text); text-decoration: none; }
+.onb li.done a { color: var(--muted); text-decoration: line-through; }
+.onb-mark { flex: 0 0 18px; height: 18px; border: 2px solid var(--muted); border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; }
+.onb li.done .onb-mark { background: var(--green-solid); border-color: var(--green-solid); color: var(--on-green); }

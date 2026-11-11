@@ -20,6 +20,7 @@ jobs:
       - run: npm --prefix web ci
       - run: npx playwright install --with-deps chromium
       - run: npm test
+      - run: npm run ux-audit
   scripts:
     runs-on: ubuntu-24.04
     steps:

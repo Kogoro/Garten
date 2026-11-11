@@ -205,6 +205,13 @@ Stop when the work list holds nothing you can work on. End with one line per spe
 
 **API:** `GET /api/teams/:id/reports?spec=`, `GET /api/teams/:id/feedback?spec=&kind=decision`, `PATCH /api/teams/:id {hook: {url, token?, clearToken?, headers?, events?, format?}}`, `POST /api/teams/:id/hook/test`. Antworten und Triage vom Gerät laufen über den Sync (`feedbackOps`), Entscheidungen und neueste Berichte kommen mit jedem Sync zurück.
 
+## Bedienung: Tastatur, Barrierefreiheit, Qualitätsprüfung
+
+* **Tastatur:** `Strg/⌘ K` öffnet die Befehlspalette (Specs, Dokumente und Begriffe finden, Seiten wechseln, Neuer Spec, Sync, Darstellung, Dichte), `?` zeigt alle Kürzel (`g` dann `s`/`d`/`l`/`r`/`a`/`t`/`y` springt zu Specs, Dokumenten, Glossar, Release, Garden, Members & Git, Sync; `n` neuer Spec; `/` sucht in der Liste). Der erste Tab-Stopp ist ein Sprunglink zum Inhalt; jede Seite hat einen eigenen Fenstertitel.
+* **Persönliches:** Sortierung, Filter, Typ und Listendichte merkt sich das Gerät (Menü *Account* → *Lists*, oder Palette). *Garden* zeigt *Agents at work* und bietet **Pause/Resume agents** (Team-Admins): pausierte Agenten bekommen eine leere Arbeitsliste und keine Webhook-Aufrufe, Antworten und Berichte werden weiter angenommen. *Team health* (Garden) rechnet Durchlaufzeiten und Umsetzungsstand aus den vorhandenen Daten – nichts wird gesammelt oder gesendet.
+* **Prüfung:** `npm run ux-audit` startet eine Wegwerf-Instanz mit Stressdaten und prüft die gerenderte App auf Handy und Desktop (axe-core WCAG 2.2 AA, Fokus, Touch-Ziele, Titel/Landmarken, Sicherheits-Header, Ladezeit auf einem langsamen Handy). Einordnung gegen die Enterprise-UX-Leitfäden: `docs/UX-SCORECARD.md`; Begriffe: `docs/UI-VOCABULARY.md`; Design-Tokens und Komponenten: `docs/DESIGN-SYSTEM.md`.
+* **Sicherheits-Header:** Die App liefert eine Content-Security-Policy (nur eigene Skripte, keine fremden Verbindungen), `frame-ancestors 'none'`, `nosniff`, Referrer- und Permissions-Policy; Assets sind komprimiert und mit Hash dauerhaft gecacht.
+
 ## Wie es funktioniert
 
 | Teil | Umsetzung |
