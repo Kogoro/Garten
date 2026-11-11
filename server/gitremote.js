@@ -49,7 +49,16 @@ export async function testRemote(teamId) {
   } finally { await cleanup(); }
 }
 
-export async function pushTeam(teamId) {
+// Pushes of one team run one after the other, but only the local merge holds the repository lock: the network steps (fetch, push) can be slow or
+// hang, and releases must not wait for them.
+const pushChains = new Map();
+export function pushTeam(teamId) {
+  const run = (pushChains.get(teamId) ?? Promise.resolve()).catch(() => {}).then(() => pushNow(teamId));
+  pushChains.set(teamId, run);
+  return run;
+}
+
+async function pushNow(teamId) {
   const team = getTeam(teamId);
   if (!team.row.git_url) throw new TeamError('No repository URL configured');
   const repo = repoFor(team);
@@ -57,13 +66,15 @@ export async function pushTeam(teamId) {
   const branch = team.row.git_branch;
   const { env, cleanup } = await authEnv(team);
   try {
-    const result = await repo.lock(async () => {
-      const g = (...a) => repo.raw(env, ...a);
+    const g = (...a) => repo.raw(env, ...a);
+    await repo.lock(async () => {
       await repo.raw(null, 'remote', 'remove', 'origin').catch(() => {});
       await repo.raw(null, 'remote', 'add', 'origin', '--', team.row.git_url);
-      let remoteExists = true;
-      try { await g('fetch', '--no-tags', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`); }
-      catch (e) { if (/couldn't find remote ref/i.test(e.stderr ?? '')) remoteExists = false; else throw e; }
+    });
+    let remoteExists = true;
+    try { await g('fetch', '--no-tags', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`); } // network, no lock
+    catch (e) { if (/couldn't find remote ref/i.test(e.stderr ?? '')) remoteExists = false; else throw e; }
+    const sha = await repo.lock(async () => { // local only: merge what the remote has, then name the commit that gets pushed
       if (remoteExists) {
         const anc = await repo.raw(null, 'merge-base', '--is-ancestor', `origin/${branch}`, 'HEAD').then(() => true, () => false);
         if (!anc) { // remote has work we do not have: merge it in, the Specs app wins conflicts on files it manages
@@ -81,11 +92,12 @@ export async function pushTeam(teamId) {
           }
         }
       }
-      await g('push', 'origin', `HEAD:refs/heads/${branch}`);
-      let warning;
-      try { await g('push', 'origin', '--tags'); } catch (e) { warning = `Pushed, but some tags were rejected: ${scrub(team, e.stderr || e.message).split('\n')[0]}`; }
-      return { sha: (await repo.raw(null, 'rev-parse', 'HEAD')).trim(), warning };
+      return (await repo.raw(null, 'rev-parse', 'HEAD')).trim();
     });
+    await g('push', 'origin', `${sha}:refs/heads/${branch}`); // network, no lock; a commit made meanwhile is pushed by the next run
+    let warning;
+    try { await g('push', 'origin', '--tags'); } catch (e) { warning = `Pushed, but some tags were rejected: ${scrub(team, e.stderr || e.message).split('\n')[0]}`; }
+    const result = { sha, warning };
     recordPush(teamId, { ok: true, sha: result.sha, error: result.warning });
     return result;
   } catch (e) {
@@ -110,12 +122,36 @@ export async function generateSshKey(teamId) {
 }
 
 // ---- auto push after every release/revoke (debounced, never blocks the request that caused it)
+// A failed push is tried again (1, 5, 30 minutes). After a restart, teams whose HEAD is not what was last pushed catch up.
 const timers = new Map();
+const RETRY_MS = [60_000, 300_000, 1_800_000];
+function schedulePush(teamId, delay = 1500, attempt = 0) {
+  clearTimeout(timers.get(teamId));
+  const t = setTimeout(() => {
+    const team = getTeam(teamId);
+    if (!team?.row.git_url || !team.row.git_auto_push) return;
+    pushTeam(teamId).catch((e) => {
+      console.error(`auto-push ${team.key}:`, e.message);
+      if (attempt < RETRY_MS.length) schedulePush(teamId, RETRY_MS[attempt], attempt + 1);
+    });
+  }, delay);
+  t.unref?.();
+  timers.set(teamId, t);
+}
 export function initAutoPush() {
   events.on('committed', (teamId) => {
     const t = getTeam(teamId);
     if (!t?.row.git_url || !t.row.git_auto_push) return;
-    clearTimeout(timers.get(teamId));
-    timers.set(teamId, setTimeout(() => pushTeam(teamId).catch((e) => console.error(`auto-push ${t.key}:`, e.message)), 1500));
+    schedulePush(teamId);
   });
+}
+/** At startup: push whatever was released but not pushed before the server stopped. */
+export async function catchUpPushes(teams) {
+  for (const team of teams) {
+    if (!team.row.git_url || !team.row.git_auto_push) continue;
+    try {
+      const head = (await repoFor(team).git('rev-parse', 'HEAD').catch(() => '')).trim();
+      if (head && head !== team.row.git_last_sha) schedulePush(team.id, 5000);
+    } catch (e) { console.error(`catch-up ${team.key}:`, e.message); }
+  }
 }

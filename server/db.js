@@ -261,3 +261,13 @@ addColumn('teams', 'hook_last_at', 'TEXT');
 addColumn('teams', 'hook_last_ok', 'INTEGER');
 addColumn('teams', 'hook_last_info', 'TEXT');
 addColumn('teams', 'garden_rev', 'INTEGER NOT NULL DEFAULT 0');   // bumped whenever feedback, decisions or reports change
+
+// Events for a team's webhook wait here until they were delivered, so a restart or a receiver that is briefly down loses nothing.
+db.exec(`CREATE TABLE IF NOT EXISTS hook_outbox (
+  team_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  key TEXT NOT NULL,
+  entry TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (team_id, kind, key)
+)`);

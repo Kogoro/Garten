@@ -716,6 +716,28 @@ try {
     assert.equal(r[0].item.version, 2); ok('a spec id that is used again continues its version numbers');
   }
 
+  // webhook outbox: an event that could not be delivered survives a restart and is delivered afterwards
+  {
+    const dataDir = mkdtempSync(path.join(process.env.TEST_TMP || tmpdir(), 'specs-outbox-'));
+    const probe = createHttpServer(); await new Promise((r) => probe.listen(0, '127.0.0.1', r)); const hookPort = probe.address().port; await new Promise((r) => probe.close(r));
+    const env = { DATA_DIR: dataDir, HOOK_ALLOW_LOCAL: '1', HOOK_DEBOUNCE_MS: '100', SEED_DEMO: '0' };
+    const a = await startServer(env);
+    const ca = new Client(a.base); await ca.login('admin@localhost', 'adminpass1');
+    assert.equal((await ca.req('PATCH', `/api/teams/${ca.tid}`, { hook: { url: `http://127.0.0.1:${hookPort}/fire`, format: 'full' } })).status, 200);
+    const ra = await ca.push([{ id: 'SPEC-001', kind: 'spec', baseRev: 0, approve: true, fields: { title: 'Outbox spec', body: '## GOAL\nx\n' } }]);
+    assert.equal(ra[0].item.version, 1);
+    await new Promise((r) => setTimeout(r, 1200)); // one delivery attempt fails: nobody listens yet
+    a.stop(); await new Promise((r) => setTimeout(r, 600));
+    const got = [];
+    const late = createHttpServer((req, res) => { let b = ''; req.on('data', (d) => (b += d)); req.on('end', () => { got.push(JSON.parse(b || '{}')); res.writeHead(200); res.end('{}'); }); });
+    await new Promise((r) => late.listen(hookPort, '127.0.0.1', r));
+    const b = await startServer(env);
+    try {
+      for (let i = 0; i < 60 && !got.length; i++) await new Promise((r) => setTimeout(r, 250));
+      assert.equal(got.length, 1); assert.equal(got[0].released[0].id, 'SPEC-001'); ok('a webhook event that could not be delivered is sent after a restart');
+    } finally { b.stop(); late.close(); }
+  }
+
   // glossary lookup: input is validated before any third party is asked; sign-in is required
   assert.equal((await admin.get('/api/lookup?q=a')).status, 400); ok('lookup: a too short term is rejected');
   assert.equal((await anon.get('/api/lookup?q=idempotence')).status, 401); ok('lookup: needs a sign-in');

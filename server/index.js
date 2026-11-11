@@ -12,8 +12,9 @@ import { provider, consentRouter } from './oauth.js';
 import { oidcRouter } from './oidc.js';
 import { bootstrapAdmin } from './auth.js';
 import * as store from './store.js';
-import { initAutoPush } from './gitremote.js';
-import { initHooks } from './hooks.js';
+import { initAutoPush, catchUpPushes } from './gitremote.js';
+import { initHooks, resumeHooks } from './hooks.js';
+import { listTeams } from './teams.js';
 import { seedDemo } from './seed.js';
 
 const defaultTeam = await bootstrapAdmin();
@@ -25,6 +26,8 @@ if (SEED_DEMO && store.allSpecs(defaultTeam.id).length === 0 && store.allDocs(de
   console.log('seeded demo data');
 }
 await store.startupSweep();
+resumeHooks();
+catchUpPushes(listTeams()).catch((e) => console.error('catch-up:', e.message));
 
 const app = express();
 app.disable('x-powered-by');

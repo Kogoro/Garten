@@ -130,35 +130,50 @@ export async function testHook(teamId) {
   return { ...out, hook: publicHook(getTeam(teamId)) };
 }
 
-// ---- releases and answers are collected per team and sent as one call after a quiet period
-const pending = new Map();
+// ---- releases and answers are collected per team (table hook_outbox) and sent as one call after a quiet period.
+// A failed delivery stays in the table and is retried after 30 s, 2 min, 10 min, 1 h; then it is dropped (the work list is what counts).
+const timers = new Map();
+const attempts = new Map();
+const RETRY_MS = [30_000, 120_000, 600_000, 3_600_000];
+function arm(teamId, delay) {
+  clearTimeout(timers.get(teamId));
+  const t = setTimeout(() => flush(teamId).catch((e) => console.error('webhook:', e.message)), delay);
+  t.unref?.();
+  timers.set(teamId, t);
+}
 function queue(teamId, kind, key, entry) {
   const team = getTeam(teamId);
   if (!team?.row.hook_url || !String(team.row.hook_events).split(',').includes(kind)) return;
-  const q = pending.get(teamId) ?? { release: new Map(), answer: new Map(), timer: null };
-  q[kind].set(key, entry);
-  clearTimeout(q.timer);
-  q.timer = setTimeout(() => flush(teamId).catch((e) => console.error('webhook:', e.message)), HOOK_DEBOUNCE_MS);
-  q.timer.unref?.();
-  pending.set(teamId, q);
+  db.prepare('INSERT OR REPLACE INTO hook_outbox (team_id,kind,key,entry,created_at) VALUES (?,?,?,?,?)').run(teamId, kind, key, JSON.stringify(entry), new Date().toISOString());
+  arm(teamId, HOOK_DEBOUNCE_MS);
 }
 async function flush(teamId) {
-  const q = pending.get(teamId);
-  pending.delete(teamId);
+  timers.delete(teamId);
+  const rows = db.prepare('SELECT kind,key,entry FROM hook_outbox WHERE team_id=? ORDER BY created_at').all(teamId);
   const team = getTeam(teamId);
-  if (!q || !team?.row.hook_url) return;
-  const released = [...q.release.values()], answered = [...q.answer.values()];
-  if (!released.length && !answered.length) return;
+  if (!rows.length) return;
+  if (!team?.row.hook_url) { db.prepare('DELETE FROM hook_outbox WHERE team_id=?').run(teamId); return; }
+  const released = rows.filter((r) => r.kind === 'release').map((r) => JSON.parse(r.entry));
+  const answered = rows.filter((r) => r.kind === 'answer').map((r) => JSON.parse(r.entry));
   const lines = [`Update from Specs for the team "${team.name}".`];
   if (released.length) lines.push('', 'Released (approved by a person):', ...released.map((r) => `- ${r.id} v${r.version}: ${r.title}${r.by ? ` (approved by ${r.by})` : ''}`));
   if (answered.length) lines.push('', 'Decisions answered:', ...answered.map((a) => `- ${a.spec_id}: "${a.question}" → ${a.answer ?? 'see note'}${a.note ? ` (note: ${a.note})` : ''}`));
   lines.push('', HOWTO);
-  await send(teamId, {
+  const out = await send(teamId, {
     event: released.length && answered.length ? 'release+answer' : released.length ? 'release' : 'answer',
     team: { id: team.id, key: team.key, name: team.name }, released, answered, mcpUrl: `${PUBLIC_URL}/mcp`, text: lines.join('\n'),
   });
+  // remove only what was sent; entries that arrived meanwhile stay for the next call
+  const del = db.prepare('DELETE FROM hook_outbox WHERE team_id=? AND kind=? AND key=? AND entry=?');
+  if (out.ok) { for (const r of rows) del.run(teamId, r.kind, r.key, r.entry); attempts.delete(teamId); return; }
+  const n = attempts.get(teamId) ?? 0;
+  if (n < RETRY_MS.length) { attempts.set(teamId, n + 1); arm(teamId, RETRY_MS[n]); }
+  else { for (const r of rows) del.run(teamId, r.kind, r.key, r.entry); attempts.delete(teamId); console.warn(`webhook of team ${team.key}: giving up after ${n + 1} attempts`); }
 }
-export const flushHook = flush; // for tests
+/** At startup: deliver what was still waiting when the server stopped. */
+export function resumeHooks() {
+  for (const { team_id } of db.prepare('SELECT DISTINCT team_id FROM hook_outbox').all()) arm(team_id, 3000);
+}
 
 export function initHooks() {
   events.on('released', (e) => queue(e.teamId, 'release', e.id, { id: e.id, version: e.version, title: e.title, by: e.by }));
