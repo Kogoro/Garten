@@ -161,14 +161,19 @@ export function ItemEditor({ item }: { item: Item }) {
     ...(saveState(item, S) === 'synced' || saveState(item, S) === 'ro' ? [] : [saveState(item, S) === 'dirty' ? 'Saved on device, not synced' : saveState(item, S) === 'conflict' ? 'Conflict with server' : 'Sync problem'])].join(' · ');
   const approveLine = isSpec && S.can('approve') && !item.approve && (item.status !== 'approved' || S.hasUnreleased(item))
     ? `Becomes v${item.version + 1} · ${S.feedbackCount(item.id)} open feedback · ${item.links.length} document${item.links.length === 1 ? '' : 's'}` : '';
+  const titleEl = (
+    <>
+      {isSpec
+                ? phone && locked ? <h1 className="ed-title view" title={path}>{item.title || <span className="muted">Untitled spec</span>}</h1> : <><label className="sr" htmlFor="title">Title</label><input id="title" className="ed-title" placeholder="Spec title" value={item.title} autoComplete="off" title={path} readOnly={locked} onChange={(e) => S.edit(item.id, { title: e.target.value })} /></>
+                : <h1 className="ed-title" title={path} style={item.core ? undefined : { fontFamily: 'var(--mono)', fontSize: 15 }}>{CORE_LABEL[item.id] ?? item.id}</h1>}
+    </>
+  );
   return (
     <div className="editor" data-editor={item.id}>
       <header className="bar ed-bar">
         {isSpec && !(phone && locked) && <h1 className="sr">{item.title || item.id}</h1>}
         <Link className="icon-btn back" to={back} aria-label="Back"><Icon name="back" /></Link>
-        {isSpec
-          ? phone && locked ? <h1 className="ed-title view" title={path}>{item.title || <span className="muted">Untitled spec</span>}</h1> : <><label className="sr" htmlFor="title">Title</label><input id="title" className="ed-title" placeholder="Spec title" value={item.title} autoComplete="off" title={path} readOnly={locked} onChange={(e) => S.edit(item.id, { title: e.target.value })} /></>
-          : <h1 className="ed-title" title={path} style={item.core ? undefined : { fontFamily: 'var(--mono)', fontSize: 15 }}>{CORE_LABEL[item.id] ?? item.id}</h1>}
+        {phone ? <div className="ed-titlebox">{titleEl}<div className="ed-meta" id="edMeta">{metaLine}</div></div> : titleEl}
         {!phone && <>
         <span className="ed-break" aria-hidden="true" />
         <span id="chips" className="barchips">{isSpec && <TypeChip s={item} S={S} />}<StatusChip i={item} S={S} /><AgentChip s={item} S={S} />{isSpec && item.status === 'approved' && <button type="button" className="chipbtn" data-act="report" onClick={() => setSheet('report')}><ImplChip spec={item} always /></button>}</span>
@@ -177,10 +182,9 @@ export function ItemEditor({ item }: { item: Item }) {
         <SaveInd i={item} S={S} />
         </>}
         {!phone && <span id="approveSlot"><ApproveButton i={item} S={S} /></span>}
-        {phone && editing && !ro && <button type="button" className="btn primary small ed-done" data-act="edit-done" onClick={() => setEditing(false)}>Done</button>}
+        {phone && editing && !ro && <button type="button" className="ed-done" data-act="edit-done" onClick={() => setEditing(false)}>Done</button>}
         <button type="button" className="icon-btn" data-act="item-menu" aria-label="More actions" aria-haspopup="menu" onClick={itemMenu}><Icon name="more" /></button>
       </header>
-      {phone && <div className="ed-meta" id="edMeta">{metaLine}</div>}
       {phone && locked && isSpec && (
         <section className="sumcard" aria-label="Overview">
           {item.status === 'approved' && <button type="button" className="sumrow" data-act="report" onClick={() => setSheet('report')}><span>Implementation</span><span className="sumval"><ImplChip spec={item} always /></span><span className="chev"><Icon name="chevron" size={16} /></span></button>}

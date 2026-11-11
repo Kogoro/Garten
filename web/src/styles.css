@@ -752,9 +752,12 @@ kbd { display: inline-block; min-width: 22px; padding: 1px 6px; border: 1px soli
 }
 
 /* phone editor, read first: one quiet meta line, a short overview list, Edit on purpose */
-.ed-meta { padding: 0 16px 10px 52px; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
-.ed-bar .ed-title.view { font: 600 20px/1.25 var(--display); white-space: normal; overflow: visible; text-overflow: clip; margin: 0; padding: 4px 0; }
-.ed-done { flex-shrink: 0; order: 3; color: var(--on-green); background: var(--green-solid); border-color: var(--green-solid); font-weight: 600; }
+.ed-titlebox { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; justify-content: center; order: 2; }
+.ed-meta { font-size: 12px; line-height: 1.3; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ed-bar .ed-title.view { font: 600 17px/1.25 var(--display); margin: 0; padding: 0; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+/* ghost: text only, the touch area stays 44 px */
+.ed-done { flex-shrink: 0; order: 3; min-height: 44px; min-width: 44px; padding: 0 10px; border: 0; background: none; color: var(--green); font: 600 15px var(--sans); }
+.ed-done:hover { background: var(--tint); border-radius: 10px; }
 .sumcard { margin: 4px 12px 8px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); overflow: hidden; }
 .sumrow { width: 100%; display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 0 14px; border: 0; border-top: 1px solid var(--line); background: none; color: var(--text); font: 500 15px var(--sans); text-align: left; }
 .sumrow:first-child { border-top: 0; }
@@ -767,3 +770,12 @@ kbd { display: inline-block; min-width: 22px; padding: 1px 6px; border: 1px soli
   .editor > .ed-bar { flex-wrap: nowrap; padding-bottom: 0; }
   .ed-bar .ed-title { flex: 1 1 0; }
 }
+
+@media (max-width: 700px) {
+  .editor > .ed-bar { min-height: 52px; height: auto; padding-top: 4px; padding-bottom: 4px; align-items: center; }
+  .ed-titlebox .ed-title { flex: none; width: 100%; font-size: 17px; line-height: 1.25; height: auto; }
+}
+.ed-titlebox .ed-title { order: 0; } .ed-titlebox .ed-meta { order: 1; }
+.ed-titlebox input.ed-title { height: 26px; min-height: 0; padding: 0; line-height: 26px; }
+.ed-titlebox .ed-meta { margin-top: 1px; }
+.ed-bar h1.ed-title { min-height: 0; }
