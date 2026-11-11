@@ -813,7 +813,7 @@ kbd { display: inline-block; min-width: 22px; padding: 1px 6px; border: 1px soli
 @media (max-width: 700px) { .filter { min-height: 36px; } .listtools .filters { gap: 6px; } }
 .row-when { margin-left: auto; display: inline-flex; gap: 8px; white-space: nowrap; }
 @media (max-width: 700px) { .row-docs, .row-word { display: none; } .row-meta { flex-wrap: nowrap; overflow: hidden; } .row-meta > .chip { flex-shrink: 0; } }
-@media (max-width: 700px) { .pill { min-height: 34px; padding: 0 10px; font-size: 12px; } .ws-btn { width: 36px; height: 36px; } }
+@media (max-width: 700px) { .ws-btn { width: 36px; height: 36px; } }
 
 /* =====================================================================================
    COHESION LAYER – one scale for the whole app (phone first)
@@ -827,12 +827,6 @@ kbd { display: inline-block; min-width: 22px; padding: 1px 6px; border: 1px soli
 @media (max-width: 700px) {
   /* header: title left; one add button, one quiet sync glyph, one neutral team button */
   .bar > *:not(h1):not(h2):not(.grow) { flex-shrink: 0; }
-  .bar-add { min-width: var(--ctl); height: var(--ctl); padding: 0 10px; background: none; border: 0; color: var(--green); }
-  .bar-add .lbl, .bar-add .chev-d { display: none; }
-  .bar-add svg { width: 22px; height: 22px; }
-  .pill.quiet { width: var(--ctl); height: var(--ctl); min-height: var(--ctl); padding: 0; justify-content: center; border: 0; background: none; color: var(--muted); }
-  .pill.quiet svg { width: 16px; height: 16px; }
-  .pill:not(.quiet) { min-height: var(--ctl-s); padding: 0 10px; }
   .ws-btn { width: var(--ctl); height: var(--ctl); }
   .ws-btn .ws-av { width: 28px; height: 28px; background: none; border: 1px solid var(--line2); color: var(--soft); font-size: 13px; border-radius: 50%; }
   /* controls */
@@ -868,7 +862,33 @@ kbd { display: inline-block; min-width: 22px; padding: 1px 6px; border: 1px soli
   label.check { min-height: 40px; }
 }
 @media (max-width: 700px) {
-  .bar .btn.primary.bar-add, .bar .bar-add.btn { background: none; border: 0; color: var(--green); box-shadow: none; }
   .card p, .page > p { line-height: 1.4; margin-block: 0; }
   .kv a { min-height: 40px; min-width: 40px; }
+}
+
+/* page tabs (Members & Git, Admin, Account) – same on phone and desktop */
+.tabs { display: flex; gap: 2px; padding: 0 12px; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; flex-shrink: 0; background: var(--bg); }
+.tabs::-webkit-scrollbar { display: none; }
+.tabs .tab { flex: 0 0 auto; padding: 0 12px; min-height: 40px; font-size: 14px; }
+.tab-badge { margin-left: 6px; padding: 0 6px; border-radius: 9px; background: var(--tint); color: var(--muted); font-size: 11px; font-weight: 700; }
+
+/* sync status: a dot. green = on the server, amber = waiting, red = needs you. Words only where there is room (desktop sidebar). */
+.pill { display: inline-flex; align-items: center; gap: 8px; min-height: 28px; padding: 0 8px; border: 0; background: none; color: var(--muted); font-size: 12px; font-weight: 600; border-radius: var(--r); }
+.pill .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--green); flex: none; }
+.pill.sync-warn { color: var(--amber); } .pill.sync-warn .dot { background: var(--amber); }
+.pill.sync-bad { color: var(--red); } .pill.sync-bad .dot { background: var(--red); }
+.pill-n { display: none; }
+@media (max-width: 700px) {
+  .pill { min-width: var(--ctl); min-height: var(--ctl); padding: 0 6px; justify-content: center; gap: 4px; }
+  .pill .dot { width: 10px; height: 10px; }
+  .pill-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .pill-n { display: inline; font-size: 11px; font-weight: 700; }
+}
+
+/* headings in documents: BlockNote leaves out data-level for level 1 (default 3em = 48 px) – set every level explicitly */
+.bn-editor [data-content-type="heading"]:not([data-level]), .bn-editor [data-content-type="heading"][data-level="1"] { --level: 24px; }
+@media (max-width: 700px) {
+  .bn-editor [data-content-type="heading"]:not([data-level]), .bn-editor [data-content-type="heading"][data-level="1"] { --level: 21px; }
+  .bn-editor [data-content-type="heading"][data-level="2"] { --level: 17px; }
+  .bn-editor [data-content-type="heading"][data-level="3"] { --level: 15px; }
 }

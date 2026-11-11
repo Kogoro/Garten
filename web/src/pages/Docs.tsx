@@ -5,6 +5,7 @@ import { Bar, Shell } from '../Shell';
 import { CORE_LABEL, enc, foundState, hasContent } from '../lib';
 import { PathSheet, type PathSheetKind } from '../sheets';
 import { openMenu, useUi } from '../state';
+import { Fab } from '../Fab';
 import type { Item } from '../store/types';
 import { Icon, ago, toast, touched, useStore } from '../ui';
 import { ItemEditor, ItemSync, NotFound } from './ItemEditor';
@@ -65,7 +66,7 @@ function DocsList({ selected }: { selected?: string }) {
     <>
       <Bar title="Documents">
         {can && (
-          <Dropdown className="btn primary bar-add" ariaLabel="New" buttonProps={{ 'aria-label': 'New' }} label={<><Icon name="plus" size={14} /><span className="lbl">New</span><span className="chev-d"><Icon name="chevron" size={14} /></span></>}>
+          <Dropdown className="btn primary only-desktop" ariaLabel="New" label={<><Icon name="plus" size={14} /> New <Icon name="chevron" size={14} /></>}>
             {(close) => <>
               <button type="button" role="menuitem" onClick={() => { close(); setSheet({ kind: 'newdoc', value: ui.lastFolder ? `${ui.lastFolder}/` : '' }); }}><Icon name="file" size={16} /><span>Document</span></button>
               <button type="button" role="menuitem" onClick={() => { close(); setSheet({ kind: 'newfolder', value: '' }); }}><Icon name="folderPlus" size={16} /><span>Folder <small>with README.md</small></span></button>
@@ -84,6 +85,7 @@ function DocsList({ selected }: { selected?: string }) {
         {tree.folders.size || tree.docs.length ? renderNode(tree, '', 0) : <div className="empty">No documents yet.<br />Add ADRs, schemas or notes and link them to specs. Organise them in folders.</div>}
       </div>
       {sheet && <PathSheet kind={sheet.kind} value={sheet.value} from={sheet.from} onClose={() => setSheet(null)} />}
+      {can && <Fab label="New" act="new-doc" onClick={async () => { const k = await openMenu('New', [{ key: 'doc', label: 'Document' }, { key: 'folder', label: 'Folder with README.md' }]); if (k === 'doc') setSheet({ kind: 'newdoc', value: ui.lastFolder ? `${ui.lastFolder}/` : '' }); else if (k === 'folder') setSheet({ kind: 'newfolder', value: '' }); }} />}
     </>
   );
 }

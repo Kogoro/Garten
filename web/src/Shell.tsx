@@ -10,15 +10,16 @@ import { densityPref, setDensity } from './prefs';
 export function SyncPill() {
   const S = useStore();
   const q = S.queue().length + S.fbPending(), c = S.conflicts().length, st = S.state;
-  let cls = 'ok', text = 'Synced', icon = ic.check(14);
-  if (st.sessionExpired) [cls, text, icon] = ['bad', 'Sign in to sync', ic.warn(14)];
-  else if (c) [cls, text, icon] = ['bad', `${c} conflict${c > 1 ? 's' : ''}`, ic.warn(14)];
-  else if (!st.online) [cls, text, icon] = ['warn', `Offline${q ? ` · ${q}` : ''}`, ic.off()];
-  else if (st.syncing) [cls, text, icon] = ['', 'Syncing…', ic.sync(14)];
-  else if (st.error) [cls, text, icon] = ['bad', 'Sync failed', ic.warn(14)];
-  else if (q) [cls, text, icon] = ['warn', `${q} queued`, ic.up(14)];
-  const quiet = cls === 'ok'; // quiet when fine, loud when not: only a problem or waiting work gets words and colour
-  return <Link className={`pill ${cls}${quiet ? ' quiet' : ''}`} data-pill to="/sync" title={text}><span dangerouslySetInnerHTML={{ __html: icon }} />{quiet ? <span className="sr">{text}</span> : text}</Link>;
+  // green = everything is on the server · amber = waiting (offline, queued, syncing) · red = needs you (conflict, signed out, failed)
+  let cls = 'ok', text = 'Synced';
+  if (st.sessionExpired) [cls, text] = ['bad', 'Sign in to sync'];
+  else if (c) [cls, text] = ['bad', `${c} conflict${c > 1 ? 's' : ''}`];
+  else if (!st.online) [cls, text] = ['warn', `Offline${q ? ` · ${q}` : ''}`];
+  else if (st.syncing) [cls, text] = ['warn', 'Syncing…'];
+  else if (st.error) [cls, text] = ['bad', 'Sync failed'];
+  else if (q) [cls, text] = ['warn', `${q} queued`];
+  // phones show the dot (and a count while work is waiting); the sidebar on a desktop has room for the words
+  return <Link className={`pill sync-${cls}`} data-pill to="/sync" title={text}><span className="dot" aria-hidden="true" /><span className="pill-text">{text}</span>{q > 0 && <span className="pill-n" aria-hidden="true">{q}</span>}</Link>;
 }
 
 /** Team switcher / account / "more" menus (bottom sheets) and what they do. */

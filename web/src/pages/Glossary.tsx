@@ -4,6 +4,7 @@ import { splitList } from '@shared/glossary.js';
 import { Dropdown, FormError, Sheet } from '../dialogs';
 import { Bar, Shell } from '../Shell';
 import { openMenu, useUi } from '../state';
+import { Fab } from '../Fab';
 import { Icon, toast, useStore } from '../ui';
 import { api } from '../store/core';
 import { Linkify, TermRef, glossaryPath, glossaryTerms, groupOf, mentions, plain, termIndex, type Term } from '../glossaryLib';
@@ -123,7 +124,7 @@ function ImportSheet({ onClose }: { onClose: () => void }) {
 }
 
 function GlossaryList({ selected }: { selected?: string }) {
-  const S = useStore(); const ui = useUi();
+  const S = useStore(); const ui = useUi(); const nav = useNavigate();
   const [q, setQ] = useState('');
   const [sheet, setSheet] = useState<null | { t: 'term' | 'folder' | 'import'; from?: string }>(null);
   const all = glossaryTerms(S);
@@ -155,7 +156,7 @@ function GlossaryList({ selected }: { selected?: string }) {
     <>
       <Bar title="Glossary">
         {can && (
-          <Dropdown className="btn primary bar-add" ariaLabel="New" buttonProps={{ 'aria-label': 'New' }} label={<><Icon name="plus" size={14} /><span className="lbl">New</span><span className="chev-d"><Icon name="chevron" size={14} /></span></>}>
+          <Dropdown className="btn primary only-desktop" ariaLabel="New" label={<><Icon name="plus" size={14} /> New <Icon name="chevron" size={14} /></>}>
             {(close) => <>
               <button type="button" role="menuitem" onClick={() => { close(); setSheet({ t: 'term' }); }}><Icon name="book" size={16} /><span>Term</span></button>
               <button type="button" role="menuitem" onClick={() => { close(); setSheet({ t: 'folder' }); }}><Icon name="folderPlus" size={16} /><span>Folder</span></button>
@@ -188,6 +189,7 @@ function GlossaryList({ selected }: { selected?: string }) {
       {sheet?.t === 'term' && <TermSheet onClose={() => setSheet(null)} />}
       {sheet?.t === 'folder' && <FolderSheet from={sheet.from} onClose={() => setSheet(null)} />}
       {sheet?.t === 'import' && <ImportSheet onClose={() => setSheet(null)} />}
+      {can && <Fab label="New" act="new-term" onClick={async () => { const k = await openMenu('New', [{ key: 'term', label: 'Term' }, { key: 'folder', label: 'Folder' }, { key: 'import', label: 'Import from global glossary…' }, { key: 'md', label: 'Open as Markdown' }]); if (k === 'term') setSheet({ t: 'term' }); else if (k === 'folder') setSheet({ t: 'folder' }); else if (k === 'import') { await S.loadGlobalGlossary(); setSheet({ t: 'import' }); } else if (k === 'md') nav('/doc/glossary.md'); }} />}
     </>
   );
 }

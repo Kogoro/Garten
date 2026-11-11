@@ -1,5 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Bar, Shell } from '../Shell';
+import { Tabs } from '../Tabs';
+import { usePref } from '../prefs';
 import { guard } from '../hooks';
 import { CreateTeamSheet } from '../sheets';
 import type { Me, TeamInfo } from '../store/types';
@@ -17,6 +19,7 @@ export function AccountPage() {
   const [acc, setAcc] = useState<any>(null);
   const [nt, setNt] = useState<any>(null);
   const [sheet, setSheet] = useState(false);
+  const [tab, setTab] = usePref<'access' | 'teams' | 'settings'>('tab-account', 'access', ['access', 'teams', 'settings']);
   const load = async () => { try { setAcc(await S.api('GET', '/api/me/tokens')); } catch { setAcc({ tokens: [], connections: [] }); } };
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const online = S.state.online && !S.state.sessionExpired;
@@ -47,16 +50,17 @@ export function AccountPage() {
   return (
     <Shell single master={<>
       <Bar title="Account" />
-      <div className="scroll"><div className="page">
+      <Tabs label="Account" value={tab} onChange={(v) => setTab(v as typeof tab)} tabs={[{ id: 'access', label: 'Agent access' }, { id: 'teams', label: 'Teams', badge: invites.length || '' }, { id: 'settings', label: 'Settings' }]} />
+      <div className="scroll"><div className="page" id="tabpanel" role="tabpanel" aria-labelledby={`tab-${tab}`}>
         <p className="note" style={{ margin: 0 }}>{me.name} · {me.email}{me.admin ? ' · instance admin' : ''}</p>
         {invites.length > 0 && <section className="card"><h2>Invitations</h2>{invites.map((i) => <div className="rel" key={i.id}><div className="grow"><b>{i.teamName}</b><span>{i.invitedBy ? `${i.invitedBy} · ` : ''}role {i.role}</span></div>
           <button className="btn small" data-act="invite-decline" onClick={guard(async () => { await S.declineInvite(i.id); })}>Decline</button>
           <button className="btn primary small" data-act="invite-accept" onClick={guard(async () => { await S.acceptInvite(i.id); toast('Joined the team'); })}>Join</button></div>)}</section>}
-        <section className="card"><div className="card-head"><h2>Your teams &amp; roles</h2><button className="btn small" data-act="create-team-sheet" onClick={() => setSheet(true)}><Icon name="plus" size={14} /> New team</button></div>
+        {tab === 'teams' && <><section className="card"><div className="card-head"><h2>Your teams &amp; roles</h2><button className="btn small" data-act="create-team-sheet" onClick={() => setSheet(true)}><Icon name="plus" size={14} /> New team</button></div>
           {teams.length ? teams.map((x) => <div className="kv" key={x.id}><span>{x.name} <span className="muted mono">{x.key}</span></span><span className="chip ok">{x.role}</span></div>) : <div className="muted">You are not a member of any team yet.</div>}
-          {t && <><div className="rights">{RIGHTS.map(([k, l]) => <span key={k} className={`right ${t.perms.includes(k) ? 'yes' : 'no'}`}>{t.perms.includes(k) ? <Icon name="check" size={12} /> : '–'} {l}</span>)}</div><p className="note">Rights shown for {t.name}. Agents you connect act with exactly these rights in the team you choose.</p></>}</section>
+          {t && <><div className="rights">{RIGHTS.map(([k, l]) => <span key={k} className={`right ${t.perms.includes(k) ? 'yes' : 'no'}`}>{t.perms.includes(k) ? <Icon name="check" size={12} /> : '–'} {l}</span>)}</div><p className="note">Rights shown for {t.name}. Agents you connect act with exactly these rights in the team you choose.</p></>}</section></>}
 
-        <section className="card"><div className="card-head"><h2>Agent access (MCP)</h2></div>
+        {tab === 'access' && <><section className="card"><div className="card-head"><h2>Agent access (MCP)</h2></div>
           <div className="mono" style={{ fontSize: 13, color: 'var(--soft)', wordBreak: 'break-all' }}>{mcp}</div>
           <p className="note"><b style={{ color: 'var(--text)' }}>OAuth (recommended):</b> <span className="mono">claude mcp add --transport http specs {mcp}</span>, then authenticate in the browser and pick the team.</p>
           {nt && <div className="card ok-card"><b>Token “{nt.pat.name}” for {nt.pat.teamName} — copy it now, it is shown only once.</b><div className="code">{nt.token}</div>
@@ -75,17 +79,17 @@ export function AccountPage() {
           {acc ? (acc.tokens.length ? acc.tokens.map((k: any) => <div className="rel" style={{ padding: '10px 0' }} key={k.id}><div className="grow"><b>{k.name}</b><span className="mono">{k.teamName} · {k.prefix}… · {scopesText(k.scopes)} · {k.expired ? 'expired' : `expires ${new Date(k.expiresAt).toLocaleDateString()}`} · {k.lastUsedAt ? `used ${ago(Date.parse(k.lastUsedAt))}` : 'never used'}</span></div><button className="btn small" data-act="revoke-token" onClick={guard(async () => { await S.api('DELETE', `/api/me/tokens/${k.id}`); await load(); })}>Revoke</button></div>) : <div className="muted" style={{ fontSize: 13 }}>No personal tokens.</div>) : <div className="muted" style={{ fontSize: 13 }}>Loading…</div>}
           <div className="sect-title" style={{ margin: '6px 0 0' }}><span>Connected apps (OAuth)</span><small>{acc ? acc.connections.length : '…'}</small></div>
           {acc && (acc.connections.length ? acc.connections.map((c: any) => <div className="rel" style={{ padding: '10px 0' }} key={c.id}><div className="grow"><b>{c.clientName}</b><span>{c.teamName} · {scopesText(c.scopes)} · {c.lastUsedAt ? `used ${ago(Date.parse(c.lastUsedAt))}` : 'never used'}</span></div><button className="btn small" data-act="revoke-conn" onClick={guard(async () => { await S.api('DELETE', `/api/me/connections/${c.id}`); await load(); })}>Disconnect</button></div>) : <div className="muted" style={{ fontSize: 13 }}>No agents connected via OAuth.</div>)}
-        </section>
+        </section></>}
 
-        <section className="card"><div className="card-head"><h2>Appearance</h2></div>
-          <div className="seg" role="group" aria-label="Appearance" style={{ marginLeft: 0, alignSelf: 'flex-start' }}>{['system', 'light', 'dark'].map((x) => <button key={x} type="button" data-act="set-theme" data-v={x} aria-pressed={themePref() === x} onClick={() => { setTheme(x); setAcc((a: any) => ({ ...a })); }}>{themeLabel[x]}</button>)}</div></section>
+        {tab === 'settings' && <><section className="card"><div className="card-head"><h2>Appearance</h2></div>
+          <div className="seg" role="group" aria-label="Appearance" style={{ marginLeft: 0, alignSelf: 'flex-start' }}>{['system', 'light', 'dark'].map((x) => <button key={x} type="button" data-act="set-theme" data-v={x} aria-pressed={themePref() === x} onClick={() => { setTheme(x); setAcc((a: any) => ({ ...a })); }}>{themeLabel[x]}</button>)}</div></section></>}
 
-        <section className="card"><div className="card-head"><h2>Security</h2></div>
+        {tab === 'settings' && <><section className="card"><div className="card-head"><h2>Security</h2></div>
           <form id="pwForm" className="form" onSubmit={pw}><label className="sr" htmlFor="pwcur">Current password</label><input className="field" id="pwcur" name="cur" type="password" placeholder="Current password" autoComplete="current-password" disabled={!online} />
             <label className="sr" htmlFor="pwnew">New password</label><input className="field" id="pwnew" name="new" type="password" placeholder="New password (min. 8 characters)" autoComplete="new-password" minLength={8} disabled={!online} />
             <button className="btn" type="submit" disabled={!online}>Change password</button></form>
           <button className="btn danger" data-act="logout" onClick={logout}><Icon name="logout" size={16} /> Sign out &amp; remove local data</button>
-        </section>
+        </section></>}
       </div></div>
       {sheet && <CreateTeamSheet onClose={() => setSheet(false)} />}
     </>} />

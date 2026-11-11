@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { FormError, Sheet } from '../dialogs';
 import { guard, useTeamInfo } from '../hooks';
 import { Bar, Shell } from '../Shell';
+import { Tabs } from '../Tabs';
+import { usePref } from '../prefs';
 import { Icon, ago, copy, toast, useStore } from '../ui';
 import { FIELD_KINDS, KIND_LABELS } from '@shared/specForm.js';
 import { ROLES, RIGHTS, ROLE_RIGHTS } from './Account';
@@ -202,6 +204,7 @@ export function TeamPage() {
   const [gitRes, setGitRes] = useState<{ ok: boolean; text: string } | null>(null);
   const [hookRes, setHookRes] = useState<HookRes>(null);
   const [tsheet, setTsheet] = useState<null | { type?: any }>(null);
+  const [tab, setTab] = usePref<'team' | 'members' | 'types' | 'git' | 'agents'>('tab-team', 'team', ['team', 'members', 'types', 'git', 'agents']);
   const t = S.team();
   const admin = S.can('admin');
   const online = S.state.online && !S.state.sessionExpired;
@@ -217,17 +220,18 @@ export function TeamPage() {
   return (
     <Shell single master={<>
       <Bar title="Members & Git" />
-      <div className="scroll"><div className="page">
-        <section className="card"><div className="card-head"><h2>{t.name}</h2><span className="chip ok">{t.role}</span></div>
+      <Tabs label="Team settings" value={tab} onChange={(v) => setTab(v as typeof tab)} tabs={[{ id: 'team', label: 'Team' }, { id: 'members', label: 'Members', badge: d ? d.members.length : '' }, { id: 'types', label: 'Spec types' }, { id: 'git', label: 'Git' }, { id: 'agents', label: 'Agents' }]} />
+      <div className="scroll"><div className="page" id="tabpanel" role="tabpanel" aria-labelledby={`tab-${tab}`}>
+        {tab === 'team' && <><section className="card"><div className="card-head"><h2>{t.name}</h2><span className="chip ok">{t.role}</span></div>
           <div className="kv"><span>Key <span className="muted">(prefix of spec ids)</span></span><span className="mono">{t.key}</span></div>
           {admin && <>
             <form id="teamNameForm" className="form" onSubmit={guard(async (e: FormEvent<HTMLFormElement>) => { e.preventDefault(); await S.teamApi('PATCH', '', { name: new FormData(e.currentTarget).get('name') }); await S.refreshMe(); toast('Renamed'); })}><label className="sr" htmlFor="tm-name">Team name</label><div className="btns"><input className="field" id="tm-name" name="name" defaultValue={t.name} key={t.name} maxLength={80} style={{ flex: 3 }} /><button className="btn" type="submit" disabled={!online}>Rename</button></div></form>
             <label className="check"><input type="checkbox" id="found-auto" checked={!!t.foundationAuto} onChange={guard(async (e) => { await S.teamApi('PATCH', '', { foundationAuto: e.target.checked }); await S.refreshMe(); toast(e.target.checked ? 'Foundation documents are released automatically' : 'Foundation documents now need approval'); })} /> Release foundation documents (vision, strategy, glossary …) automatically after edits</label>
             <p className="note" style={{ marginTop: -6 }}>Off: they reach agents only after an approver presses “Release now”.</p>
             <FeedbackMailToggle t={t} S={S} mailEnabled={!!d?.mailEnabled} /></>}
-          <div className="btns"><button className="btn small" data-act="leave-team" onClick={guard(async () => { if (!confirm(`Leave ${t.name}? You lose access to its specs and your agent tokens for it stop working.`)) return; await S.leaveTeam(); nav('/'); toast('You left the team'); })}>Leave team</button></div></section>
+          <div className="btns"><button className="btn small" data-act="leave-team" onClick={guard(async () => { if (!confirm(`Leave ${t.name}? You lose access to its specs and your agent tokens for it stop working.`)) return; await S.leaveTeam(); nav('/'); toast('You left the team'); })}>Leave team</button></div></section></>}
 
-        <section className="card"><div className="card-head"><h2>Members</h2><small className="muted">{d ? d.members.length : '…'}</small></div>
+        {tab === 'members' && <><section className="card"><div className="card-head"><h2>Members</h2><small className="muted">{d ? d.members.length : '…'}</small></div>
           {d ? d.members.map((m: any) => <div className="user-main" style={{ padding: '6px 0', borderTop: '1px solid var(--line)' }} key={m.id}><span className="avatar">{m.name[0].toUpperCase()}</span><div className="grow"><b>{m.name}{m.id === me.id && <> <span className="chip">you</span></>}{m.disabled && <> <span className="chip warn">disabled</span></>}</b><span className="muted">{m.email}</span></div>
             {admin ? <><label className="sr" htmlFor={`m-${m.id}`}>Role of {m.name}</label><select className="field role" id={`m-${m.id}`} data-act="member-role" value={m.role} disabled={!online} onChange={guard(async (e) => { await S.teamApi('PATCH', `/members/${m.id}`, { role: e.target.value }); toast('Role updated – tokens of this member follow immediately'); await reload(); S.refreshMe(); })}>{ROLES.map((r) => <option key={r}>{r}</option>)}</select>
               <button className="btn small" aria-label={`Remove ${m.name}`} onClick={guard(async () => { if (!confirm('Remove this member from the team? Their tokens for this team stop working.')) return; await S.teamApi('DELETE', `/members/${m.id}`); await reload(); S.refreshMe(); })}>Remove</button></> : <span className="chip ok">{m.role}</span>}</div>) : <div className="muted">Loading…</div>}
@@ -242,23 +246,23 @@ export function TeamPage() {
               {d.mailEnabled && <button className="btn small" data-act="invite-resend" onClick={guard(() => sendInvite(i.email, i.role, true))}>Resend</button>}
               <button className="btn small" onClick={guard(async () => { const r = await S.teamApi('DELETE', `/invites/${i.id}`); setInfo({ ...d, invites: r.invites }); })}>Revoke</button></div>)}</>}
           </>}
-        </section>
+        </section></>}
 
-        <section className="card"><div className="card-head"><h2>Spec types</h2>{admin && <button className="btn small" data-act="stype-new" onClick={() => setTsheet({})}><Icon name="plus" size={14} /> New type</button>}</div>
+        {tab === 'types' && <><section className="card"><div className="card-head"><h2>Spec types</h2>{admin && <button className="btn small" data-act="stype-new" onClick={() => setTsheet({})}><Icon name="plus" size={14} /> New type</button>}</div>
           <p className="note">A type gives a new spec its starting structure and tells agents what kind of specification they are reading (<span className="mono">list_specs(type: "api")</span>). Built-in types are fixed; add your own for your team.</p>
           {d?.types ? d.types.map((x: any) => <div className="typerow" key={x.key}><div><b>{x.label}</b> <small className="muted mono">{x.key}{x.builtin ? ' · built-in' : ''}{x.form ? (x.view === 'form' ? ' · form' : ' · form optional') : ''}</small><p className="muted">{x.description}</p></div>
-            {admin && !x.builtin && <div className="typeacts"><button className="btn small" data-act="stype-edit" onClick={() => setTsheet({ type: x })}>Edit</button><button className="btn small" data-act="stype-delete" style={{ color: 'var(--red)', borderColor: 'var(--red-line)' }} onClick={guard(async () => { if (!confirm(`Delete the spec type “${x.key}”?`)) return; await S.teamApi('DELETE', `/spec-types/${x.key}`); await S.refreshTypes(); await reload(); })}>Delete</button></div>}</div>) : <div className="muted">Loading…</div>}</section>
+            {admin && !x.builtin && <div className="typeacts"><button className="btn small" data-act="stype-edit" onClick={() => setTsheet({ type: x })}>Edit</button><button className="btn small" data-act="stype-delete" style={{ color: 'var(--red)', borderColor: 'var(--red-line)' }} onClick={guard(async () => { if (!confirm(`Delete the spec type “${x.key}”?`)) return; await S.teamApi('DELETE', `/spec-types/${x.key}`); await S.refreshTypes(); await reload(); })}>Delete</button></div>}</div>) : <div className="muted">Loading…</div>}</section></>}
 
-        <section className="card"><div className="card-head"><h2><Icon name="git" size={16} /> Git connection</h2></div>{d?.git ? <GitForm key={JSON.stringify(d.git)} g={d.git} S={S} reload={reload} res={gitRes} setRes={setGitRes} /> : <div className="muted">Loading…</div>}</section>
+        {tab === 'git' && <><section className="card"><div className="card-head"><h2><Icon name="git" size={16} /> Git connection</h2></div>{d?.git ? <GitForm key={JSON.stringify(d.git)} g={d.git} S={S} reload={reload} res={gitRes} setRes={setGitRes} /> : <div className="muted">Loading…</div>}</section></>}
 
-        {admin && <section className="card" id="hookCard"><div className="card-head"><h2><Icon name="garden" size={16} /> Agent trigger</h2>{d?.hook?.url ? <span className={`chip ${d.hook.lastOk === false ? 'bad' : 'ok'}`}>{d.hook.lastOk === false ? 'failing' : 'on'}</span> : <span className="chip">off</span>}</div>{d?.hook ? <HookForm key={JSON.stringify(d.hook)} h={d.hook} S={S} reload={reload} res={hookRes} setRes={setHookRes} /> : <div className="muted">{online ? 'Loading…' : 'Available when you are online.'}</div>}</section>}
+        {tab === 'agents' && <>{admin && <section className="card" id="hookCard"><div className="card-head"><h2><Icon name="garden" size={16} /> Agent trigger</h2>{d?.hook?.url ? <span className={`chip ${d.hook.lastOk === false ? 'bad' : 'ok'}`}>{d.hook.lastOk === false ? 'failing' : 'on'}</span> : <span className="chip">off</span>}</div>{d?.hook ? <HookForm key={JSON.stringify(d.hook)} h={d.hook} S={S} reload={reload} res={hookRes} setRes={setHookRes} /> : <div className="muted">{online ? 'Loading…' : 'Available when you are online.'}</div>}</section>}</>}
 
-        <section className="card" id="agentCard"><div className="card-head"><h2>Agent setup</h2></div><AgentSetup teamName={t.name} mcpUrl={S.state.mcpUrl} /></section>
+        {tab === 'agents' && <><section className="card" id="agentCard"><div className="card-head"><h2>Agent setup</h2></div><AgentSetup teamName={t.name} mcpUrl={S.state.mcpUrl} /></section></>}
 
-        <section className="card"><h2>Roles &amp; rights</h2>
+        {tab === 'team' && <><section className="card"><h2>Roles &amp; rights</h2>
           <div className="table-wrap" tabIndex={0} role="region" aria-label="Permissions by role"><table className="matrix"><thead><tr><th><span className="sr">Permission</span></th>{ROLES.map((r) => <th key={r}>{r}</th>)}</tr></thead><tbody>
             {RIGHTS.map(([k, l]) => <tr key={k}><th scope="row">{l}</th>{ROLES.map((r) => <td key={r}>{ROLE_RIGHTS[r].includes(k) ? <span className="yes">✓</span> : <span className="no">–</span>}</td>)}</tr>)}
-          </tbody></table></div></section>
+          </tbody></table></div></section></>}
       </div></div>
       {tsheet && <TypeSheet type={tsheet.type} onClose={() => setTsheet(null)} onDone={reload} />}
     </>} />

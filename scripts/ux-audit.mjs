@@ -104,6 +104,13 @@ async function pass(label, viewport, scheme) {
     check('semantics', m.skip, where, 'no skip link');
     if (label === ROUTES_LABEL) { titles.set(r, m.title); }
   }
+  // no mobile pattern on the desktop and no desktop pattern on the phone
+  for (const r of ['#/', '#/docs', '#/glossary', '#/spec/SPEC-107']) {
+    await page.evaluate((h) => { location.hash = h; }, r); await page.waitForTimeout(500);
+    const seen = await page.evaluate(() => { const vis = (sel) => [...document.querySelectorAll(sel)].some((e) => { const b = e.getBoundingClientRect(); const cs = getComputedStyle(e); return b.width > 0 && b.height > 0 && cs.display !== 'none' && cs.visibility !== 'hidden'; }); return { fab: vis('.fab'), tabbar: vis('.tabbar'), approvebar: vis('.approve-bar'), strip: vis('.sumstrip'), filterbtn: vis('.filterbtn'), sidebar: vis('.sidebar'), desktopAdd: vis('.bar .btn.primary[data-act=new-spec], .bar .btn.primary.only-desktop') }; });
+    if (phone) { check('patterns', !seen.sidebar, `${label} ${r}`, 'the desktop sidebar shows on a phone'); check('patterns', !seen.desktopAdd, `${label} ${r}`, 'the labelled desktop add button shows on a phone'); }
+    else for (const k of ['fab', 'tabbar', 'approvebar', 'strip', 'filterbtn']) check('patterns', !seen[k], `${label} ${r}`, `phone pattern "${k}" shows on the desktop`);
+  }
   // keyboard: every tabbable element on the home page shows a focus indicator
   await page.evaluate(() => { location.hash = '#/'; }); await page.waitForTimeout(400);
   let noRing = 0, tabbed = 0;

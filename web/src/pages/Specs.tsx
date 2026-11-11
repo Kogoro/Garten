@@ -7,6 +7,7 @@ import { ImplChip } from '../reports';
 import { Icon, ago, touched, useStore } from '../ui';
 import { usePref } from '../prefs';
 import { Hint } from '../Hint';
+import { Fab } from '../Fab';
 import { awaitsApproval } from '../lib';
 import { Sheet } from '../dialogs';
 import { Onboarding } from '../Onboarding';
@@ -43,7 +44,7 @@ function SpecList({ selected }: { selected?: string }) {
   const create = () => setNewSpec(true);
   return (
     <>
-      <Bar title="Specs">{S.can('write') && <button className="btn primary bar-add" data-act="new-spec" aria-label="New spec" onClick={create}><Icon name="plus" size={14} /><span className="lbl">New</span></button>}</Bar>
+      <Bar title="Specs">{S.can('write') && <button className="btn primary only-desktop" data-act="new-spec" onClick={create}><Icon name="plus" size={14} /> New</button>}</Bar>
       <div className="listtools">
         <div className="toolrow"><div className="search"><Icon name="search" /><label className="sr" htmlFor="search">Search specs</label><input id="search" type="search" placeholder="Search specs" value={q} onChange={(e) => setQ(e.target.value)} /></div>
           <button type="button" className="icon-btn filterbtn only-mobile" data-act="filters" aria-label={`Sort and filter${active ? `, ${active} active` : ''}`} onClick={() => setSheet(true)}><Icon name="filter" />{active > 0 && <span className="badge-dot" />}</button></div>
@@ -64,6 +65,7 @@ function SpecList({ selected }: { selected?: string }) {
           </Link>
         ))}
       </div>
+      {S.can('write') && <Fab label="New spec" act="new-spec" onClick={create} />}
       {newSpec && <NewSpecSheet onClose={() => setNewSpec(false)} />}
       {sheet && <Sheet onClose={() => setSheet(false)}>
         <h2>Sort and filter</h2>

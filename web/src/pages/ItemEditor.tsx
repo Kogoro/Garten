@@ -12,7 +12,7 @@ import { openMenu, useUi } from '../state';
 import type { Item } from '../store/types';
 import { FeedbackSheet } from '../feedback';
 import { ImplChip, ReportSheet, implState } from '../reports';
-import { Icon, toast, useStore } from '../ui';
+import { Icon, ago, toast, touched, useStore } from '../ui';
 
 // The editor (BlockNote, Mermaid …) is the bulk of the code: it loads when a spec or document is opened, not with the first screen.
 // The service worker precaches it, so opening works offline as before.
@@ -190,6 +190,12 @@ export function ItemEditor({ item }: { item: Item }) {
           {item.status === 'approved' && <button type="button" className="sumcell" data-act="report" onClick={() => setSheet('report')}><small>Agent</small><span>{implState(item, S.latestReport(item.id)).text.replace(/ · built.*$/, '')}</span></button>}
           <button type="button" className="sumcell" data-act="feedback" aria-label={`Feedback: ${S.feedbackCount(item.id)} open`} onClick={() => setSheet('feedback')}><small>Feedback</small><span className={S.feedbackCount(item.id) ? 'hot' : ''}>{S.feedbackCount(item.id) ? `${S.feedbackCount(item.id)} open` : 'None open'}</span></button>
           <button type="button" className="sumcell" data-act="link-docs" onClick={() => setSheet('link')}><small>Documents</small><span>{item.links.length} linked</span></button>
+        </section>
+      )}
+      {phone && locked && !isSpec && (
+        <section className="sumstrip" aria-label="Overview">
+          <div className="sumcell"><small>{item.pinned ? 'Reaches' : 'Used by'}</small><span>{item.pinned ? 'every agent' : S.usedBy(item.id).length ? S.usedBy(item.id).map((x) => x.id).join(', ') : 'no spec yet'}</span></div>
+          <div className="sumcell"><small>Edited</small><span>{ago(touched(item))}</span></div>
         </section>
       )}
       {item.conflict && <div id="banner"><div className="card bad banner"><div className="grow"><b>Changed on the server</b><span>Your edits and the server version differ.</span></div><button className="btn danger" data-act="conflict" onClick={() => setSheet('conflict')}>Review</button></div></div>}
