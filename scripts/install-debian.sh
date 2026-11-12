@@ -122,12 +122,18 @@ ADMIN_EMAIL=${GARTEN_ADMIN:-admin@localhost}
 ADMIN_PASSWORD=$password
 EOF
     )
+  else
+    password="$(getenv ADMIN_PASSWORD)"      # still there only if an earlier run stopped before the server came up
   fi
   setenv PUBLIC_URL "$url"
   case "$mode" in
     proxy) unsetenv HOST; setenv TRUST_PROXY 1 ;;
     plain) unsetenv HOST; setenv TRUST_PROXY 0 ;;
   esac
+
+  if [ -n "$password" ]; then
+    ( umask 077; printf 'Garten – first admin\n  Address:  %s\n  E-mail:   %s\n  Password: %s\nChange the password after the first sign-in (Account → Password), then delete this file.\n' "$url" "$(getenv ADMIN_EMAIL)" "$password" > "$CREDS" )
+  fi
 
   # ---------------------------------------------------------------- service
   cat > /etc/systemd/system/garten.service <<EOF
@@ -201,11 +207,8 @@ EOF
   fi
   [ "$up" = 1 ] || { journalctl -u garten -n 30 --no-pager >&2 || true; die "Garten did not start – see the log above (journalctl -u garten)."; }
 
-  if [ -n "$password" ]; then
-    # The password was only needed to create the first admin; it does not stay in the settings file.
-    unsetenv ADMIN_PASSWORD
-    ( umask 077; printf 'Garten – first admin\n  Address:  %s\n  E-mail:   %s\n  Password: %s\nChange the password after the first sign-in (Account → Password), then delete this file.\n' "$url" "${GARTEN_ADMIN:-admin@localhost}" "$password" > "$CREDS" )
-  fi
+  # The password was only needed to create the first admin; it does not stay in the settings file.
+  [ -z "$password" ] || unsetenv ADMIN_PASSWORD
 
   # Older versions of this script put Caddy in front of Garten; it is not used any more.
   if grep -qs "Garten's installer" /etc/caddy/Caddyfile; then
@@ -215,7 +218,7 @@ EOF
 
   # ---------------------------------------------------------------- done
   printf '\n✓ Garten is running:  %s\n' "$url"
-  [ -n "$password" ] && printf '  Sign in as  %s  with the password in  %s\n' "${GARTEN_ADMIN:-admin@localhost}" "$CREDS"
+  [ -z "$password" ] || printf '  Sign in as  %s  with the password in  %s\n' "$(getenv ADMIN_EMAIL)" "$CREDS"
   case "$mode" in
     proxy) printf '  Point your reverse proxy at  http://%s:3000  (forward the Host header and X-Forwarded-*).\n' "${ip:-this machine}" ;;
     plain) printf '  No HTTPS: the app works online only (browsers allow offline mode only over HTTPS).\n' ;;

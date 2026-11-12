@@ -66,7 +66,7 @@ export function TermSheet({ initial, definition, folder, from, onClose }: { init
   }
   return (
     <Sheet onClose={onClose}>
-      <h2>New glossary term</h2><p>{from ? <>Taken from <span className="mono">{from}</span>. Check the wording – </> : null}Added to your glossary. Agents receive it as soon as it is live.</p>
+      <h2>New glossary term</h2><p>{from ? <>Taken from <span className="mono">{from}</span> – check the wording. </> : null}Added to your glossary. Agents receive it as soon as it is live.</p>
       <label className="sr" htmlFor="termname">Term</label><input id="termname" className="field" placeholder="Term" autoComplete="off" defaultValue={initial ?? ''} />
       <label className="sr" htmlFor="termdef">Definition</label><textarea id="termdef" className="field" style={{ height: 110, padding: 12 }} placeholder="What the term means in this project. Reference other terms with [[Term]]." defaultValue={definition ?? ''} />
       <LookupPanel termId="termname" defId="termdef" />
