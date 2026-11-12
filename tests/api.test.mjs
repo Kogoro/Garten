@@ -535,7 +535,8 @@ try {
       sp = (await apr.c.sync([], 0)).data.items.find((x) => x.id === 'SPEC-890'); assert.equal(sp.status, 'approved'); ok('accepting propose_acceptance releases the spec');
       await call(fa, 'add_feedback', { spec_id: 'SPEC-890', kind: 'question', text: 'a comment that must not outlive its spec' });
       const pd = JSON.parse((await call(fa, 'propose_deletion', { spec_id: 'SPEC-890', reason: 'obsolete' })).text);
-      assert.equal((await apr.c.req('PATCH', `/api/teams/${T1}/feedback/${pd.id}`, { status: 'accepted' })).status, 200);
+      const viaSync = (await apr.c.req('POST', `/api/teams/${T1}/sync`, { since: 0, changes: [], feedbackOps: [{ id: pd.id, status: 'accepted' }] })).data; // what the offline outbox of a client sends
+      assert.deepEqual(viaSync.fbResults, [{ id: pd.id, ok: true }]);
       assert.equal((await apr.c.sync([], 0)).data.items.find((x) => x.id === 'SPEC-890')?.deleted ?? true, true);
       assert.equal((await apr.c.get(`/api/teams/${T1}/feedback?spec=SPEC-890`)).data.feedback.length, 0); ok('accepting propose_deletion revokes and deletes the spec together with its feedback');
     }

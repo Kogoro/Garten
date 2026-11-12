@@ -256,9 +256,25 @@ export function apiRouter() {
     }
     // decisions and triage made offline travel with the sync
     const t = req.team.id;
-    const fbResults = !Array.isArray(feedbackOps) || !feedbackOps.length ? []
-      : perms(req.role).includes('write') ? applyFeedbackOps(t, feedbackOps, req.user)
-        : feedbackOps.map((op) => ({ id: op?.id, ok: false, error: `Your role (${req.role}) cannot answer or triage.` }));
+    let fbResults = [];
+    if (Array.isArray(feedbackOps) && feedbackOps.length) {
+      if (!perms(req.role).includes('write')) fbResults = feedbackOps.map((op) => ({ id: op?.id, ok: false, error: `Your role (${req.role}) cannot answer or triage.` }));
+      else {
+        // accepting an agent's proposal (delete / release a spec) carries it out: approvers only, and it runs here, not in the plain triage path
+        const rest = [];
+        for (const op of feedbackOps.slice(0, 200)) {
+          const fb = op?.status === 'accepted' && op?.answer == null ? getFeedback(t, String(op.id)) : null;
+          if (!fb || !PROPOSALS[fb.kind] || fb.status === 'accepted') { rest.push(op); continue; }
+          try {
+            if (!perms(req.role).includes('approve')) throw new store.ApiError(`Your role (${req.role}) cannot accept this proposal: it needs approval rights. Ask an approver.`);
+            await acceptProposal(req.team, fb, { reply: op.reply }, req.user);
+            audit(req, `spec.${PROPOSALS[fb.kind]}`, { team: t, target: fb.specId, detail: { proposal: fb.id } });
+            fbResults.push({ id: op.id, ok: true });
+          } catch (e) { if (!(e instanceof store.ApiError)) throw e; fbResults.push({ id: op.id, ok: false, error: e.message }); }
+        }
+        fbResults.push(...applyFeedbackOps(t, rest, req.user));
+      }
+    }
     const rev = gardenRev(t);
     res.json({
       results, fbResults, items: store.itemsSince(t, Number(since) || 0), cursor: store.maxSeq(t), me: me(req.user), project: PROJECT_NAME, mcpUrl: `${PUBLIC_URL}/mcp`, specTypes: listTypes(t), feedbackOpen: openCounts(t),

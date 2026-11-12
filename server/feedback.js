@@ -117,7 +117,7 @@ export function setFeedback(teamId, id, { status, reply, answer }, user, { execu
     if (st === 'open') ans = null; // reopened: the earlier answer no longer counts
   } else if (PROPOSALS[cur.kind]) {
     if (!['open', 'accepted', 'dismissed'].includes(st)) throw new ApiError('A proposal is open, accepted or dismissed.');
-    if (st === 'accepted' && cur.status !== 'accepted' && !execute) throw new ApiError(`Accepting this proposal carries it out (${PROPOSALS[cur.kind]} the spec) and needs a connection to the server and approval rights.`, 409);
+    if (st === 'accepted' && cur.status !== 'accepted' && !execute) throw new ApiError(`Accepting this proposal carries it out (${PROPOSALS[cur.kind]} the spec); it must go through the proposal endpoint or a sync by an approver.`, 409);
   } else if (!STATUSES.includes(st)) throw new ApiError(`status must be one of: ${STATUSES.join(', ')}`);
   const closed = st !== 'open';
   db.prepare('UPDATE feedback SET status=?, reply=?, answer=?, resolved_by=?, resolved_at=? WHERE id=?').run(st, rp, ans, closed ? user.name : null, closed ? new Date().toISOString() : null, id);
