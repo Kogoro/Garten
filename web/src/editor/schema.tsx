@@ -2,7 +2,7 @@ import { BlockNoteSchema, defaultBlockSpecs } from '@blocknote/core';
 import { createReactBlockSpec } from '@blocknote/react';
 import { useEffect, useRef, useState } from 'react';
 import { renderMermaid } from './mermaid';
-import { FlowEditor } from './FlowEditor';
+import { DiagramDialog } from './DiagramDialog';
 
 export const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
 const ro = (editor: any) => !editor.isEditable;
@@ -64,28 +64,31 @@ export function MermaidView({ text }: { text: string }) {
   );
 }
 
-type View = 'view' | 'code' | 'split' | 'edit';
+type View = 'view' | 'code' | 'split';
 function Diagram({ block, editor }: any) {
   const { text, view } = block.props as { text: string; view: View };
+  const [open, setOpen] = useState(false);
   const set = (p: Record<string, unknown>) => editor.updateBlock(block, { props: p });
-  const showCode = view === 'code' || view === 'split';
+  const showCode = view !== 'view';
   const showView = view !== 'code';
-  const two = view === 'split' || view === 'edit';
   return (
     <div className="diagram" data-view={view} style={{ width: '100%' }}>
-      <div className="seg sm" role="group" aria-label="Diagram view">
-        {([['view', 'Diagram'], ['code', 'Code'], ['split', 'Split'], ['edit', 'Visual']] as const).map(([k, l]) => <button key={k} type="button" data-act={`dg-${k}`} aria-pressed={view === k} onClick={() => set({ view: k })}>{l}</button>)}
+      <div className="dg-bar">
+        <button type="button" className="btn small" data-act="dg-visual" onClick={() => setOpen(true)}>{ro(editor) ? 'Open larger' : 'Visual editor…'}</button>
+        <div className="seg sm" role="group" aria-label="Diagram view">
+          {([['view', 'Diagram'], ['code', 'Code'], ['split', 'Split']] as const).map(([k, l]) => <button key={k} type="button" data-act={`dg-${k}`} aria-pressed={view === k} onClick={() => set({ view: k })}>{l}</button>)}
+        </div>
       </div>
-      <div className="dg-body" style={{ display: 'grid', gridTemplateColumns: two ? 'repeat(auto-fit, minmax(280px, 1fr))' : '1fr', gap: 8 }}>
+      <div className="dg-body" style={{ display: 'grid', gridTemplateColumns: showCode && showView ? 'repeat(auto-fit, minmax(280px, 1fr))' : '1fr', gap: 8 }}>
         {showCode && <textarea className="blk-in mono" aria-label="Mermaid source" spellCheck={false} readOnly={ro(editor)} value={text} rows={Math.max(4, text.split('\n').length)} onChange={(e) => set({ text: e.target.value })} />}
-        {view === 'edit' && <FlowEditor text={text} readOnly={ro(editor)} onChange={(t) => set({ text: t })} />}
         {showView && <MermaidView text={text} />}
       </div>
+      {open && <DiagramDialog text={text} readOnly={ro(editor)} onApply={(t) => set({ text: t })} onClose={() => setOpen(false)} />}
     </div>
   );
 }
 export const diagram = createReactBlockSpec(
-  { type: 'diagram', propSchema: { text: { default: 'flowchart LR\n  A --> B' }, view: { default: 'split', values: ['view', 'code', 'split', 'edit'] } }, content: 'none' },
+  { type: 'diagram', propSchema: { text: { default: 'flowchart LR\n  A --> B' }, view: { default: 'split', values: ['view', 'code', 'split'] } }, content: 'none' },
   { render: (p) => <Diagram {...p} /> },
 );
 

@@ -18,7 +18,7 @@ export function modelToBn(blocks: ModelBlock[]): BnBlock[] {
       case 'table': return { type: 'table', content: { type: 'tableContent', headerRows: 1, rows: (b.rows ?? []).map((r) => ({ cells: r.map((c) => inl(c)) })) } };
       case 'req': return { type: 'requirement', props: { label: b.label ?? 'R1' }, content: inl(b.text) };
       case 'code': return { type: 'codeBlock', props: { language: b.lang || 'text' }, content: [{ type: 'text', text: b.text ?? '', styles: {} }] };
-      case 'diagram': return { type: 'diagram', props: { text: b.text ?? '', view: b.view === 'code' || b.view === 'split' || b.view === 'edit' ? b.view : 'view' } };
+      case 'diagram': return { type: 'diagram', props: { text: b.text ?? '', view: b.view === 'code' || b.view === 'split' ? b.view : 'view' } };
       case 'endpoint': return { type: 'endpoint', props: { method: b.method ?? 'GET', path: b.path ?? '', text: b.text ?? '', req: b.req ?? '', res: b.res ?? '' } };
       case 'def': return { type: 'definition', props: { term: b.term ?? '', text: b.text ?? '', aliases: b.aliases ?? '', see: b.see ?? '', src: b.src ?? '' } };
       default: return { type: 'paragraph', content: inl(b.text) };
