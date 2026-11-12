@@ -95,7 +95,14 @@ try {
   r = await editor.c.push([{ id: doc, kind: 'doc', baseRev: dRev, delete: true }]);
   assert.equal(r[0].status, 'error'); assert.match(r[0].message, /still used by released spec/); ok('a document used by a released spec cannot be deleted');
   const sRev = (await approver.c.sync()).data.items.find((i) => i.id === id).rev;
-  assert.match((await editor.c.push([{ id, kind: 'spec', baseRev: sRev, delete: true }]))[0].message, /revoke it before deleting/); ok('a released spec cannot be deleted');
+  assert.match((await editor.c.push([{ id, kind: 'spec', baseRev: sRev, delete: true }]))[0].message, /revoke it before deleting/); ok('an editor cannot delete a released spec');
+  { // an approver deleting a released spec revokes it automatically
+    const tmp = 'SPEC-899';
+    let q = await approver.c.push([{ id: tmp, kind: 'spec', baseRev: 0, fields: { title: 'Temp' }, approve: true }]);
+    assert.equal(q[0].item.status, 'approved');
+    q = await approver.c.push([{ id: tmp, kind: 'spec', baseRev: q[0].item.rev, delete: true }]);
+    assert.equal(q[0].status, 'applied'); assert.equal(q[0].deleted, true); ok('an approver can delete a released spec (revoked automatically)');
+  }
 
   // move = create at new path + relink + delete old; released snapshot is tidied on the next release
   const moved = 'decisions/records/' + id + '-adr.md';

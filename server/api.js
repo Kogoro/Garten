@@ -59,6 +59,7 @@ async function applyChange(ch, team, user, role) {
     if (ch.delete) {
       if (!cur) return { id, status: 'applied', deleted: true };
       if (cur.rev !== baseRev) return { id, status: 'conflict', server: cur };
+      if (cur.kind === 'spec' && cur.status === 'approved' && rights.includes('approve')) await store.revokeSpec(team, id, user); // approvers: revoke automatically (others still get the "revoke it first" error)
       if (cur.kind === 'doc' && cur.pinned && cur.status === 'approved' && !cur.core) await store.unreleaseDoc(team, id, user);
       store.deleteItem(t, id, baseRev);
       return { id, status: 'applied', deleted: true };
