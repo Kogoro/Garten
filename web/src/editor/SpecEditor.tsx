@@ -1,12 +1,13 @@
 import '@blocknote/core/fonts/inter.css';
 import '@blocknote/mantine/style.css';
-import { createExtension } from '@blocknote/core';
+import { BlockNoteEditor, createExtension } from '@blocknote/core';
 import { filterSuggestionItems } from '@blocknote/core/extensions';
 import { BlockNoteView } from '@blocknote/mantine';
 import { SuggestionMenuController, getDefaultReactSlashMenuItems, useCreateBlockNote } from '@blocknote/react';
 import { useEffect, useMemo, useRef } from 'react';
 import { effectiveTheme } from '../ui';
 import { bnToMd, mdToBn, type BnBlock } from './convert';
+import { inlineToMd } from './inline';
 import { schema } from './schema';
 
 /** Enter in a requirement starts the next requirement; Enter in an empty one leaves the list. */
@@ -32,12 +33,27 @@ const CUSTOM = [
   { title: 'Definition (glossary)', key: 'definition', aliases: ['def', 'term', 'glossary'], group: 'Specs', subtext: 'A term with aliases and references', props: {} },
 ] as const;
 
+const accepted = (blocks: BnBlock[]) => {
+  try { BlockNoteEditor.create({ schema, initialContent: blocks as any }); return true; } catch (e) { console.error('Editor rejected content', e, (e as any)?.cause); return false; }
+};
+/** One block the editor refuses must not stop the document from opening: it becomes a plain paragraph with its text. */
+function loadable(blocks: BnBlock[]): BnBlock[] | undefined {
+  if (!blocks.length) return undefined;
+  if (accepted(blocks)) return blocks;
+  return blocks.map((b) => {
+    if (accepted([b])) return b;
+    let text = '';
+    try { text = typeof b.props?.text === 'string' ? b.props.text : Array.isArray(b.content) ? inlineToMd(b.content) : ''; } catch { /* keep empty */ }
+    return { type: 'paragraph', content: text ? [{ type: 'text', text, styles: {} }] : [] };
+  });
+}
+
 /** Block editor for a Markdown body. The Markdown string stays the single source of truth: `value` in, `onChange(md)` out. */
 export type EditorApi = { insert: (key: string) => void; insertText: (t: string) => void };
 import { termRef } from '@shared/glossary.js';
 
 export function SpecEditor({ docKey, value, readOnly, onChange, onReady, refs, onRef, terms }: { docKey: string; value: string; readOnly: boolean; onChange: (md: string) => void; onReady?: (api: EditorApi | null) => void; refs?: string[]; onRef?: (docId: string) => void; terms?: string[] }) {
-  const initial = useMemo(() => { const b = mdToBn(value); return b.length ? b : undefined; }, [docKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const initial = useMemo(() => loadable(mdToBn(value)), [docKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const editor = useCreateBlockNote({ schema, initialContent: initial as any, extensions: [requirementEnter], domAttributes: { editor: { 'aria-label': 'Content', 'aria-multiline': 'true' } } as any }, [docKey]);
   const last = useRef(value);
 
