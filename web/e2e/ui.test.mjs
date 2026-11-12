@@ -554,6 +554,12 @@ try {
   await d.click('[data-act=item-menu]'); await d.getByRole('button', { name: 'Add 1 definition of this document to the glossary' }).click();
   await d.locator('.sidebar').getByRole('link', { name: /Glossary/ }).click(); await d.getByText('Settlement run').first().waitFor(); ok('definitions of a document can be added to the glossary in one step');
   await d.goBack(); await d.locator('.ed-title', { hasText: 'decisions/retry.md' }).waitFor();
+  await d.fill('#body', '# Words\n\n| Idea | Word |\n|---|---|\n| Send the repository | Pushing |\n');
+  await setMode(d, 'blocks'); await d.locator('.bn-editor td, .bn-editor th').filter({ hasText: 'Pushing' }).first().waitFor();
+  await d.locator('.bn-editor td', { hasText: 'Pushing' }).first().dblclick();
+  await d.click('[data-act=item-menu]'); await d.getByRole('button', { name: 'Glossary term from selection…' }).click();
+  assert.equal(await d.inputValue('#termname'), 'Pushing'); ok('a word marked inside a table cell is the selection, not the whole table');
+  await d.keyboard.press('Escape');
   await setMode(d, 'blocks');
   await d.click('[data-act=item-menu]'); d.once('dialog', (x) => x.accept()); await d.getByRole('button', { name: 'Delete document' }).click();
   await d.waitForFunction(() => !document.querySelector('.docrow .row-title')?.textContent.includes('retry.md'));
