@@ -52,7 +52,7 @@ function LookupPanel({ termId, defId }: { termId: string; defId: string }) {
   );
 }
 
-function TermSheet({ initial, folder, onClose }: { initial?: string; folder?: string; onClose: () => void }) {
+export function TermSheet({ initial, definition, folder, from, onClose }: { initial?: string; definition?: string; folder?: string; from?: string; onClose: () => void }) {
   const S = useStore(); const nav = useNavigate();
   const [err, setErr] = useState<string | null>(null);
   function submit() {
@@ -66,9 +66,9 @@ function TermSheet({ initial, folder, onClose }: { initial?: string; folder?: st
   }
   return (
     <Sheet onClose={onClose}>
-      <h2>New glossary term</h2><p>Added to your glossary. Agents receive it as soon as it is live.</p>
+      <h2>New glossary term</h2><p>{from ? <>Taken from <span className="mono">{from}</span>. Check the wording – </> : null}Added to your glossary. Agents receive it as soon as it is live.</p>
       <label className="sr" htmlFor="termname">Term</label><input id="termname" className="field" placeholder="Term" autoComplete="off" defaultValue={initial ?? ''} />
-      <label className="sr" htmlFor="termdef">Definition</label><textarea id="termdef" className="field" style={{ height: 110, padding: 12 }} placeholder="What the term means in this project. Reference other terms with [[Term]]." />
+      <label className="sr" htmlFor="termdef">Definition</label><textarea id="termdef" className="field" style={{ height: 110, padding: 12 }} placeholder="What the term means in this project. Reference other terms with [[Term]]." defaultValue={definition ?? ''} />
       <LookupPanel termId="termname" defId="termdef" />
       <label className="sr" htmlFor="termaliases">Also known as</label><input id="termaliases" className="field" placeholder="Also known as (comma separated)" autoComplete="off" />
       <label className="sr" htmlFor="termsee">See also</label><input id="termsee" className="field" placeholder="See also (comma separated terms)" autoComplete="off" />

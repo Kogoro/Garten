@@ -49,7 +49,7 @@ function loadable(blocks: BnBlock[]): BnBlock[] | undefined {
 }
 
 /** Block editor for a Markdown body. The Markdown string stays the single source of truth: `value` in, `onChange(md)` out. */
-export type EditorApi = { insert: (key: string) => void; insertText: (t: string) => void };
+export type EditorApi = { insert: (key: string) => void; insertText: (t: string) => void; getSelection: () => string };
 import { termRef } from '@shared/glossary.js';
 
 export function SpecEditor({ docKey, value, readOnly, onChange, onReady, refs, onRef, terms }: { docKey: string; value: string; readOnly: boolean; onChange: (md: string) => void; onReady?: (api: EditorApi | null) => void; refs?: string[]; onRef?: (docId: string) => void; terms?: string[] }) {
@@ -89,7 +89,19 @@ export function SpecEditor({ docKey, value, readOnly, onChange, onReady, refs, o
     try { if (target) editor.setTextCursorPosition(target, 'start'); } catch { /* non-text block */ }
   };
   const insertText = (t: string) => { editor.focus(); editor.insertInlineContent([{ type: 'text', text: t, styles: {} }]); };
-  useEffect(() => { onReady?.({ insert, insertText }); return () => onReady?.(null); }, [editor]); // eslint-disable-line react-hooks/exhaustive-deps
+  /** Selected content as Markdown (several blocks), else the selected text; works read-only too (falls back to the browser selection). */
+  const getSelection = () => {
+    try {
+      const blocks = editor.getSelection()?.blocks;
+      if (blocks?.length) { const md = bnToMd(blocks as unknown as BnBlock[]).trim(); if (md) return md; }
+      const t = editor.getSelectedText().trim();
+      if (t) return t;
+    } catch { /* fall through */ }
+    const host = document.querySelector('.bn-host');
+    const sel = window.getSelection();
+    return sel && !sel.isCollapsed && host && sel.anchorNode && host.contains(sel.anchorNode) ? sel.toString().trim() : '';
+  };
+  useEffect(() => { onReady?.({ insert, insertText, getSelection }); return () => onReady?.(null); }, [editor]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // external change (sync, conflict resolution, Markdown view) -> replace the document
   useEffect(() => {

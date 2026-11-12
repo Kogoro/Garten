@@ -489,6 +489,26 @@ try {
   await d.locator('.sidebar .pill').first().waitFor();
   await d.waitForFunction(() => document.querySelector('#saveInd')?.dataset.state === 'synced', null, { timeout: 15000 });
   assert.ok((await admin.sync()).data.items.some((i) => i.id === 'decisions/retry.md' && !i.deleted)); ok('moved document reaches the server');
+  // spec / glossary term from a selection or the whole document
+  await setMode(d, 'markdown');
+  await d.fill('#body', '# Retry policy\n\nSettlement run\n: The nightly batch that books payments.\n\nR1 Retries stay inside one attempt window.\n');
+  await d.evaluate(() => { const t = document.getElementById('body'); const a = t.value.indexOf('Settlement run'); t.focus(); t.setSelectionRange(a, a + 'Settlement run'.length); });
+  await d.click('[data-act=item-menu]'); await d.getByRole('button', { name: 'Glossary term from selection…' }).click();
+  assert.equal(await d.inputValue('#termname'), 'Settlement run'); assert.equal(await d.inputValue('#termdef'), ''); ok('a selected short text opens the glossary dialog as the term');
+  await d.keyboard.press('Escape'); await d.locator('#termname').waitFor({ state: 'detached' }).catch(() => {});
+  await d.evaluate(() => { const t = document.getElementById('body'); const a = t.value.indexOf('R1 Retries'); t.focus(); t.setSelectionRange(a, t.value.length); });
+  await d.click('[data-act=item-menu]'); await d.getByRole('button', { name: 'New spec from selection…' }).click();
+  assert.equal(await d.inputValue('#derivetitle'), 'R1 Retries stay inside one attempt window.');
+  await d.locator('.typeopt').first().click();
+  await d.locator('input#title').waitFor(); assert.match(await d.url(), /\/spec\//);
+  assert.equal(await d.inputValue('#title'), 'R1 Retries stay inside one attempt window.');
+  await d.click('[data-act=item-menu]'); await d.getByRole('button', { name: 'Editor: Markdown' }).click();
+  assert.match(await d.inputValue('#body'), /R1 Retries stay inside one attempt window\.\s+## SOURCE\s+Derived from `decisions\/retry\.md`/); ok('a selection becomes a spec draft with a source section');
+  await d.goBack(); await d.locator('.ed-title', { hasText: 'decisions/retry.md' }).waitFor();
+  await d.click('[data-act=item-menu]'); await d.getByRole('button', { name: 'Add 1 definition of this document to the glossary' }).click();
+  await d.locator('.sidebar').getByRole('link', { name: /Glossary/ }).click(); await d.getByText('Settlement run').first().waitFor(); ok('definitions of a document can be added to the glossary in one step');
+  await d.goBack(); await d.locator('.ed-title', { hasText: 'decisions/retry.md' }).waitFor();
+  await setMode(d, 'blocks');
   await d.click('[data-act=item-menu]'); d.once('dialog', (x) => x.accept()); await d.getByRole('button', { name: 'Delete document' }).click();
   await d.waitForFunction(() => !document.querySelector('.docrow .row-title')?.textContent.includes('retry.md'));
   await d.waitForTimeout(500);

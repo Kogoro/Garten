@@ -7,7 +7,9 @@ import { BLOCK_MENU } from '../editor/blockTypes';
 import { Hint } from '../Hint';
 import { useMedia } from '../prefs';
 import { CORE_LABEL, enc, foundState, hasContent, rawMode } from '../lib';
-import { ConflictSheet, LinkSheet, PathSheet } from '../sheets';
+import { ConflictSheet, DeriveSpecSheet, LinkSheet, PathSheet } from '../sheets';
+import { TermSheet } from './Glossary';
+import { newDefinitions, termPrefill } from '../derive';
 import { openMenu, useUi } from '../state';
 import type { Item } from '../store/types';
 import { FeedbackSheet } from '../feedback';
@@ -109,6 +111,7 @@ function DocsDd({ i, S, onNew }: { i: Item; S: Store; onNew: () => void }) {
 export function ItemEditor({ item }: { item: Item }) {
   const S = useStore(); const nav = useNavigate(); const ui = useUi();
   const api = useRef<EditorApi | null>(null);
+  const [derive, setDerive] = useState<null | { kind: 'spec' | 'term'; text: string; whole: boolean }>(null);
   const [sheet, setSheet] = useState<null | 'link' | 'ref' | 'newdoc' | 'move' | 'conflict' | 'feedback' | 'report'>(null);
   const isSpec = item.kind === 'spec';
   const ro = !S.can('write');
@@ -121,7 +124,24 @@ export function ItemEditor({ item }: { item: Item }) {
   const path = isSpec ? `${S.team()!.key}/${item.id}.md` : `docs/${item.id}`;
   const back = isSpec ? '/' : item.id === 'glossary.md' ? '/glossary' : '/docs';
 
+  /** What the user marked in this item (blocks editor, Markdown view or read view); empty = nothing selected. */
+  function selected(): string {
+    const ta = document.getElementById('body') as HTMLTextAreaElement | null;
+    if (ta && ta.selectionEnd > ta.selectionStart) return ta.value.slice(ta.selectionStart, ta.selectionEnd).trim();
+    return api.current?.getSelection() ?? '';
+  }
   async function itemMenu() {
+    const sel = selected(); // read before the menu opens: opening it may clear the selection
+    const src = sel || item.body.trim();
+    const canDerive = S.can('write') && hasContent(src);
+    const what = sel ? 'selection' : item.kind === 'spec' ? 'this spec' : 'this document';
+    const inGlossary = (t: string) => glossaryTerms(S).some((x) => x.term.toLowerCase() === t.toLowerCase() && x.defs.some((d) => d.item.id === 'glossary.md'));
+    const defs = !sel && item.id !== 'glossary.md' ? newDefinitions(item.body, inGlossary) : [];
+    const deriveItems = canDerive ? [
+      { key: 'derive:spec', label: `New spec from ${what}…` },
+      ...(item.id === 'glossary.md' ? [] : [{ key: 'derive:term', label: `Glossary term from ${what}…` }]),
+      ...(defs.length ? [{ key: 'derive:defs', label: `Add ${defs.length} definition${defs.length === 1 ? '' : 's'} of this ${isSpec ? 'spec' : 'document'} to the glossary` }] : []),
+    ] : [];
     const info = [{ key: 'info', label: `${path}${item.version ? ` · v${item.version}` : ''}${item.updatedBy ? ` · edited by ${item.updatedBy}` : ''}`, disabled: true }];
     const typeItem = isSpec && S.can('write') ? [{ key: 'type', label: `Type: ${S.specType(item.specType).label} – change…` }] : [];
     const modeItems = raw ? [] : [...(form ? [{ key: 'mode:form', label: 'Editor: Form', current: asForm }] : []), { key: 'mode:blocks', label: 'Editor: Blocks', current: blocks }, { key: 'mode:markdown', label: 'Editor: Markdown', current: mode === 'markdown' }];
@@ -130,7 +150,9 @@ export function ItemEditor({ item }: { item: Item }) {
       : [{ key: 'move', label: 'Move / rename…' }, { key: 'pin', label: item.pinned ? 'Unpin: no longer always available to agents' : 'Pin: always available to agents' }, { key: 'delete', label: 'Delete document', danger: true }];
     const impl = isSpec && item.status === 'approved' ? [{ key: 'report', label: `Implementation: ${implState(item, S.latestReport(item.id)).text}` }] : [];
     const phoneItems = phone && isSpec ? [{ key: 'feedback', label: `Feedback: ${S.feedbackCount(item.id)} open` }, { key: 'docs', label: `Linked documents: ${item.links.length}` }] : [];
-    const key = await openMenu(item.id, [...info, ...phoneItems, ...impl, ...modeItems, ...typeItem, ...actions]);
+    const key = await openMenu(item.id, [...info, ...phoneItems, ...impl, ...deriveItems, ...modeItems, ...typeItem, ...actions]);
+    if (key === 'derive:spec' || key === 'derive:term') return setDerive({ kind: key === 'derive:spec' ? 'spec' : 'term', text: src, whole: !sel });
+    if (key === 'derive:defs') { S.upsertGlossaryTerms(defs.map((d) => ({ term: d.term, definition: d.definition, aliases: d.aliases, see: d.see }))); return toast(`${defs.length} term${defs.length === 1 ? '' : 's'} added to the glossary`); }
     if (key === 'feedback') return setSheet('feedback');
     if (key === 'docs') return setSheet('link');
     if (key === 'report') return setSheet('report');
@@ -228,6 +250,8 @@ export function ItemEditor({ item }: { item: Item }) {
           <span id="approveSlot"><ApproveButton i={item} S={S} /></span>
         </footer>
       )}
+      {derive?.kind === 'spec' && <DeriveSpecSheet text={derive.text} source={item.id} whole={derive.whole} onClose={() => setDerive(null)} />}
+      {derive?.kind === 'term' && (() => { const p = termPrefill(derive.text, item.id, derive.whole); return <TermSheet initial={p.term} definition={p.definition} from={item.id} onClose={() => setDerive(null)} />; })()}
       {sheet === 'ref' && <LinkSheet specId={item.id} onClose={() => setSheet(null)} onPick={(id) => (blocks ? insertRef(id) : (() => { const t = document.getElementById('body') as HTMLTextAreaElement | null; if (t) S.edit(item.id, { body: `${item.body}${item.body.endsWith('\n') || !item.body ? '' : ' '}@${id} ` }); })())} />}
       {sheet === 'link' && <LinkSheet specId={item.id} onClose={() => setSheet(null)} />}
       {sheet === 'newdoc' && <PathSheet kind="newdoc" linkTo={item.id} onClose={() => setSheet(null)} />}

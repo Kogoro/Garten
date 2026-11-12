@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { FormError, Sheet } from './dialogs';
 import { Icon, toast, useStore } from './ui';
 import { useUi } from './state';
+import { specBody, titleOf } from './derive';
 
 type Done = () => void;
 
@@ -56,6 +57,27 @@ export function NewSpecSheet({ onClose }: { onClose: Done }) {
     <Sheet onClose={onClose}>
       <h2>New spec</h2>
       <p>Pick a type – it decides the starting structure. You can change the type later; the content stays.</p>
+      <div className="typelist">{S.specTypes().map((t) => <button key={t.key} type="button" className={`typeopt ${t.key === lastType ? 'current' : ''}`} onClick={() => pick(t.key)}><b>{t.label}</b><span>{t.description}</span></button>)}</div>
+    </Sheet>
+  );
+}
+
+/** New spec from a selection or a whole document: pick the type and the title, the text becomes the body (plus a SOURCE section). */
+export function DeriveSpecSheet({ text, source, whole, onClose }: { text: string; source: string; whole: boolean; onClose: Done }) {
+  const S = useStore(); const nav = useNavigate();
+  const { lastType, set } = useUi();
+  const [title, setTitle] = useState(() => titleOf(text, source));
+  const pick = (key: string) => {
+    const s = S.createSpec(key);
+    S.edit(s.id, { title: title.trim(), body: specBody(text, source) });
+    const { [s.id]: _drop, ...modes } = useUi.getState().modes; set({ lastType: key, modes: { ...modes, [s.id]: 'blocks' } });
+    onClose(); nav(`/spec/${encodeURIComponent(s.id)}`); toast('Spec draft created – review it before approving');
+  };
+  return (
+    <Sheet onClose={onClose}>
+      <h2>New spec from {whole ? 'this document' : 'the selection'}</h2>
+      <p>The text of <span className="mono">{source}</span> is copied into a new draft ({text.length > 400 ? `${Math.round(text.length / 100) / 10}k characters` : `${text.length} characters`}); the original stays unchanged. Pick a type.</p>
+      <label className="sr" htmlFor="derivetitle">Title</label><input id="derivetitle" className="field" value={title} placeholder="Spec title" autoComplete="off" onChange={(e) => setTitle(e.target.value)} />
       <div className="typelist">{S.specTypes().map((t) => <button key={t.key} type="button" className={`typeopt ${t.key === lastType ? 'current' : ''}`} onClick={() => pick(t.key)}><b>{t.label}</b><span>{t.description}</span></button>)}</div>
     </Sheet>
   );
