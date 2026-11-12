@@ -8,6 +8,8 @@ import { FEEDBACK_MAIL_DEBOUNCE_MS, PUBLIC_URL } from './config.js';
 
 export const KINDS = ['concern', 'conflict', 'question', 'suggestion', 'gap'];
 export const DECISION = 'decision'; // a question with options that an agent asks a person; stored as feedback
+/** An agent asks a person to delete or release a spec. Agents can never do either themselves; accepting the proposal (approvers only) carries it out. */
+export const PROPOSALS = { propose_deletion: 'delete', propose_acceptance: 'release' };
 export const STATUSES = ['open', 'accepted', 'dismissed', 'done']; // what people can set; agents can additionally withdraw their own open entries
 const norm = (s) => String(s ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
 const json = (s, fallback) => { try { return s ? JSON.parse(s) : fallback; } catch { return fallback; } };
@@ -73,13 +75,28 @@ export function requestDecision(teamId, { specId, question, options, recommended
   return insert(teamId, spec, { kind: DECISION, section: String(section ?? '').trim().slice(0, 80), text, evidence: String(context ?? '').trim().slice(0, 2000), blocking: blocking !== false, options: opts, recommended: rec }, by);
 }
 
+/** An agent proposes to delete a spec, or to release (approve) it. A person decides; accepting is what makes it happen. */
+export function addProposal(teamId, { specId, action, reason }, by) {
+  const kind = action === 'delete' ? 'propose_deletion' : 'propose_acceptance';
+  const spec = specFor(teamId, specId);
+  reason = String(reason ?? '').trim();
+  if (!reason) throw new ApiError('Say why – a person decides based on your reason.');
+  if (reason.length > 4000) throw new ApiError('Keep the reason under 4000 characters.');
+  if (action === 'release' && spec.status === 'approved' && spec.rev === spec.releasedRev) throw new ApiError(`${specId} is already released in its current form – there is nothing to release.`);
+  const dup = db.prepare("SELECT * FROM feedback WHERE team_id=? AND spec_id=? AND kind=? AND status='open'").get(teamId, specId, kind);
+  if (dup) return { ...view(dup), duplicate: true };
+  return insert(teamId, spec, { kind, section: '', text: reason, evidence: '' }, by);
+}
+
+export const getFeedback = (teamId, id) => { const r = row(teamId, id); return r ? view(r) : null; };
+
 export function listFeedback(teamId, { specId, status, kind } = {}) {
   const rows = db.prepare('SELECT * FROM feedback WHERE team_id=? ORDER BY created_at DESC').all(teamId).map(view);
   return rows.filter((f) => (!specId || f.specId === specId) && (!status || f.status === status) && (!kind || f.kind === kind));
 }
 
 /** People triage feedback (status + reply) and answer decisions (answer = option index, or -1 with the answer written into the reply). */
-export function setFeedback(teamId, id, { status, reply, answer }, user) {
+export function setFeedback(teamId, id, { status, reply, answer }, user, { execute = false } = {}) {
   const cur = row(teamId, id);
   if (!cur) throw new ApiError('Unknown feedback', 404);
   if (cur.status === 'withdrawn') throw new ApiError('The agent withdrew this entry – there is nothing left to decide.', 409);
@@ -98,6 +115,9 @@ export function setFeedback(teamId, id, { status, reply, answer }, user) {
     if (st === 'answered' && cur.status !== 'answered') throw new ApiError('Pick an option to answer the decision.');
     if (!['open', 'answered', 'dismissed'].includes(st)) throw new ApiError('A decision is open, answered or dismissed.');
     if (st === 'open') ans = null; // reopened: the earlier answer no longer counts
+  } else if (PROPOSALS[cur.kind]) {
+    if (!['open', 'accepted', 'dismissed'].includes(st)) throw new ApiError('A proposal is open, accepted or dismissed.');
+    if (st === 'accepted' && cur.status !== 'accepted' && !execute) throw new ApiError(`Accepting this proposal carries it out (${PROPOSALS[cur.kind]} the spec) and needs a connection to the server and approval rights.`, 409);
   } else if (!STATUSES.includes(st)) throw new ApiError(`status must be one of: ${STATUSES.join(', ')}`);
   const closed = st !== 'open';
   db.prepare('UPDATE feedback SET status=?, reply=?, answer=?, resolved_by=?, resolved_at=? WHERE id=?').run(st, rp, ans, closed ? user.name : null, closed ? new Date().toISOString() : null, id);

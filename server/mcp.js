@@ -4,7 +4,7 @@ import { z } from 'zod';
 import * as store from './store.js';
 import { getUser, roleIn, perms } from './auth.js';
 import { getTeam } from './teams.js';
-import { addFeedback, listFeedback, withdrawFeedback, requestDecision, KINDS, DECISION } from './feedback.js';
+import { addFeedback, addProposal, listFeedback, withdrawFeedback, requestDecision, KINDS, DECISION } from './feedback.js';
 import { registerCheck, retireCheck, recordRun, listChecks, runHistory, CHECK_KINDS, RUN_STATUSES } from './checks.js';
 import { addReport, listReports, workList, specChanges, REPORT_STATUSES, CRITERION_STATUSES, EVIDENCE_KINDS } from './reports.js';
 import { listTypes, isKnownType } from './specTypes.js';
@@ -38,7 +38,7 @@ function buildServer(team, canDrafts, writer) {
             'Back every criterion you call met with a re-runnable check: register_check (test, CI job, metric, command), run it, report_check_result, and name it in the criterion – checks are run again after changes, and get_work_list shows the specs whose checks fail or went stale as "recheck". ' +
             'When the spec leaves a choice open that a person should make, do not guess: call request_decision with 2–6 options and your recommendation, continue with other work, and look for the answer with list_decisions later. ' +
             'If you disagree with a spec or find it conflicts with the code, do not edit it: use add_feedback (check list_feedback first). ' +
-            'To turn a document into glossary entries and specs use derive_from_document (prompt: derive_glossary_and_specs). You may create and edit DRAFTS (create_draft_spec, update_draft_spec, create_draft_document, update_draft_document, derive_from_document); you can never approve or publish – a person reviews your drafts in the Specs app.'
+            'To turn a document into glossary entries and specs use derive_from_document (prompt: derive_glossary_and_specs). You may create and edit DRAFTS (create_draft_spec, update_draft_spec, create_draft_document, update_draft_document, derive_from_document); you can never approve, publish or delete – a person reviews your drafts in the Specs app. When a draft is ready call propose_acceptance, and for a spec that should go call propose_deletion: an approver decides.'
           : ''),
     },
   );
@@ -171,6 +171,30 @@ function buildServer(team, canDrafts, writer) {
       run(async ({ spec_id, kind, text: tx, section, evidence }) => {
         const f = addFeedback(t, { specId: spec_id, kind, text: tx, section, evidence }, by);
         return { id: f.id, status: f.status, duplicate: !!f.duplicate, note: 'Recorded. A person will triage it; it does not change the spec.' };
+      }),
+    );
+
+    server.registerTool(
+      'propose_deletion',
+      {
+        description: 'Propose that a spec be deleted (it is obsolete, a duplicate, or was created by mistake). You can never delete a spec yourself: a person with approval rights sees the proposal in the Specs app; accepting it revokes the spec if it is released and deletes it, together with its feedback and reports. You can take the proposal back with withdraw_feedback while it is open.',
+        inputSchema: { spec_id: z.string(), reason: z.string().min(1).max(4000).describe('Why the spec should go, in a few sentences a person can judge') },
+      },
+      run(async ({ spec_id, reason }) => {
+        const f = addProposal(t, { specId: spec_id, action: 'delete', reason }, by);
+        return { id: f.id, status: f.status, duplicate: !!f.duplicate, note: 'Recorded. Nothing is deleted until an approver accepts it. Check list_feedback for the outcome.' };
+      }),
+    );
+
+    server.registerTool(
+      'propose_acceptance',
+      {
+        description: 'Propose that a draft spec (or the unreleased changes of a released one) be approved and released to agents. You can never approve anything yourself: an approver reviews the draft in the Specs app, and accepting the proposal releases it. Use it after you finished a draft; say what a reviewer should look at.',
+        inputSchema: { spec_id: z.string(), reason: z.string().min(1).max(4000).describe('Why it is ready, and what the reviewer should check') },
+      },
+      run(async ({ spec_id, reason }) => {
+        const f = addProposal(t, { specId: spec_id, action: 'release', reason }, by);
+        return { id: f.id, status: f.status, duplicate: !!f.duplicate, note: 'Recorded. The spec stays a draft until an approver accepts it. Check list_feedback for the outcome.' };
       }),
     );
 

@@ -523,6 +523,22 @@ try {
     const again = JSON.parse((await call(fa, 'list_feedback', { spec_id: sid })).text);
     assert.equal(again[0].status, 'accepted'); assert.match(again[0].reply, /fixing the spec/); assert.equal(JSON.parse((await call(fa, 'list_feedback', { status: 'open' })).text).length, 0); ok('the agent sees the decision and the reply (list_feedback)');
     assert.equal(JSON.parse((await call(fa, 'add_feedback', { spec_id: sid, kind: 'conflict', section: '## ENDPOINTS', text: 'POST /webhooks/keys/rotate is implemented as PUT in src/hooks.ts' })).text).duplicate, false); ok('after triage the same finding can be raised again');
+    { // proposals: agents ask, approvers decide; deleting a spec takes its comments with it
+      const apr = await mk('approver', 'prop');
+      const mkSpec = async (title) => (await apr.c.push([{ id: 'SPEC-890', kind: 'spec', baseRev: 0, fields: { title } }]))[0].item;
+      let sp = await mkSpec('Proposal target'); assert.equal(sp.status, 'draft');
+      const pr = JSON.parse((await call(fa, 'propose_acceptance', { spec_id: 'SPEC-890', reason: 'Ready for review' })).text);
+      assert.equal(pr.status, 'open'); assert.equal(JSON.parse((await call(fa, 'propose_acceptance', { spec_id: 'SPEC-890', reason: 'again' })).text).duplicate, true);
+      assert.equal((await call(fa, 'propose_deletion', { spec_id: 'NOPE-1', reason: 'x' })).isError, true);
+      assert.equal((await fbEd.c.req('PATCH', `/api/teams/${T1}/feedback/${pr.id}`, { status: 'accepted' })).status, 403); ok('an editor cannot accept a proposal');
+      assert.equal((await apr.c.req('PATCH', `/api/teams/${T1}/feedback/${pr.id}`, { status: 'accepted' })).data.feedback.status, 'accepted');
+      sp = (await apr.c.sync([], 0)).data.items.find((x) => x.id === 'SPEC-890'); assert.equal(sp.status, 'approved'); ok('accepting propose_acceptance releases the spec');
+      await call(fa, 'add_feedback', { spec_id: 'SPEC-890', kind: 'question', text: 'a comment that must not outlive its spec' });
+      const pd = JSON.parse((await call(fa, 'propose_deletion', { spec_id: 'SPEC-890', reason: 'obsolete' })).text);
+      assert.equal((await apr.c.req('PATCH', `/api/teams/${T1}/feedback/${pd.id}`, { status: 'accepted' })).status, 200);
+      assert.equal((await apr.c.sync([], 0)).data.items.find((x) => x.id === 'SPEC-890')?.deleted ?? true, true);
+      assert.equal((await apr.c.get(`/api/teams/${T1}/feedback?spec=SPEC-890`)).data.feedback.length, 0); ok('accepting propose_deletion revokes and deletes the spec together with its feedback');
+    }
     assert.equal((await fbEd.c.sync([], 0)).data.feedbackOpen[sid], 1);
     // e-mail digest to approvers and admins (not to the author), switchable per team
     const waitMail = async (pred, ms = 4000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { const m = smtp.mails.find(pred); if (m) return m; await new Promise((r) => setTimeout(r, 100)); } return null; };

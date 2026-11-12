@@ -6,7 +6,7 @@ import { Icon, ago, toast, useStore } from './ui';
 import { RuleSheet } from './guardrails';
 
 export const KINDS: [string, string][] = [['concern', 'Concern'], ['conflict', 'Conflict'], ['question', 'Question'], ['suggestion', 'Suggestion'], ['gap', 'Missing info']];
-const kindLabel: Record<string, string> = { ...Object.fromEntries(KINDS), decision: 'Decision' };
+const kindLabel: Record<string, string> = { ...Object.fromEntries(KINDS), decision: 'Decision', propose_deletion: 'Proposes deletion', propose_acceptance: 'Proposes acceptance' };
 const STATUS: Record<string, string> = { open: 'Open', accepted: 'Accepted', dismissed: 'Dismissed', done: 'Done', answered: 'Answered', withdrawn: 'Withdrawn by agent' };
 type Act = (f: any, patch: FbPatch, note?: boolean) => void;
 
@@ -35,6 +35,33 @@ export function useFbAct(after?: (next: any) => void): Act {
   };
 }
 
+/** An agent's proposal to delete or release a spec: accepting carries it out on the server (approvers only), so it needs a connection. */
+function ProposalActions({ f, act }: { f: any; act: Act }) {
+  const S = useStore();
+  const [reply, setReply] = useState(f.reply ?? '');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const del = f.kind === 'propose_deletion';
+  const accept = async () => {
+    if (del && !confirm(`Delete ${f.specId}? ${S.get(f.specId)?.status === 'approved' ? 'It is released and will be revoked first. ' : ''}Its feedback and reports are deleted with it.`)) return;
+    setBusy(true); setErr(null);
+    try { await S.teamApi('PATCH', `/feedback/${f.id}`, { status: 'accepted', reply }); await S.sync(); toast(del ? `${f.specId} deleted` : `${f.specId} released`); }
+    catch (x: any) { setErr(x instanceof TypeError ? 'This needs a connection to the server.' : x.message); }
+    setBusy(false);
+  };
+  if (f.status !== 'open') return S.can('write') ? <div className="btns"><button className="btn small" data-act="fb-reopen" onClick={() => act(f, { status: 'open' })}>Reopen</button></div> : null;
+  return (<div className="fb-acts">
+    <FormError msg={err} />
+    <label className="sr" htmlFor={`rp-${f.id}`}>Reply</label>
+    <input id={`rp-${f.id}`} className="field" placeholder="Reply (optional)" value={reply} maxLength={2000} onChange={(e) => setReply(e.target.value)} />
+    <div className="btns">
+      {S.can('approve') && <button className={`btn small ${del ? '' : 'primary'}`} data-act="proposal-accept" disabled={busy || !S.state.online} onClick={accept}>{del ? 'Accept & delete spec' : 'Accept & release spec'}</button>}
+      {S.can('write') && <button className="btn small" data-act="fb-dismiss" disabled={busy} onClick={() => act(f, { status: 'dismissed', reply })}>Dismiss</button>}
+    </div>
+    {!S.can('approve') && <p className="muted">Only an approver can accept this.</p>}
+  </div>);
+}
+
 const Waiting = ({ id }: { id: string }) => { const S = useStore(); return S.fbPending(id) ? <span className="chip warn fb-wait" title="Saved on this device – sent with the next sync"><Icon name="up" size={11} /> Waiting to sync</span> : null; };
 const SpecRef = ({ f }: { f: any }) => { const S = useStore(); const s = S.get(f.specId); return <Link className="fb-spec" to={`/spec/${encodeURIComponent(f.specId)}`}><span className="mono">{f.specId}</span>{s?.title ? ` · ${s.title}` : ''}</Link>; };
 
@@ -44,12 +71,12 @@ export function FbItem({ f, version, showSpec, act }: { f: any; version?: number
   return (
     <article className={`fb-item st-${f.status}`} data-kind={f.kind}>
       {showSpec && <SpecRef f={f} />}
-      <div className="fb-head"><span className={`chip ${f.kind === 'conflict' || f.kind === 'concern' ? 'warn' : ''}`}>{kindLabel[f.kind] ?? f.kind}</span>{f.section && <span className="mono fb-sec">{f.section}</span>}
+      <div className="fb-head"><span className={`chip ${f.kind === 'conflict' || f.kind === 'concern' || f.kind === 'propose_deletion' ? 'warn' : ''}`}>{kindLabel[f.kind] ?? f.kind}</span>{f.section && <span className="mono fb-sec">{f.section}</span>}
         <span className="muted fb-meta">{f.via ?? f.author} · {ago(Date.parse(f.createdAt))}{version !== undefined && f.specVersion !== version ? ` · on v${f.specVersion || 0}` : ''}</span><span className={`chip ${f.status === 'open' ? '' : 'ok'}`}>{STATUS[f.status] ?? f.status}</span><Waiting id={f.id} /></div>
       <p className="fb-text">{f.text}</p>
       {f.evidence && <p className="fb-evidence mono">{f.evidence}</p>}
       {f.reply && <p className="fb-reply"><b>{f.resolvedBy ?? 'Reply'}:</b> {f.reply}</p>}
-      {S.can('write') && f.status !== 'withdrawn' && <FeedbackActions f={f} act={act} />}
+      {f.status !== 'withdrawn' && (f.kind === 'propose_deletion' || f.kind === 'propose_acceptance' ? <ProposalActions f={f} act={act} /> : S.can('write') && <FeedbackActions f={f} act={act} />)}
     </article>
   );
 }
