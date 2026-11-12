@@ -2,21 +2,21 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { emptyValue, parseForm, serializeForm } from '@shared/specForm.js';
 import { METHODS, MermaidView } from '../editor/schema';
 import type { FormField, FormSchema } from '../store/types';
-import { FlowEditor } from '../editor/FlowEditor';
+import { DiagramDialog } from '../editor/DiagramDialog';
 import { Icon } from '../ui';
 
 type State = { values: Record<string, any>; rest: Record<string, string>; preface: string; extra: string };
 interface Ep { method: string; path: string; text: string; req: string; res: string }
 
-/** Mermaid field: code and rendered diagram, optionally with the visual flowchart editor. */
+/** Mermaid field: code and rendered diagram, plus the pop-out visual editor. */
 function DiagramField({ label, value, ro, onChange }: { label: string; value: string; ro: boolean; onChange: (v: string) => void }) {
-  const [visual, setVisual] = useState(false);
+  const [open, setOpen] = useState(false);
   return (
     <div className="ff-diagram">
-      {visual ? <FlowEditor text={value} readOnly={ro} onChange={onChange} />
-        : <Area label={`${label} (Mermaid)`} mono ro={ro} value={value} rows={5} placeholder={'flowchart LR\n  A --> B'} onChange={onChange} />}
-      {!ro && <button type="button" className="btn small" data-act="ff-visual" aria-pressed={visual} style={{ alignSelf: 'flex-start' }} onClick={() => setVisual(!visual)}>{visual ? 'Edit as code' : 'Edit visually'}</button>}
+      <Area label={`${label} (Mermaid)`} mono ro={ro} value={value} rows={5} placeholder={'flowchart LR\n  A --> B'} onChange={onChange} />
+      <button type="button" className="btn small" data-act="ff-visual" style={{ alignSelf: 'flex-start' }} onClick={() => setOpen(true)}>{ro ? 'Open larger' : 'Visual editor…'}</button>
       {value.trim() && <MermaidView text={value} />}
+      {open && <DiagramDialog text={value} readOnly={ro} onApply={onChange} onClose={() => setOpen(false)} />}
     </div>
   );
 }

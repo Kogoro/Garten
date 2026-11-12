@@ -112,15 +112,44 @@ try {
   await dg.locator('[data-act=mm-100]').click(); assert.equal(await pct(), '100%');
   await dg.locator('[data-act=mm-out]').click(); assert.notEqual(await pct(), '100%');
   await dg.locator('[data-act=mm-fit]').click(); assert.equal(await pct(), p0); ok('diagram: zoom in, out, 100 % and fit');
-  await dg.locator('[data-act=dg-edit]').click();
-  assert.equal(await dg.locator('[data-node]').count(), 3);
-  await dg.locator('[data-act=fe-add-node]').click();
-  await dg.locator('[data-node]').last().locator('input').fill('Brand new');
-  await dg.locator('[data-act=fe-add-edge]').click();
-  await page.waitForFunction(() => /Brand new/.test(document.querySelector('[data-content-type=diagram] .mm')?.textContent ?? ''), null, { timeout: 10000 });
-  await dg.locator('[data-act=dg-split]').click();
-  const code = await dg.locator('textarea').inputValue();
-  assert.match(code, /A\["Brand new"\]/); assert.match(code, /Phone/); ok('visual editor: adding a step and a connection writes the Mermaid code');
+  // pop-out visual editor: form/code left, preview right
+  await dg.locator('[data-act=dg-visual]').click();
+  const dd = page.locator('.sheet.xl');
+  await dd.locator('.dge-right .mm svg').waitFor({ timeout: 15000 });
+  assert.equal(await dd.locator('[data-node]').count(), 3);
+  await dd.locator('[data-act=fe-add-node]').click();
+  await dd.locator('[data-node]').last().locator('input').fill('Brand new');
+  await dd.locator('[data-act=fe-add-edge]').click();
+  await page.waitForFunction(() => /Brand new/.test(document.querySelector('.sheet.xl .dge-right .mm')?.textContent ?? ''), null, { timeout: 10000 });
+  await dd.locator('[data-act=dd-code]').click();
+  const code = await dd.locator('textarea').inputValue();
+  assert.match(code, /A\["Brand new"\]/); assert.match(code, /Phone/);
+  assert.equal(await page.locator('.diagram textarea').first().inputValue(), 'flowchart LR\n  Phone --> Server\n  Server --> Git'); // nothing is applied before "Apply"
+  ok('visual editor: opens as a pop-out, form/code on the left, live preview on the right, applied only on "Apply"');
+  await shot(page, '04-diagram-editor');
+  // every diagram type renders from its example, and the forms edit it
+  page.on('dialog', (d) => d.accept());
+  for (const key of ['sequence', 'state', 'er', 'class', 'pie', 'gantt', 'mindmap', 'timeline', 'journey', 'git', 'quadrant', 'flowchart']) {
+    await dd.locator('#dd-type').selectOption(key);
+    await dd.locator('.dge-right .mm:not(.err) svg').waitFor({ timeout: 15000 });
+  }
+  ok('visual editor: every diagram type renders from its example');
+  await dd.locator('#dd-type').selectOption('sequence');
+  await dd.locator('[data-act=dd-form]').click();
+  await dd.locator('[data-act=fe-add-msg]').click();
+  await dd.locator('[data-item]').last().locator('input').fill('Third message');
+  await page.waitForFunction(() => /Third message/.test(document.querySelector('.sheet.xl .dge-right .mm')?.textContent ?? ''), null, { timeout: 10000 });
+  await dd.locator('#dd-type').selectOption('er'); await dd.locator('[data-act=fe-add-relation]').click();
+  await dd.locator('#dd-type').selectOption('pie'); await dd.locator('[data-act=fe-add-slice]').click();
+  await dd.locator('#dd-type').selectOption('state'); await dd.locator('[data-act=fe-add-transition]').click();
+  await dd.locator('#dd-type').selectOption('class'); await dd.locator('[data-act=fe-add-relation]').click();
+  await dd.locator('.dge-right .mm:not(.err) svg').waitFor({ timeout: 15000 }); ok('visual editor: forms for sequence, ER, pie, state and class diagrams');
+  await shot(page, '05-diagram-editor-class');
+  await dd.locator('#dd-type').selectOption('flowchart');
+  await dd.locator('[data-act=dd-apply]').click();
+  await dd.waitFor({ state: 'detached' });
+  assert.match(await dg.locator('textarea').inputValue(), /^flowchart TD/); ok('visual editor: Apply writes the diagram back into the block');
+  page.removeAllListeners('dialog');
   await dg.locator('textarea').fill('flowchart LR\n  Phone --> Server\n  Server --> Git'); // back to the original for the checks below
   // endpoint blocks: repeatable, each with description
   for (const [method, path, text] of [['POST', '/orders', 'Creates an order. Idempotent via Idempotency-Key.'], ['GET', '/orders/{id}', 'Returns one order.']]) {
