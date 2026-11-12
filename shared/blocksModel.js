@@ -14,7 +14,29 @@ const REQ = /^(R\d+)(?:\s+(.*))?$/;
 const QUOTE = /^>\s?(.*)$/;
 const HR = /^(?:---+|\*\*\*+)\s*$/;
 const DEF = /^: (.*)$/;
-const startsBlock = (l) => FENCE.test(l) || HEAD.test(l) || TASK.test(l) || BULLET.test(l) || REQ.test(l) || QUOTE.test(l) || HR.test(l);
+const IMG = /^!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)\s*$/;
+const ROW = /^\s*\|/;
+const SEP = /^\s*\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)*\|?\s*$/;
+const isTableAt = (lines, i) => ROW.test(lines[i] ?? '') && SEP.test(lines[i + 1] ?? '') && (lines[i + 1] ?? '').includes('-') && (lines[i + 1] ?? '').includes('|');
+const startsBlock = (l) => IMG.test(l) || FENCE.test(l) || HEAD.test(l) || TASK.test(l) || BULLET.test(l) || REQ.test(l) || QUOTE.test(l) || HR.test(l);
+
+/** One GFM table row -> cells (a pipe inside a cell is written \\|). */
+export function splitRow(l) {
+  const cells = [];
+  let cur = '';
+  const t = l.trim().replace(/^\|/, '');
+  for (let i = 0; i < t.length; i++) {
+    if (t[i] === '\\' && t[i + 1] === '|') { cur += '|'; i++; } else if (t[i] === '|') { cells.push(cur.trim()); cur = ''; } else cur += t[i];
+  }
+  if (cur.trim() || !/\|\s*$/.test(l)) cells.push(cur.trim());
+  return cells;
+}
+const cell = (c) => String(c ?? '').replace(/\r?\n/g, ' ').replace(/\|/g, '\\|');
+export function formatTable(rows) {
+  const n = Math.max(...rows.map((r) => r.length), 1);
+  const fmt = (r) => `| ${Array.from({ length: n }, (_, i) => cell(r[i])).join(' | ')} |`;
+  return [fmt(rows[0]), `|${Array(n).fill('---').join('|')}|`, ...rows.slice(1).map(fmt)].join('\n');
+}
 
 export function parse(md) {
   const lines = String(md ?? '').replace(/\r\n/g, '\n').split('\n');
@@ -23,7 +45,14 @@ export function parse(md) {
     const l = lines[i];
     let m;
     if (!l.trim()) continue;
-    if ((m = FENCE.exec(l))) {
+    if (isTableAt(lines, i)) {
+      const rows = [splitRow(l)];
+      for (i += 2; i < lines.length && ROW.test(lines[i]); i++) rows.push(splitRow(lines[i]));
+      i--;
+      const n = rows[0].length;
+      out.push({ id: nid(), type: 'table', rows: rows.map((r) => Array.from({ length: n }, (_, k) => r[k] ?? '')) });
+    } else if ((m = IMG.exec(l))) out.push({ id: nid(), type: 'img', src: m[2], text: m[1] });
+    else if ((m = FENCE.exec(l))) {
       const body = [];
       for (i++; i < lines.length && !/^```\s*$/.test(lines[i]); i++) body.push(lines[i]);
       const lang = m[1].toLowerCase();
@@ -47,7 +76,7 @@ export function parse(md) {
       out.push({ id: nid(), type: 'def', term: l.trim(), text: d.definition, aliases: d.aliases.join(', '), see: d.see.join(', '), src: d.origin ?? '' });
     } else {
       const p = [l];
-      while (i + 1 < lines.length && lines[i + 1].trim() && !startsBlock(lines[i + 1]) && !DEF.test(lines[i + 2] ?? '')) p.push(lines[++i]);
+      while (i + 1 < lines.length && lines[i + 1].trim() && !startsBlock(lines[i + 1]) && !ROW.test(lines[i + 1]) && !DEF.test(lines[i + 2] ?? '')) p.push(lines[++i]);
       out.push({ id: nid(), type: 'p', text: p.join('\n') });
     }
   }
@@ -79,6 +108,8 @@ const line = (b) => {
     case 'req': return `${b.label} ${b.text}`.trimEnd();
     case 'quote': return b.text.split('\n').map((t) => `> ${t}`).join('\n');
     case 'hr': return '---';
+    case 'table': return formatTable(b.rows);
+    case 'img': return `![${String(b.text ?? '').replace(/[\[\]\n]/g, ' ')}](${b.src})`;
     case 'def': return formatDefinition(b.term, b.text, { aliases: splitList(b.aliases), see: splitList(b.see), origin: b.src || null });
     case 'code': return `\`\`\`${b.lang ?? ''}${b.info ? ' ' + b.info : ''}\n${b.text}\n\`\`\``;
     case 'endpoint': return `\`\`\`endpoint ${b.method} ${fenceSafe(b.path).trim()}\n${fenceSafe(b.text).trim()}${b.req?.trim() ? `\n\nRequest:\n${fenceSafe(b.req).trim()}` : ''}${b.res?.trim() ? `\n\nResponses:\n${fenceSafe(b.res).trim()}` : ''}\n\`\`\``;
@@ -87,7 +118,7 @@ const line = (b) => {
   }
 };
 export function serialize(blocks) {
-  const kept = blocks.filter((b) => b.type === 'hr' || b.type === 'diagram' || b.type === 'code' || (b.type === 'endpoint' ? b.path.trim() : false) || (b.type === 'def' ? b.term.trim() && b.text.trim() : b.text.trim()));
+  const kept = blocks.filter((b) => b.type === 'hr' || (b.type === 'table' ? b.rows?.length : false) || (b.type === 'img' ? b.src?.trim() : false) || b.type === 'diagram' || b.type === 'code' || (b.type === 'endpoint' ? b.path.trim() : false) || (b.type === 'def' ? b.term.trim() && b.text.trim() : b.text.trim()));
   let s = '';
   kept.forEach((b, i) => {
     if (i) s += LISTY.has(b.type) && LISTY.has(kept[i - 1].type) ? '\n' : '\n\n';

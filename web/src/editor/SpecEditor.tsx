@@ -63,14 +63,14 @@ export function SpecEditor({ docKey, value, readOnly, onChange, onReady, refs, o
   };
   const insert = (key: string) => {
     const cur: any = editor.getTextCursorPosition().block;
-    const map: Record<string, any> = { p: { type: 'paragraph' }, h2: { type: 'heading', props: { level: 2 } }, h1: { type: 'heading', props: { level: 1 } }, h3: { type: 'heading', props: { level: 3 } }, task: { type: 'checkListItem' }, li: { type: 'bulletListItem' }, quote: { type: 'quote' }, code: { type: 'codeBlock' }, hr: { type: 'divider' } };
+    const map: Record<string, any> = { p: { type: 'paragraph' }, h2: { type: 'heading', props: { level: 2 } }, h1: { type: 'heading', props: { level: 1 } }, h3: { type: 'heading', props: { level: 3 } }, task: { type: 'checkListItem' }, li: { type: 'bulletListItem' }, quote: { type: 'quote' }, image: { type: 'image' }, table: { type: 'table', content: { type: 'tableContent', headerRows: 1, rows: [0, 1, 2].map(() => ({ cells: [[], [], []] })) } }, code: { type: 'codeBlock' }, hr: { type: 'divider' } };
     const nb = map[key] ?? { type: key };
     const empty = !(cur.content as any[])?.length && ['paragraph', 'bulletListItem', 'checkListItem', 'requirement', 'quote'].includes(cur.type);
     editor.focus();
     let target: any = cur;
     if (empty) editor.updateBlock(cur, nb);
     else { const anchor = splitAtCaret(cur); const res: any = editor.insertBlocks([nb], cur === anchor ? cur : cur, 'after'); target = res.insertedBlocks?.[0] ?? res[0]; }
-    if (target) editor.setTextCursorPosition(target, 'start');
+    try { if (target) editor.setTextCursorPosition(target, 'start'); } catch { /* non-text block */ }
   };
   const insertText = (t: string) => { editor.focus(); editor.insertInlineContent([{ type: 'text', text: t, styles: {} }]); };
   useEffect(() => { onReady?.({ insert, insertText }); return () => onReady?.(null); }, [editor]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -83,7 +83,7 @@ export function SpecEditor({ docKey, value, readOnly, onChange, onReady, refs, o
   }, [value, editor]);
 
   const slash = async (query: string) => {
-    const base = getDefaultReactSlashMenuItems(editor).filter((i) => !['Numbered List', 'Toggle List', 'Image', 'Video', 'Audio', 'File', 'Emoji', 'Heading 4', 'Heading 5', 'Heading 6', 'Table', 'Page Break', 'Toggle Heading 1', 'Toggle Heading 2', 'Toggle Heading 3', 'Numbered list', 'Bullet list'].includes(i.title) || i.title === 'Bullet List');
+    const base = getDefaultReactSlashMenuItems(editor).filter((i) => !['Numbered List', 'Toggle List', 'Video', 'Audio', 'File', 'Emoji', 'Heading 4', 'Heading 5', 'Heading 6', 'Page Break', 'Toggle Heading 1', 'Toggle Heading 2', 'Toggle Heading 3', 'Numbered list', 'Bullet list'].includes(i.title) || i.title === 'Bullet List');
     const mine = CUSTOM.map((c) => ({
       title: c.title, aliases: [...c.aliases], group: c.group, subtext: c.subtext,
       onItemClick: () => {

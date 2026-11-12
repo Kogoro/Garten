@@ -8,7 +8,7 @@ const DOC = [
   '- [ ] open task', '- [x] done task', '', '- bullet', '', 'R1 Works offline', 'R2 Never double-bills', '',
   '> quoted', '', '---', '', '```mermaid', 'flowchart LR', '  A --> B', '```', '',
   '```endpoint POST /orders', 'Creates an order.', '', 'Request:', '{ "sku": "x" }', '', 'Responses:', '201 Created', '```', '',
-  '```yaml', 'a: 1', '```', '', 'Attempt window', ': A time bucket.', ': Aliases: retry window', ': See also: Ledger entry', '',
+  '```yaml', 'a: 1', '```', '', '| Group | Rule |', '|---|---|', '| Surfaces | `--bg` and a \\| pipe |', '| Lines | **hairlines** |', '', '![Logo](https://x.y/a.png)', '', 'Attempt window', ': A time bucket.', ': Aliases: retry window', ': See also: Ledger entry', '',
 ].join('\n');
 
 describe('Markdown <-> BlockNote round trip', () => {
@@ -21,6 +21,15 @@ describe('Markdown <-> BlockNote round trip', () => {
     expect(bnToMd(bn)).toBe('R1 a\nR2 c\n');
   });
   it('is idempotent', () => { const once = bnToMd(mdToBn(DOC)); expect(bnToMd(mdToBn(once))).toBe(once); });
+});
+
+describe('tables and images', () => {
+  it('parses a table directly after a paragraph and keeps cells', () => {
+    const b = parse('Intro\n| A | B |\n|---|---|\n| 1 | a \\| b |\n');
+    expect(b.map((x) => x.type)).toEqual(['p', 'table']);
+    expect(b[1].rows).toEqual([['A', 'B'], ['1', 'a | b']]);
+  });
+  it('parses an image line', () => { expect(parse('![alt](u.png)')[0]).toMatchObject({ type: 'img', src: 'u.png', text: 'alt' }); });
 });
 
 describe('inline marks', () => {
