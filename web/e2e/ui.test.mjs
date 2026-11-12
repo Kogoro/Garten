@@ -105,6 +105,23 @@ try {
   assert.equal(await dg.locator('.mm').isVisible(), true); assert.equal(await dg.locator('textarea').isVisible(), false);
   await dg.getByRole('button', { name: 'Split', exact: true }).click();
   assert.equal(await dg.locator('.mm').isVisible() && await dg.locator('textarea').isVisible(), true); ok('diagram block: toggle between Diagram, Code and Split');
+  // zoom controls and the visual editor
+  const pct = async () => (await dg.locator('.mm-pct').textContent()).trim();
+  const p0 = await pct();
+  await dg.locator('[data-act=mm-in]').click(); assert.notEqual(await pct(), p0);
+  await dg.locator('[data-act=mm-100]').click(); assert.equal(await pct(), '100%');
+  await dg.locator('[data-act=mm-out]').click(); assert.notEqual(await pct(), '100%');
+  await dg.locator('[data-act=mm-fit]').click(); assert.equal(await pct(), p0); ok('diagram: zoom in, out, 100 % and fit');
+  await dg.locator('[data-act=dg-edit]').click();
+  assert.equal(await dg.locator('[data-node]').count(), 3);
+  await dg.locator('[data-act=fe-add-node]').click();
+  await dg.locator('[data-node]').last().locator('input').fill('Brand new');
+  await dg.locator('[data-act=fe-add-edge]').click();
+  await page.waitForFunction(() => /Brand new/.test(document.querySelector('[data-content-type=diagram] .mm')?.textContent ?? ''), null, { timeout: 10000 });
+  await dg.locator('[data-act=dg-split]').click();
+  const code = await dg.locator('textarea').inputValue();
+  assert.match(code, /A\["Brand new"\]/); assert.match(code, /Phone/); ok('visual editor: adding a step and a connection writes the Mermaid code');
+  await dg.locator('textarea').fill('flowchart LR\n  Phone --> Server\n  Server --> Git'); // back to the original for the checks below
   // endpoint blocks: repeatable, each with description
   for (const [method, path, text] of [['POST', '/orders', 'Creates an order. Idempotent via Idempotency-Key.'], ['GET', '/orders/{id}', 'Returns one order.']]) {
     await page.click('[data-act=t-add]'); await page.getByRole('button', { name: 'API endpoint', exact: true }).click();

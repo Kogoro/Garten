@@ -2,10 +2,24 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { emptyValue, parseForm, serializeForm } from '@shared/specForm.js';
 import { METHODS, MermaidView } from '../editor/schema';
 import type { FormField, FormSchema } from '../store/types';
+import { FlowEditor } from '../editor/FlowEditor';
 import { Icon } from '../ui';
 
 type State = { values: Record<string, any>; rest: Record<string, string>; preface: string; extra: string };
 interface Ep { method: string; path: string; text: string; req: string; res: string }
+
+/** Mermaid field: code and rendered diagram, optionally with the visual flowchart editor. */
+function DiagramField({ label, value, ro, onChange }: { label: string; value: string; ro: boolean; onChange: (v: string) => void }) {
+  const [visual, setVisual] = useState(false);
+  return (
+    <div className="ff-diagram">
+      {visual ? <FlowEditor text={value} readOnly={ro} onChange={onChange} />
+        : <Area label={`${label} (Mermaid)`} mono ro={ro} value={value} rows={5} placeholder={'flowchart LR\n  A --> B'} onChange={onChange} />}
+      {!ro && <button type="button" className="btn small" data-act="ff-visual" aria-pressed={visual} style={{ alignSelf: 'flex-start' }} onClick={() => setVisual(!visual)}>{visual ? 'Edit as code' : 'Edit visually'}</button>}
+      {value.trim() && <MermaidView text={value} />}
+    </div>
+  );
+}
 
 const grow = (el: HTMLTextAreaElement | null) => { if (el) { el.style.height = 'auto'; el.style.height = `${el.scrollHeight + 2}px`; } };
 function Area({ value, onChange, ro, placeholder, label, mono, rows = 3 }: { value: string; onChange: (v: string) => void; ro: boolean; placeholder?: string; label: string; mono?: boolean; rows?: number }) {
@@ -84,7 +98,7 @@ function FieldEditor({ f, v, onChange, ro, reqOffset }: { f: FormField; v: any; 
         </div>
       );
     }
-    case 'diagram': return <div className="ff-diagram"><Area label={`${f.label} (Mermaid)`} mono ro={ro} value={v ?? ''} rows={5} placeholder={'flowchart LR\n  A --> B'} onChange={onChange} />{(v ?? '').trim() && <MermaidView text={v} />}</div>;
+    case 'diagram': return <DiagramField label={f.label} value={v ?? ''} ro={ro} onChange={onChange} />;
     case 'code': return <Area label={`${f.label} (${f.lang || 'code'})`} mono ro={ro} value={v ?? ''} rows={6} onChange={onChange} />;
     default: return null;
   }
