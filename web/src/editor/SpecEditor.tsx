@@ -92,9 +92,10 @@ export function SpecEditor({ docKey, value, readOnly, onChange, onReady, refs, o
   /** Selected content as Markdown (several blocks), else the selected text; works read-only too (falls back to the browser selection). */
   const getSelection = () => {
     try {
-      const blocks = editor.getSelection()?.blocks;
-      if (blocks?.length) { const md = bnToMd(blocks as unknown as BnBlock[]).trim(); if (md) return md; }
       const t = editor.getSelectedText().trim();
+      const blocks = editor.getSelection()?.blocks;
+      // several blocks: keep their Markdown (lists, headings …); inside one block (a word in a table cell, a sentence): only the marked text
+      if (blocks && blocks.length > 1) { const md = bnToMd(blocks as unknown as BnBlock[]).trim(); if (md) return md; }
       if (t) return t;
     } catch { /* fall through */ }
     const host = document.querySelector('.bn-host');
