@@ -438,6 +438,24 @@ select.field.role { width: auto; min-width: 110px; }
 .typeopt.current { border-color: var(--line2); }
 .typeopt b { font: 600 15px var(--sans); }
 .typeopt span { font-size: 13px; color: var(--muted); line-height: 1.4; }
+/* type chooser: phone = slim grouped list, desktop = list + preview */
+.typegroup { display: flex; flex-direction: column; gap: 6px; }
+.typegroup + .typegroup { margin-top: 6px; }
+.typegroup h3 { margin: 4px 2px 0; font: 600 12px var(--sans); color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.typeopt { min-height: 48px; justify-content: center; }
+.typeopt span { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+.typepick { display: grid; grid-template-columns: 230px 1fr; gap: 16px; align-items: start; }
+.typepick .typelist { max-height: 60dvh; overflow-y: auto; padding-right: 4px; }
+.typepick .typeopt { padding: 8px 12px; min-height: 40px; border-radius: 10px; }
+.typepick .typeopt.current { border-color: var(--green); background: var(--tint); }
+.typeprev { display: flex; flex-direction: column; gap: 12px; height: 60dvh; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.typeprev h3 { margin: 0; font: 600 16px var(--display); }
+.typeprev h4 { margin: 6px 0 4px; font: 600 11px var(--sans); color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.typeprev ul { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.45; color: var(--soft); }
+.typeprev li b { font: 600 12px var(--mono); color: var(--text); }
+.typebody { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+.typeprev .btn { align-self: flex-start; flex-shrink: 0; }
+@media (min-width: 700px) { .sheet.wide { max-width: 780px; } }
 
 /* diagram block: code / diagram / split toggle */
 .dg-bar { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; }

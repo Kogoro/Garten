@@ -247,17 +247,17 @@ try {
   // ---------------------------------------------------------------- spec types: API spec, UI spec / design rule, feature spec, custom types
   const stUrl = `/api/teams/${T1}/spec-types`;
   const types0 = (await admin.get(stUrl)).data.types;
-  assert.deepEqual(types0.filter((t) => t.builtin).map((t) => t.key), ['feature', 'api', 'ui', 'data', 'nfr', 'integration', 'adr', 'architecture']);
+  assert.deepEqual(types0.filter((t) => t.builtin).map((t) => t.key), ['feature', 'api', 'ui', 'data', 'nfr', 'integration', 'adr', 'architecture', 'mcp', 'permissions', 'security', 'config', 'lifecycle', 'runbook']);
   assert.match(types0.find((t) => t.key === 'api').template, /## ENDPOINTS/); assert.match(types0.find((t) => t.key === 'ui').label, /design rule/i); ok('every team has the built-in spec types, each with a starting template');
-  assert.equal((await viewer.c.post(stUrl, { label: 'Runbook', template: '## STEPS\n' })).status, 403); ok('only team admins define spec types');
-  const rb = await admin.post(stUrl, { label: 'Runbook', description: 'Operational procedure', template: '## TRIGGER\n\n## STEPS\n' });
-  assert.equal(rb.status, 200); assert.equal(rb.data.type.key, 'runbook'); assert.equal(rb.data.type.builtin, false); ok('a team defines its own spec type (key derived from the name)');
-  assert.equal((await admin.post(stUrl, { label: 'Runbook' })).status, 409); assert.equal((await admin.post(stUrl, { label: 'API', key: 'api' })).status, 409); assert.equal((await admin.post(stUrl, { label: '' })).status, 400); assert.equal((await admin.post(stUrl, { label: 'Big', template: 'x'.repeat(20001) })).status, 400); ok('spec types are validated (unique, not shadowing built-ins, bounded)');
-  assert.equal((await admin.patch(`${stUrl}/api`, { label: 'Hacked' })).status, 403); assert.equal((await admin.patch(`${stUrl}/runbook`, { description: 'Ops procedure' })).data.type.description, 'Ops procedure'); ok('built-in types are read-only, custom ones editable');
+  assert.equal((await viewer.c.post(stUrl, { label: 'Playbook', template: '## STEPS\n' })).status, 403); ok('only team admins define spec types');
+  const rb = await admin.post(stUrl, { label: 'Playbook', description: 'Operational procedure', template: '## TRIGGER\n\n## STEPS\n' });
+  assert.equal(rb.status, 200); assert.equal(rb.data.type.key, 'playbook'); assert.equal(rb.data.type.builtin, false); ok('a team defines its own spec type (key derived from the name)');
+  assert.equal((await admin.post(stUrl, { label: 'Playbook' })).status, 409); assert.equal((await admin.post(stUrl, { label: 'API', key: 'api' })).status, 409); assert.equal((await admin.post(stUrl, { label: '' })).status, 400); assert.equal((await admin.post(stUrl, { label: 'Big', template: 'x'.repeat(20001) })).status, 400); ok('spec types are validated (unique, not shadowing built-ins, bounded)');
+  assert.equal((await admin.patch(`${stUrl}/api`, { label: 'Hacked' })).status, 403); assert.equal((await admin.patch(`${stUrl}/playbook`, { description: 'Ops procedure' })).data.type.description, 'Ops procedure'); ok('built-in types are read-only, custom ones editable');
   assert.equal((await new Client(BASE).get(stUrl)).status, 401);
   const tid = `TY${uniq.toUpperCase()}`;
-  r = await admin.push([{ id: `${tid}A`, kind: 'spec', baseRev: 0, fields: { title: 'Orders API', body: types0.find((t) => t.key === 'api').template, specType: 'api' } }, { id: `${tid}B`, kind: 'spec', baseRev: 0, fields: { title: 'Plain', body: 'x' } }, { id: `${tid}C`, kind: 'spec', baseRev: 0, fields: { title: 'Bad', body: 'x', specType: 'nope' } }, { id: `${tid}D`, kind: 'spec', baseRev: 0, fields: { title: 'Ops', body: 'x', specType: 'runbook' } }]);
-  assert.equal(r[0].item.specType, 'api'); assert.equal(r[1].item.specType, 'feature'); assert.equal(r[2].status, 'error'); assert.match(r[2].message, /unknown spec type/); assert.equal(r[3].item.specType, 'runbook'); ok('specs carry a type (default feature); unknown types are rejected; custom types work');
+  r = await admin.push([{ id: `${tid}A`, kind: 'spec', baseRev: 0, fields: { title: 'Orders API', body: types0.find((t) => t.key === 'api').template, specType: 'api' } }, { id: `${tid}B`, kind: 'spec', baseRev: 0, fields: { title: 'Plain', body: 'x' } }, { id: `${tid}C`, kind: 'spec', baseRev: 0, fields: { title: 'Bad', body: 'x', specType: 'nope' } }, { id: `${tid}D`, kind: 'spec', baseRev: 0, fields: { title: 'Ops', body: 'x', specType: 'playbook' } }]);
+  assert.equal(r[0].item.specType, 'api'); assert.equal(r[1].item.specType, 'feature'); assert.equal(r[2].status, 'error'); assert.match(r[2].message, /unknown spec type/); assert.equal(r[3].item.specType, 'playbook'); ok('specs carry a type (default feature); unknown types are rejected; custom types work');
   r = await admin.push([{ id: `${tid}A`, kind: 'spec', baseRev: r[0].item.rev, approve: true, fields: {} }]);
   assert.equal(r[0].item.status, 'approved');
   const cs = await mcp(tokA);
@@ -269,9 +269,9 @@ try {
   assert.match((await call(cs, 'get_spec', { id: `${tid}A` })).text, /^---\nid: TY\w+A\ntype: api\n/); ok('the released spec carries its type in the front matter');
   await cs.close();
   const dItem = (await admin.sync()).data.items.find((i) => i.id === `${tid}D`);
-  assert.equal((await admin.del(`${stUrl}/runbook`)).status, 409); ok('a spec type that is in use cannot be deleted');
+  assert.equal((await admin.del(`${stUrl}/playbook`)).status, 409); ok('a spec type that is in use cannot be deleted');
   await admin.push([{ id: `${tid}D`, kind: 'spec', baseRev: dItem.rev, fields: { specType: 'ui' } }]);
-  assert.equal((await admin.del(`${stUrl}/runbook`)).data.types.some((t) => t.key === 'runbook'), false); ok('after changing the specs’ type the custom type can be deleted');
+  assert.equal((await admin.del(`${stUrl}/playbook`)).data.types.some((t) => t.key === 'playbook'), false); ok('after changing the specs’ type the custom type can be deleted');
   assert.ok((await admin.sync()).data.items.find((i) => i.id === `${tid}D`).specType === 'ui');
   const syncTypes = (await admin.sync()).data.specTypes; assert.ok(syncTypes.some((t) => t.key === 'api')); ok('the sync response carries the team’s spec types (offline use)');
 
@@ -419,7 +419,7 @@ try {
   const apiType = (await admin.get(ftUrl)).data.types.find((t) => t.key === 'api');
   assert.equal(apiType.view, 'form'); assert.ok(apiType.form.fields.some((f) => f.kind === 'endpoints')); assert.deepEqual(apiType.form.tabs.map((t) => t.label), ['Overview', 'Endpoints', 'Contract', 'Quality']); ok('built-in API / UI / NFR types are forms; the others stay free-form editor types');
   assert.equal((await admin.get(ftUrl)).data.types.find((t) => t.key === 'data').form.fields.length > 0, true);
-  const mkForm = (extra) => admin.post(ftUrl, { label: 'Runbook form', description: 'x', view: 'form', form: { tabs: [{ key: 'a', label: 'Prepare' }, { key: 'b', label: 'Run' }], fields: [{ label: 'OWNER', kind: 'text' }, { label: 'PHASE', kind: 'select', options: 'Plan, Run', tab: 'b' }, { label: 'STEPS', kind: 'checklist', tab: 'b' }], ...extra } });
+  const mkForm = (extra) => admin.post(ftUrl, { label: 'Playbook form', description: 'x', view: 'form', form: { tabs: [{ key: 'a', label: 'Prepare' }, { key: 'b', label: 'Run' }], fields: [{ label: 'OWNER', kind: 'text' }, { label: 'PHASE', kind: 'select', options: 'Plan, Run', tab: 'b' }, { label: 'STEPS', kind: 'checklist', tab: 'b' }], ...extra } });
   const ft = await mkForm({});
   assert.equal(ft.status, 200); assert.equal(ft.data.type.view, 'form'); assert.deepEqual(ft.data.type.form.fields.map((f) => f.key), ['owner', 'phase', 'steps']); assert.equal(ft.data.type.form.fields[1].options.length, 2); assert.match(ft.data.type.template, /## OWNER\n\n## PHASE\n\n## STEPS/); ok('a team can define a form type (fields, tabs, default view); its template is derived from the fields');
   assert.equal((await admin.post(ftUrl, { label: 'Bad A', form: { fields: [{ label: 'X', kind: 'nope' }] } })).status, 400);
