@@ -452,6 +452,24 @@ try {
   const dA1 = JSON.parse((await call(w, 'create_draft_document', { path: 'adr/agent-note.md', body: 'Note' })).text); assert.equal(dA1.status, 'draft');
   assert.equal((await call(w, 'update_draft_document', { path: 'vision.md', body: 'hijack' })).isError, true);
   assert.equal((await call(w, 'create_draft_document', { path: 'glossary.md', body: 'x' })).isError, true); ok('agents can write documents but never the foundation documents');
+  // derive glossary entries and specs from a document
+  await call(w, 'create_draft_document', { path: 'notes/payments.md', body: 'Retries of one run are grouped. Attempt window is a bucket; Settlement run is the nightly batch.' });
+  assert.ok(!(await toolNames(await mcp(rdTok.token))).includes('derive_from_document')); ok('derive_from_document needs the write scope');
+  assert.ok((await w.listPrompts()).prompts.some((p) => p.name === 'derive_glossary_and_specs')); ok('a prompt guides the derivation');
+  const dv = JSON.parse((await call(w, 'derive_from_document', {
+    source: 'notes/payments.md',
+    glossary: [{ term: 'Settlement run', definition: 'The nightly batch that books payments.', aliases: ['nightly run'], see_also: ['Attempt window'] }, { term: 'Attempt window', definition: 'Dup of a released term.' }, { term: 'Batch cut-off', definition: 'Latest time a payment joins the run.' }],
+    specs: [{ title: 'Nightly settlement', body: 'R1 Payments are booked once per night.\n- [ ] Run is idempotent' }],
+  })).text);
+  assert.equal(dv.glossary.document, 'glossary/from-notes-payments.md'); assert.deepEqual(dv.glossary.added.sort(), ['Batch cut-off', 'Settlement run']);
+  assert.equal(dv.glossary.exists[0].term, 'Attempt window'); assert.match(dv.specs[0].id, /-\d{3}$/); assert.deepEqual(dv.specs[0].documents, ['glossary/from-notes-payments.md']); ok('derive_from_document writes a glossary draft, skips known terms, creates linked spec drafts');
+  const dvDoc = (await call(w, 'get_document', { name: 'glossary/from-notes-payments.md', draft: true })).text;
+  assert.match(dvDoc, /Settlement run\n: The nightly batch that books payments\.\n: Aliases: nightly run\n: See also: Attempt window/); assert.doesNotMatch(dvDoc, /Dup of a released/);
+  assert.match((await call(w, 'get_spec', { id: dv.specs[0].id, draft: true })).text, /## SOURCE\n\nDerived from `notes\/payments\.md`/); ok('derived content carries a definition list and a source section');
+  const dv2 = JSON.parse((await call(w, 'derive_from_document', { source: 'notes/payments.md', glossary: [{ term: 'Settlement run', definition: 'Better wording.' }, { term: 'Ledger lock', definition: 'Blocks writes.' }] })).text);
+  assert.deepEqual(dv2.glossary.updated, ['Settlement run']); assert.deepEqual(dv2.glossary.added, ['Ledger lock']); assert.match(dv2.note, /not linked to any spec/); ok('a second call merges by term and warns about an unlinked glossary draft');
+  assert.equal((await call(w, 'derive_from_document', { source: 'nope.md', glossary: [{ term: 'X', definition: 'y' }] })).isError, true);
+  assert.equal((await call(w, 'derive_from_document', { source: 'notes/payments.md' })).isError, true); ok('unknown source / empty derivation are refused');
   // human approves the agent's draft
   const agentAp = await mk('approver', 'ag');
   const curA = (await agentEd.c.sync([], 0)).data.items.find((x) => x.id === created.id);
