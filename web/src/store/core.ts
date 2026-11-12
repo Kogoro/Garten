@@ -55,7 +55,9 @@ export async function init() {
   state.fbOps = (await idb.get('meta', 'fbOps')) ?? {};
   pickTeam((await idb.get('meta', 'teamId')) ?? null);
   // Single sign-on ends in a redirect to the app with only a session cookie set: pick that session up (password login does this itself).
-  if (!state.me && navigator.onLine) {
+  const ssoFlag = /(?:^|;\s*)specs_sso=1/.test(document.cookie);
+  if (ssoFlag) document.cookie = 'specs_sso=; Max-Age=0; path=/';
+  if (ssoFlag && navigator.onLine) {
     try {
       const res = await fetch('/api/me', { credentials: 'same-origin', headers: { 'x-specs': '1' } });
       if (res.ok) await adoptLogin((await res.json()).me);
