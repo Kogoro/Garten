@@ -1,7 +1,8 @@
 import { BlockNoteSchema, defaultBlockSpecs } from '@blocknote/core';
 import { createReactBlockSpec } from '@blocknote/react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { renderMermaid } from './mermaid';
+import { FlowEditor } from './FlowEditor';
 
 export const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
 const ro = (editor: any) => !editor.isEditable;
@@ -12,32 +13,79 @@ export const requirement = createReactBlockSpec(
   { render: ({ block, contentRef }) => <div className="blk-req" style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}><b className="req-label" contentEditable={false} style={{ color: 'var(--accent)', minWidth: 32 }}>{block.props.label}</b><div ref={contentRef} style={{ flex: 1 }} /></div> },
 );
 
-/** Rendered Mermaid (debounced) – used by the diagram block and by form fields. */
+const ZOOM_MIN = 0.1, ZOOM_MAX = 6;
+const natural = (svg: string) => { const m = /viewBox="[-\d.]+ [-\d.]+ ([\d.]+) ([\d.]+)"/.exec(svg); return m ? { w: parseFloat(m[1]), h: parseFloat(m[2]) } : null; };
+
+/** Rendered Mermaid (debounced) with zoom: − / + buttons, Ctrl/⌘ + wheel, pinch-free dragging to pan, "Fit" and 100 %. Used by the diagram block and by form fields. */
 export function MermaidView({ text }: { text: string }) {
   const [out, setOut] = useState<{ svg?: string; error?: string }>({});
+  const [zoom, setZoom] = useState<number | null>(null); // null = fit: as large as the diagram is, but never wider than the box
+  const [boxW, setBoxW] = useState(0);
+  const box = useRef<HTMLDivElement>(null);
   useEffect(() => { let live = true; const t = setTimeout(() => renderMermaid(text).then((r) => live && setOut(r)), 250); return () => { live = false; clearTimeout(t); }; }, [text]);
-  return <div className={`mm${out.error ? ' err' : ''}`}>{out.error ? <span className="mm-hint">{out.error}</span> : <div dangerouslySetInnerHTML={{ __html: out.svg ?? '' }} />}</div>;
+  useEffect(() => {
+    const el = box.current; if (!el) return;
+    const measure = () => setBoxW(Math.max(0, el.clientWidth - 30));
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(measure); ro.observe(el);
+    return () => ro.disconnect();
+  }, [out.error]);
+  const size = out.svg ? natural(out.svg) : null;
+  const fit = size && boxW ? Math.min(1, boxW / size.w) : 1;
+  const scale = zoom ?? fit;
+  const zoomBy = (f: number) => setZoom(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, scale * f)));
+  const zoomRef = useRef(zoomBy); zoomRef.current = zoomBy;
+  useEffect(() => { // Ctrl/⌘ + wheel zooms; a plain wheel still scrolls the page
+    const el = box.current; if (!el) return;
+    const wheel = (e: WheelEvent) => { if (!(e.ctrlKey || e.metaKey)) return; e.preventDefault(); zoomRef.current(e.deltaY < 0 ? 1.15 : 1 / 1.15); };
+    el.addEventListener('wheel', wheel, { passive: false });
+    return () => el.removeEventListener('wheel', wheel);
+  }, [out.error]);
+  const drag = useRef<{ x: number; y: number; l: number; t: number } | null>(null);
+  const down = (e: React.PointerEvent<HTMLDivElement>) => { const el = box.current; if (!el || e.button !== 0 || (el.scrollWidth <= el.clientWidth && el.scrollHeight <= el.clientHeight)) return; drag.current = { x: e.clientX, y: e.clientY, l: el.scrollLeft, t: el.scrollTop }; el.setPointerCapture(e.pointerId); };
+  const move = (e: React.PointerEvent<HTMLDivElement>) => { const d = drag.current, el = box.current; if (d && el) { el.scrollLeft = d.l - (e.clientX - d.x); el.scrollTop = d.t - (e.clientY - d.y); } };
+  const up = () => { drag.current = null; };
+  const key = (e: React.KeyboardEvent) => { if (e.key === '+' || e.key === '=') { e.preventDefault(); zoomBy(1.25); } else if (e.key === '-') { e.preventDefault(); zoomBy(0.8); } else if (e.key === '0') { e.preventDefault(); setZoom(null); } };
+  return (
+    <div className="mm-wrap">
+      {out.svg && !out.error && <div className="mm-tools" role="group" aria-label="Zoom">
+        <button type="button" data-act="mm-out" aria-label="Zoom out" title="Zoom out" disabled={scale <= ZOOM_MIN} onClick={() => zoomBy(0.8)}>−</button>
+        <span className="mm-pct" aria-live="polite">{Math.round(scale * 100)}%</span>
+        <button type="button" data-act="mm-in" aria-label="Zoom in" title="Zoom in" disabled={scale >= ZOOM_MAX} onClick={() => zoomBy(1.25)}>+</button>
+        <button type="button" data-act="mm-fit" title="Fit into the box" aria-pressed={zoom === null} onClick={() => setZoom(null)}>Fit</button>
+        <button type="button" data-act="mm-100" title="Actual size" aria-pressed={zoom === 1} onClick={() => setZoom(1)}>100%</button>
+      </div>}
+      <div ref={box} className={`mm${out.error ? ' err' : ''}`} tabIndex={out.svg && !out.error ? 0 : undefined} aria-label={out.error ? undefined : 'Diagram – use + and − to zoom, 0 to fit'} onKeyDown={key} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
+        {out.error ? <span className="mm-hint">{out.error}</span>
+          : <div className="mm-svg" style={size ? { width: size.w * scale, height: size.h * scale } : undefined} dangerouslySetInnerHTML={{ __html: out.svg ?? '' }} />}
+      </div>
+    </div>
+  );
 }
 
+type View = 'view' | 'code' | 'split' | 'edit';
 function Diagram({ block, editor }: any) {
-  const { text, view } = block.props as { text: string; view: 'view' | 'code' | 'split' };
+  const { text, view } = block.props as { text: string; view: View };
   const set = (p: Record<string, unknown>) => editor.updateBlock(block, { props: p });
-  const showCode = view !== 'view';
+  const showCode = view === 'code' || view === 'split';
   const showView = view !== 'code';
+  const two = view === 'split' || view === 'edit';
   return (
     <div className="diagram" data-view={view} style={{ width: '100%' }}>
       <div className="seg sm" role="group" aria-label="Diagram view">
-        {([['view', 'Diagram'], ['code', 'Code'], ['split', 'Split']] as const).map(([k, l]) => <button key={k} type="button" aria-pressed={view === k} onClick={() => set({ view: k })}>{l}</button>)}
+        {([['view', 'Diagram'], ['code', 'Code'], ['split', 'Split'], ['edit', 'Visual']] as const).map(([k, l]) => <button key={k} type="button" data-act={`dg-${k}`} aria-pressed={view === k} onClick={() => set({ view: k })}>{l}</button>)}
       </div>
-      <div className="dg-body" style={{ display: 'grid', gridTemplateColumns: showCode && showView ? '1fr 1fr' : '1fr', gap: 8 }}>
+      <div className="dg-body" style={{ display: 'grid', gridTemplateColumns: two ? 'repeat(auto-fit, minmax(280px, 1fr))' : '1fr', gap: 8 }}>
         {showCode && <textarea className="blk-in mono" aria-label="Mermaid source" spellCheck={false} readOnly={ro(editor)} value={text} rows={Math.max(4, text.split('\n').length)} onChange={(e) => set({ text: e.target.value })} />}
+        {view === 'edit' && <FlowEditor text={text} readOnly={ro(editor)} onChange={(t) => set({ text: t })} />}
         {showView && <MermaidView text={text} />}
       </div>
     </div>
   );
 }
 export const diagram = createReactBlockSpec(
-  { type: 'diagram', propSchema: { text: { default: 'flowchart LR\n  A --> B' }, view: { default: 'split', values: ['view', 'code', 'split'] } }, content: 'none' },
+  { type: 'diagram', propSchema: { text: { default: 'flowchart LR\n  A --> B' }, view: { default: 'split', values: ['view', 'code', 'split', 'edit'] } }, content: 'none' },
   { render: (p) => <Diagram {...p} /> },
 );
 
