@@ -306,7 +306,7 @@ function buildServer(team, canDrafts, writer) {
       'create_draft_spec',
       {
         description: `Create a new DRAFT specification. ${REVIEW} Returns its id and revision.`,
-        inputSchema: { title: z.string().min(1).max(200), type: z.string().optional().describe('Spec type key: feature (default), api, ui, data, nfr, integration, or a team-defined type'), body, documents: z.array(z.string()).optional().describe('Paths of existing documents to link') },
+        inputSchema: { title: z.string().min(1).max(200), type: z.string().optional().describe('Spec type key: feature (default), api, ui, data, nfr, integration, adr, architecture, mcp, permissions, security, config, lifecycle, runbook, or a team-defined type'), body, documents: z.array(z.string()).optional().describe('Paths of existing documents to link') },
       },
       run(async ({ title, type, body: md, documents }) => {
         if (type && !isKnownType(t, type)) throw new store.ApiError(`Unknown spec type "${type}". Known: ${listTypes(t).map((x) => x.key).join(', ')}`);

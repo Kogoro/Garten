@@ -499,7 +499,7 @@ try {
   await d.evaluate(() => { const t = document.getElementById('body'); const a = t.value.indexOf('R1 Retries'); t.focus(); t.setSelectionRange(a, t.value.length); });
   await d.click('[data-act=item-menu]'); await d.getByRole('button', { name: 'New spec from selection…' }).click();
   assert.equal(await d.inputValue('#derivetitle'), 'R1 Retries stay inside one attempt window.');
-  await d.locator('.typeopt').first().click();
+  await d.locator('.typeopt').first().click(); await d.locator('[data-act=use-type]').click();
   await d.locator('input#title').waitFor(); assert.match(await d.url(), /\/spec\//);
   assert.equal(await d.inputValue('#title'), 'R1 Retries stay inside one attempt window.');
   await d.click('[data-act=item-menu]'); await d.getByRole('button', { name: 'Editor: Markdown' }).click();
@@ -567,8 +567,8 @@ try {
   await d.click('.sidebar a[href="#/"]');
   await d.click('.bar [data-act=new-spec]');
   const chooser = d.locator('.typelist .typeopt');
-  assert.equal(await chooser.count(), 8); await d.getByRole('button', { name: /ADR \(decision record\)/ }).waitFor(); await d.getByRole('button', { name: /Architecture spec/ }).waitFor(); await d.getByRole('button', { name: /UI spec \/ design rule/ }).waitFor(); await d.getByRole('button', { name: /API spec/ }).waitFor(); ok('new spec: choose from the built-in types (API, UI spec / design rule, feature, data model …)');
-  await d.getByRole('button', { name: /API spec/ }).click();
+  assert.equal(await chooser.count(), 14); await d.getByRole('button', { name: /ADR \(decision record\)/ }).waitFor(); await d.getByRole('button', { name: /Architecture spec/ }).waitFor(); await d.getByRole('button', { name: /UI spec \/ design rule/ }).waitFor(); await d.getByRole('button', { name: /API spec/ }).waitFor(); ok('new spec: choose from the built-in types (API, UI spec / design rule, feature, data model …)');
+  await d.getByRole('button', { name: /API spec/ }).click(); await d.locator('[data-act=use-type]').click();
   await d.locator('#title').waitFor(); await d.fill('#title', 'Orders API');
   await d.locator('[data-testid=spec-form]').waitFor();
   assert.equal(await d.locator('.editor .bn-editor').count(), 0);
@@ -609,13 +609,13 @@ try {
   await d.click('.sidebar a[href="#/team"]'); await d.click('[data-tab=types]');
   await d.getByText('Spec types').first().waitFor();
   await d.click('[data-act=stype-new]');
-  await d.fill('#st-label', 'Runbook'); await d.fill('#st-desc', 'Operational procedure');
+  await d.fill('#st-label', 'Playbook'); await d.fill('#st-desc', 'Operational procedure');
   await d.fill('#st-tpl', '## TRIGGER\n\n## STEPS\n\n## ROLLBACK\n');
   await d.click('#stypeForm button[type=submit]');
-  await d.locator('.typerow', { hasText: 'Runbook' }).waitFor(); ok('team admin defines a spec type with its own template');
+  await d.locator('.typerow', { hasText: 'Playbook' }).waitFor(); ok('team admin defines a spec type with its own template');
   await d.click('.sidebar a[href="#/"]');
   await d.click('.bar [data-act=new-spec]');
-  await d.getByRole('button', { name: /^Runbook/ }).click();
+  await d.getByRole('button', { name: /^Playbook/ }).click(); await d.locator('[data-act=use-type]').click();
   await d.locator('[data-content-type=heading] .bn-inline-content', { hasText: 'ROLLBACK' }).waitFor(); ok('the custom type is offered when creating a spec and applies its template');
   // team-defined FORM type
   await d.click('.sidebar a[href="#/team"]'); await d.click('[data-tab=types]');
@@ -627,13 +627,13 @@ try {
   await d.click('#st-addfield'); await d.fill('[aria-label="Field 2 label"]', 'STEPS'); await d.selectOption('[aria-label="Field 2 type"]', 'checklist'); await d.selectOption('[aria-label="Field 2 tab"]', 'release');
   await d.click('#stypeForm button[type=submit]');
   await d.locator('.typerow', { hasText: 'Checklist type' }).getByText('form', { exact: false }).first().waitFor();
-  await d.click('.sidebar a[href="#/"]'); await d.click('.bar [data-act=new-spec]'); await d.getByRole('button', { name: /^Checklist type/ }).click();
+  await d.click('.sidebar a[href="#/"]'); await d.click('.bar [data-act=new-spec]'); await d.getByRole('button', { name: /^Checklist type/ }).click(); await d.locator('[data-act=use-type]').click();
   await d.locator('[data-testid=spec-form]').waitFor(); assert.deepEqual(await d.locator('.form-tabs .tab').allInnerTexts(), ['Prepare', 'Release']);
   await d.locator('[aria-label="OWNER"]').fill('Ops'); await d.getByRole('tab', { name: 'Release' }).click(); await d.locator('[data-field=steps] .btn', { hasText: 'Add' }).click(); await d.keyboard.type('Tag the build');
   await setMode(d, 'markdown'); assert.match(await d.inputValue('#body'), /## OWNER\n\nOps\n\n## STEPS\n\n- \[ \] Tag the build/); ok('a team-defined type can describe its own form (fields, tabs, default view) and specs of it open as that form');
   await setMode(d, 'blocks');
   await d.click('[data-act=item-menu]'); d.once('dialog', (x) => x.accept()); await d.getByRole('button', { name: 'Delete spec' }).click();
-  await d.click('.sidebar a[href="#/"]'); await d.click('.bar [data-act=new-spec]'); await d.getByRole('button', { name: /^Runbook/ }).click();
+  await d.click('.sidebar a[href="#/"]'); await d.click('.bar [data-act=new-spec]'); await d.getByRole('button', { name: /^Playbook/ }).click(); await d.locator('[data-act=use-type]').click();
   await d.locator('[data-content-type=heading] .bn-inline-content', { hasText: 'ROLLBACK' }).waitFor();
   await shot(d, '06f-desktop-spec-types');
   await d.click('[data-act=item-menu]'); d.once('dialog', (x) => x.accept()); await d.getByRole('button', { name: 'Delete spec' }).click();
@@ -641,7 +641,7 @@ try {
 
   // --- delete a spec
   await d.click('.sidebar a[href="#/"]');
-  await d.click('.bar [data-act=new-spec]'); await d.getByRole('button', { name: /Feature spec/ }).click();
+  await d.click('.bar [data-act=new-spec]'); await d.getByRole('button', { name: /Feature spec/ }).click(); await d.locator('[data-act=use-type]').click();
   const newId = await d.evaluate(() => decodeURIComponent(location.hash.split('/').pop()));
   await d.fill('#title', 'To be deleted');
   await d.click('[data-act=item-menu]'); d.once('dialog', (x) => x.accept()); await d.getByRole('button', { name: 'Delete spec' }).click();
@@ -654,7 +654,7 @@ try {
   await d.getByRole('button', { name: /Payments/ }).click();
   await d.locator('#list .empty').waitFor();
   assert.match(await d.locator('.sidebar .ws').innerText(), /Payments/); ok('team switcher: other team starts empty (data is scoped per team)');
-  await d.click('.bar [data-act=new-spec]'); await d.getByRole('button', { name: /Feature spec/ }).click();
+  await d.click('.bar [data-act=new-spec]'); await d.getByRole('button', { name: /Feature spec/ }).click(); await d.locator('[data-act=use-type]').click();
   await d.waitForFunction(() => /PAY-001/.test(decodeURIComponent(location.hash))); ok('spec ids carry the team key');
   await d.fill('#title', 'Payments spec');
   await d.waitForFunction(() => document.querySelector('#saveInd')?.dataset.state === 'synced', null, { timeout: 15000 });

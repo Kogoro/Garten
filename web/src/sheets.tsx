@@ -1,8 +1,10 @@
-import { useState, type FormEvent } from 'react';
+import { useMemo, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FormError, Sheet } from './dialogs';
 import { Icon, toast, useStore } from './ui';
 import { useUi } from './state';
+import { useMedia } from './prefs';
+import type { SpecType } from './store/types';
 import { specBody, titleOf } from './derive';
 
 type Done = () => void;
@@ -49,15 +51,85 @@ export function ReloginSheet({ onClose }: { onClose: Done }) {
   );
 }
 
+const GROUPS = ['Define', 'Decide and protect', 'Operate'];
+const CUSTOM_GROUP = 'Your team';
+
+/** What a spec of this type will contain: the sections (grouped by tab for form types) with their hints. */
+function outline(t: SpecType): { tab: string | null; items: { label: string; help?: string }[] }[] {
+  if (t.form?.fields?.length) {
+    const tabs: any[] = t.form.tabs?.length ? t.form.tabs : [{ key: '', label: '' }];
+    return tabs.map((tb) => ({ tab: tb.label || null, items: t.form!.fields.filter((f: any) => (f.tab ?? tabs[0].key) === tb.key).map((f: any) => ({ label: f.label, help: f.help })) })).filter((g) => g.items.length);
+  }
+  const heads = [...(t.template ?? '').matchAll(/^##\s+(.+?)\s*$/gm)].map((m) => ({ label: m[1] }));
+  return heads.length ? [{ tab: null, items: heads }] : [];
+}
+
+/** Type chooser. Phone: a slim list grouped by purpose, a tap creates the spec. Desktop: list on the left, preview of the structure on the right. */
+function TypePicker({ current, onPick }: { current: string; onPick: (key: string) => void }) {
+  const S = useStore();
+  const wide = useMedia('(min-width: 700px)');
+  const types = S.specTypes() as SpecType[];
+  const [sel, setSel] = useState(() => (types.some((t) => t.key === current) ? current : types[0]?.key));
+  const groups = useMemo(() => {
+    const names = [...GROUPS, CUSTOM_GROUP];
+    return names.map((g) => ({ name: g, items: types.filter((t) => (names.includes(t.group) ? t.group : CUSTOM_GROUP) === g) })).filter((g) => g.items.length);
+  }, [types]);
+  const chosen = types.find((t) => t.key === sel) ?? types[0];
+  const move = (e: KeyboardEvent, key: string) => {
+    if (!wide || (e.key !== 'ArrowDown' && e.key !== 'ArrowUp')) return;
+    const flat = groups.flatMap((g) => g.items);
+    const next = flat[flat.findIndex((t) => t.key === key) + (e.key === 'ArrowDown' ? 1 : -1)];
+    if (!next) return;
+    e.preventDefault(); setSel(next.key);
+    setTimeout(() => document.querySelector<HTMLElement>(`[data-type="${next.key}"]`)?.focus(), 0);
+  };
+  const list = (
+    <div className="typelist">
+      {groups.map((g) => (
+        <div className="typegroup" role="group" aria-label={g.name} key={g.name}>
+          <h3>{g.name}</h3>
+          {g.items.map((t) => (
+            <button key={t.key} type="button" data-type={t.key} aria-pressed={wide ? t.key === chosen?.key : undefined} className={`typeopt ${t.key === (wide ? chosen?.key : current) ? 'current' : ''}`}
+              onClick={() => (wide ? setSel(t.key) : onPick(t.key))} onDoubleClick={() => wide && onPick(t.key)} onKeyDown={(e) => move(e, t.key)}>
+              <b>{t.label}</b>{!wide && <span>{t.description}</span>}
+            </button>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+  if (!wide || !chosen) return list;
+  const parts = outline(chosen);
+  return (
+    <div className="typepick">
+      {list}
+      <section className="typeprev" aria-live="polite" aria-label="Preview">
+        <div className="typebody">
+        <h3>{chosen.label}</h3>
+        <p>{chosen.description}</p>
+        {parts.map((g, i) => (
+          <div key={i}>
+            {g.tab && <h4>{g.tab}</h4>}
+            <ul>{g.items.map((it) => <li key={it.label}><b>{it.label}</b>{it.help && <span> – {it.help}</span>}</li>)}</ul>
+          </div>
+        ))}
+        {!parts.length && <p className="muted">Starts empty – you write the structure yourself.</p>}
+        </div>
+        <button type="button" className="btn primary" data-act="use-type" onClick={() => onPick(chosen.key)}>Use {chosen.short ?? chosen.label}</button>
+      </section>
+    </div>
+  );
+}
+
 export function NewSpecSheet({ onClose }: { onClose: Done }) {
   const S = useStore(); const nav = useNavigate();
   const { lastType, set } = useUi();
   const pick = (key: string) => { const s = S.createSpec(key); const { [s.id]: _drop, ...modes } = useUi.getState().modes; set({ lastType: key, modes }); onClose(); nav(`/spec/${encodeURIComponent(s.id)}`); setTimeout(() => document.getElementById('title')?.focus(), 80); };
   return (
-    <Sheet onClose={onClose}>
+    <Sheet onClose={onClose} wide>
       <h2>New spec</h2>
       <p>Pick a type – it decides the starting structure. You can change the type later; the content stays.</p>
-      <div className="typelist">{S.specTypes().map((t) => <button key={t.key} type="button" className={`typeopt ${t.key === lastType ? 'current' : ''}`} onClick={() => pick(t.key)}><b>{t.label}</b><span>{t.description}</span></button>)}</div>
+      <TypePicker current={lastType} onPick={pick} />
     </Sheet>
   );
 }
@@ -74,11 +146,11 @@ export function DeriveSpecSheet({ text, source, whole, onClose }: { text: string
     onClose(); nav(`/spec/${encodeURIComponent(s.id)}`); toast('Spec draft created – review it before approving');
   };
   return (
-    <Sheet onClose={onClose}>
+    <Sheet onClose={onClose} wide>
       <h2>New spec from {whole ? 'this document' : 'the selection'}</h2>
       <p>The text of <span className="mono">{source}</span> is copied into a new draft ({text.length > 400 ? `${Math.round(text.length / 100) / 10}k characters` : `${text.length} characters`}); the original stays unchanged. Pick a type.</p>
       <label className="sr" htmlFor="derivetitle">Title</label><input id="derivetitle" className="field" value={title} placeholder="Spec title" autoComplete="off" onChange={(e) => setTitle(e.target.value)} />
-      <div className="typelist">{S.specTypes().map((t) => <button key={t.key} type="button" className={`typeopt ${t.key === lastType ? 'current' : ''}`} onClick={() => pick(t.key)}><b>{t.label}</b><span>{t.description}</span></button>)}</div>
+      <TypePicker current={lastType} onPick={pick} />
     </Sheet>
   );
 }

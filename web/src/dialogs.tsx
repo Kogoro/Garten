@@ -3,7 +3,7 @@ import { Icon } from './ui';
 import { useUi } from './state';
 
 /** Modal bottom sheet / dialog (the scrim, the close button and Escape close it). Focus moves in, stays in and returns to the opener. */
-export function Sheet({ onClose, children }: { onClose: () => void; children: ReactNode }) {
+export function Sheet({ onClose, wide, children }: { onClose: () => void; wide?: boolean; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const opener = document.activeElement as HTMLElement | null;
@@ -32,7 +32,7 @@ export function Sheet({ onClose, children }: { onClose: () => void; children: Re
   }, [onClose]);
   return (
     <div className="scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="sheet" role="dialog" aria-modal="true" tabIndex={-1} ref={ref}>
+      <div className={wide ? 'sheet wide' : 'sheet'} role="dialog" aria-modal="true" tabIndex={-1} ref={ref}>
         <button type="button" className="sheet-x" aria-label="Close" onClick={onClose}>×</button>
         {children}
       </div>
