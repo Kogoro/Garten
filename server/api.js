@@ -17,7 +17,7 @@ import { testRemote, pushTeam, generateSshKey, forgetHostKey } from './gitremote
 import { mailEnabled, mailInfo, sendMail, mailError, invitationMail } from './mailer.js';
 import { createInvite, listInvites, revokeInvite, inviteByToken, registerFromInvite, acceptForUser, declineForUser, invitesForEmail } from './invites.js';
 import { listGlobalTerms, createGlobalTerm, updateGlobalTerm, deleteGlobalTerm, importGlobalTerms, GlossaryError } from './globalGlossary.js';
-import { bumpGarden, addFeedback, listFeedback, setFeedback, openCounts, applyFeedbackOps, gardenFeedback, gardenRev } from './feedback.js';
+import { bumpGarden, addFeedback, listFeedback, setFeedback, getFeedback, PROPOSALS, openCounts, applyFeedbackOps, gardenFeedback, gardenRev } from './feedback.js';
 import { listReports, latestReports } from './reports.js';
 import { teamMetrics } from './metrics.js';
 import { recordRun, listChecks, runHistory, checksBySpec } from './checks.js';
@@ -59,6 +59,7 @@ async function applyChange(ch, team, user, role) {
     if (ch.delete) {
       if (!cur) return { id, status: 'applied', deleted: true };
       if (cur.rev !== baseRev) return { id, status: 'conflict', server: cur };
+      if (cur.kind === 'spec' && cur.status === 'approved' && rights.includes('approve')) await store.revokeSpec(team, id, user); // approvers: revoke automatically (others still get the "revoke it first" error)
       if (cur.kind === 'doc' && cur.pinned && cur.status === 'approved' && !cur.core) await store.unreleaseDoc(team, id, user);
       store.deleteItem(t, id, baseRev);
       return { id, status: 'applied', deleted: true };
@@ -94,6 +95,21 @@ async function applyChange(ch, team, user, role) {
     console.error('sync change failed:', id, e);
     return { id, status: 'error', message: 'The server could not publish this change. It will be retried with the next sync.', ...(item ? { item } : {}) };
   }
+}
+/** Carries out what an agent proposed and a person accepted: release the spec, or delete it (revoking it first when it is released). */
+async function acceptProposal(team, fb, body, user) {
+  const t = team.id;
+  const spec = store.getItem(t, fb.specId);
+  if (!spec || spec.kind !== 'spec') throw new store.ApiError(`${fb.specId} no longer exists.`, 404);
+  const patch = { status: 'accepted', reply: body.reply };
+  if (PROPOSALS[fb.kind] === 'release') {
+    await store.releaseSpec(team, spec.id, user);
+    return setFeedback(t, fb.id, patch, user, { execute: true });
+  }
+  if (spec.status === 'approved') await store.revokeSpec(team, spec.id, user);
+  const out = setFeedback(t, fb.id, patch, user, { execute: true }); // read before the delete removes the spec's feedback
+  store.deleteItem(t, spec.id, store.getItem(t, spec.id).rev);
+  return out;
 }
 const order = (c) => (c.delete ? (c.kind === 'folder' ? 3 : 2) : c.kind === 'folder' ? -1 : c.kind === 'doc' ? 0 : 1); // folders/docs first, deletions last
 
@@ -253,7 +269,16 @@ export function apiRouter() {
   // feedback on specs: everyone reads, editors+ leave and triage it
   team.get('/feedback', requireTeam('read'), (req, res) => res.json({ feedback: listFeedback(req.team.id, { specId: req.query.spec, status: req.query.status, kind: req.query.kind }) }));
   team.post('/feedback', requireTeam('write'), wrap(async (req, res) => res.json({ feedback: addFeedback(req.team.id, req.body ?? {}, { id: req.user.id, name: req.user.name, via: null }) })));
-  team.patch('/feedback/:id', requireTeam('write'), wrap(async (req, res) => res.json({ feedback: setFeedback(req.team.id, req.params.id, req.body ?? {}, req.user) })));
+  team.patch('/feedback/:id', requireTeam('write'), wrap(async (req, res) => {
+    const fb = getFeedback(req.team.id, req.params.id);
+    if (fb && PROPOSALS[fb.kind] && fb.status !== 'accepted' && req.body?.status === 'accepted') { // accepting a proposal carries it out
+      if (!perms(req.role).includes('approve')) throw new store.ApiError(`Your role (${req.role}) cannot accept this: it needs approval rights. Ask an approver.`, 403);
+      const out = await acceptProposal(req.team, fb, req.body, req.user);
+      audit(req, `spec.${PROPOSALS[fb.kind]}`, { team: req.team.id, target: fb.specId, detail: { proposal: fb.id } });
+      return res.json({ feedback: out });
+    }
+    res.json({ feedback: setFeedback(req.team.id, req.params.id, req.body ?? {}, req.user) });
+  }));
 
   // implementation reports: agents write them through MCP, everyone in the team reads them
   team.get('/reports', requireTeam('read'), (req, res) => res.json({ reports: listReports(req.team.id, { specId: req.query.spec ? String(req.query.spec) : undefined }) }));

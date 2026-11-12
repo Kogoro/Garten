@@ -112,6 +112,13 @@ export function deleteItem(t, id, baseRev) {
     }
   }
   db.prepare("UPDATE items SET deleted=1, title='', body='', links='[]', rev=rev+1, seq=?, updated_at=? WHERE team_id=? AND id=?").run(nextSeq(t), new Date().toISOString(), t, id);
+  if (cur.kind === 'spec') { // nothing may outlive its spec: comments, decisions, reports and checks would show up on the garden with no spec behind them
+    db.prepare('DELETE FROM feedback WHERE team_id=? AND spec_id=?').run(t, id);
+    db.prepare('DELETE FROM reports WHERE team_id=? AND spec_id=?').run(t, id);
+    db.prepare('DELETE FROM check_runs WHERE team_id=? AND spec_id=?').run(t, id);
+    db.prepare('DELETE FROM checks WHERE team_id=? AND spec_id=?').run(t, id);
+    db.prepare('UPDATE teams SET garden_rev = garden_rev + 1 WHERE id=?').run(t);
+  }
 }
 
 // ---------------------------------------------------------------- releases (Git)
