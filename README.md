@@ -239,23 +239,21 @@ Stop when the work list holds nothing you can work on. End with one line per spe
 | Navigation | **Eine** durchgängige Navigation, keine Seiten-Tabs mehr: Desktop = Sidebar (Team-Wechsler, Content: Specs/Documents/Glossary, Publish: Release, Agents: Garden, Team: Members & Git, Instance: Admin, unten Sync-Status und Benutzermenü); Handy = Tab-Leiste (Specs, Garden, Docs, Release, More; Sync liegt unter More) + Team-Menü oben rechts, Editor im Vollbild. Überall dieselbe kompakte Kopfzeile. |
 | Themes | **System / Hell / Dunkel** (Konto → Appearance oder Benutzermenü); Mermaid-Diagramme und die OAuth-Zustimmungsseite folgen dem Theme. |
 
-## Proxmox: LXC-Container (Community-Scripts-Stil)
+## Installation auf Debian / Ubuntu (VM, Server, LXC)
 
-Auf dem **Proxmox-Host** (als root) ausführen – das Skript baut auf der Engine der [community-scripts](https://github.com/community-scripts/ProxmoxVE) auf (gleiche Menüs: *Default*, *Advanced*, Storage- und Netzwerkwahl):
+Auf Debian 12/13 oder Ubuntu 24.04 mit systemd, als root:
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/Kogoro/Garten/main/ct/garten.sh)"
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/Kogoro/Garten/main/scripts/install-debian.sh)"
 ```
 
-Standard: unprivilegierter Debian-13-Container, 2 CPU, 2 GB RAM, 6 GB Disk (`var_cpu=… var_ram=… var_disk=… bash -c …` überschreibt das). Der Container installiert Garten nach `/opt/garten`, legt die Daten unter `/var/lib/garten/data` ab und startet den Dienst `garten` auf `http://<Container-IP>:3000`. Das ist unverschlüsseltes HTTP und funktioniert nur online: Browser erlauben den Offline-Modus (Service Worker) nur über HTTPS (siehe [HTTPS / PUBLIC_URL](#https--public_url)).
+Das Skript installiert Garten nach `/opt/garten`, legt die Daten unter `/var/lib/garten/data` ab und startet den Dienst `garten` auf `http://<IP>:3000`. Das ist unverschlüsseltes HTTP und funktioniert nur online: Browser erlauben den Offline-Modus (Service Worker) nur über HTTPS (siehe [HTTPS / PUBLIC_URL](#https--public_url)). Einstellungen stehen in `/etc/garten/garten.env` (dieselben Variablen wie in `docker-compose.yml`, zusätzlich `HOST`, `LOOKUP`).
 
-1. **Zugangsdaten:** `pct exec <ID> cat /root/garten.creds` (E-Mail `admin@localhost`, zufälliges Passwort; nach der Anmeldung unter *Account* ändern und die Datei löschen).
-2. **Anmelden:** `http://<Container-IP>:3000` öffnen.
-3. **Aktualisieren:** im Container `garten update` (oder das Skript auf dem Host erneut starten und *Update* wählen). Daten und Einstellungen bleiben. **Backup:** `garten backup` (Archiv in `/root`). `garten info`, `garten logs`, `garten url https://spec.example.org` (eigene Adresse, z. B. mit eigenem Reverse-Proxy, der HTTPS übernimmt).
+1. **Zugangsdaten:** `cat /root/garten.creds` (E-Mail `admin@localhost`, zufälliges Passwort; nach der Anmeldung unter *Account* ändern und die Datei löschen).
+2. **Anmelden:** `http://<IP>:3000` öffnen.
+3. **Aktualisieren:** `garten update`. Daten und Einstellungen bleiben. **Backup:** `garten backup` (Archiv in `/root`). `garten info`, `garten logs`, `garten url https://spec.example.org` (eigene Adresse, z. B. mit eigenem Reverse-Proxy, der HTTPS übernimmt).
 
-Ohne Proxmox funktioniert dasselbe auf jedem Debian 12/13 oder Ubuntu 24.04 (VM, Server, selbst angelegter LXC) mit `bash -c "$(curl -fsSL https://raw.githubusercontent.com/Kogoro/Garten/main/scripts/install-debian.sh)"` als root. Einstellungen stehen in `/etc/garten/garten.env` (dieselben Variablen wie in `docker-compose.yml`, zusätzlich `HOST`, `LOOKUP`).
-
-**Grenzen:** Nur per VPN erreichbar heißt: Cloud-Routinen von Claude Code können den Server nicht erreichen (lokale Agenten im VPN schon). Das Skript für den Container selbst wurde in einem Debian-13-Container getestet (Installation, Update, Anmeldung); der Lauf der community-scripts-Engine auf einem echten Proxmox-Host ist nicht getestet. Fällt er aus: LXC von Hand anlegen (Debian 13) und darin `install-debian.sh` ausführen.
+**Grenzen:** Nur per VPN erreichbar heißt: Cloud-Routinen von Claude Code können den Server nicht erreichen (lokale Agenten im VPN schon). Getestet wurde das Skript in einem Debian-13-Container (Installation, Update, Anmeldung).
 
 ## HTTPS / PUBLIC_URL
 
@@ -291,7 +289,7 @@ server {
 }
 ```
 
-Im Proxmox-Container: `garten url https://specs.example.org` stellt die Einstellungen um.
+Auf einer Installation mit dem Skript: `garten url https://specs.example.org` stellt die Einstellungen um.
 
 ### Von unterwegs erreichbar: `scripts/go-public.sh`
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Installs – or updates – Garten (Specs) natively on Debian 12/13 or Ubuntu 24.04: in a Proxmox LXC, a VM or a small server.
+# Installs – or updates – Garten (Specs) natively on Debian 12/13 or Ubuntu 24.04: in a VM, an LXC container or a small server.
 # Run as root. Safe to run again: it updates the code and keeps data and settings.
 #
 #   bash -c "$(curl -fsSL https://raw.githubusercontent.com/Kogoro/Garten/main/scripts/install-debian.sh)"
