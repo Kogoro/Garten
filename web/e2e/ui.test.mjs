@@ -145,6 +145,20 @@ try {
   await dd.locator('#dd-type').selectOption('class'); await dd.locator('[data-act=fe-add-relation]').click();
   await dd.locator('.dge-right .mm:not(.err) svg').waitFor({ timeout: 15000 }); ok('visual editor: forms for sequence, ER, pie, state and class diagrams');
   await shot(page, '05-diagram-editor-class');
+  // code editor: Tab indents (and keeps the focus), Enter keeps the indentation, completion per diagram type
+  await dd.locator('[data-act=dd-code]').click();
+  const ed = dd.locator('.ce-input');
+  await ed.click(); await page.keyboard.press('Control+A'); await page.keyboard.type('seq');
+  await dd.locator('.ce-pop li').first().waitFor();
+  await page.keyboard.press('Tab'); assert.equal(await ed.inputValue(), 'sequenceDiagram'); // Tab accepted the suggestion
+  await page.keyboard.press('Enter'); await page.keyboard.press('Tab'); await page.keyboard.type('A->>B: hi'); await page.keyboard.press('Enter');
+  assert.equal(await ed.inputValue(), 'sequenceDiagram\n  A->>B: hi\n  ');
+  await page.keyboard.press('Shift+Tab'); assert.equal(await ed.inputValue(), 'sequenceDiagram\n  A->>B: hi\n');
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('ce-input')), true);
+  await page.keyboard.type('pa'); await dd.locator('.ce-pop li', { hasText: 'In parallel' }).waitFor(); await shot(page, '06-code-editor');
+  await page.keyboard.press('Escape'); assert.equal(await dd.locator('.ce-pop').count(), 0); assert.equal(await dd.isVisible(), true); // Escape closes the list, not the dialog
+  await page.keyboard.press('Control+Z'); await page.keyboard.press('Control+Z'); // undo still works (typing is native)
+  ok('code editor: Tab/Shift+Tab, auto-indent, completion for the diagram type, Escape closes only the list');
   await dd.locator('#dd-type').selectOption('flowchart');
   await dd.locator('[data-act=dd-apply]').click();
   await dd.waitFor({ state: 'detached' });

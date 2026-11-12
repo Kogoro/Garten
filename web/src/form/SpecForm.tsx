@@ -3,6 +3,7 @@ import { emptyValue, parseForm, serializeForm } from '@shared/specForm.js';
 import { METHODS, MermaidView } from '../editor/schema';
 import type { FormField, FormSchema } from '../store/types';
 import { DiagramDialog } from '../editor/DiagramDialog';
+import { CodeEditor } from '../editor/CodeEditor';
 import { Icon } from '../ui';
 
 type State = { values: Record<string, any>; rest: Record<string, string>; preface: string; extra: string };
@@ -13,7 +14,7 @@ function DiagramField({ label, value, ro, onChange }: { label: string; value: st
   const [open, setOpen] = useState(false);
   return (
     <div className="ff-diagram">
-      <Area label={`${label} (Mermaid)`} mono ro={ro} value={value} rows={5} placeholder={'flowchart LR\n  A --> B'} onChange={onChange} />
+      <CodeEditor label={`${label} (Mermaid)`} readOnly={ro} value={value} rows={Math.max(5, value.split('\n').length)} onChange={onChange} />
       <button type="button" className="btn small" data-act="ff-visual" style={{ alignSelf: 'flex-start' }} onClick={() => setOpen(true)}>{ro ? 'Open larger' : 'Visual editor…'}</button>
       {value.trim() && <MermaidView text={value} />}
       {open && <DiagramDialog text={value} readOnly={ro} onApply={onChange} onClose={() => setOpen(false)} />}

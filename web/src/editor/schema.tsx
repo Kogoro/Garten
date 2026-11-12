@@ -3,6 +3,7 @@ import { createReactBlockSpec } from '@blocknote/react';
 import { useEffect, useRef, useState } from 'react';
 import { renderMermaid } from './mermaid';
 import { DiagramDialog } from './DiagramDialog';
+import { CodeEditor } from './CodeEditor';
 
 export const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
 const ro = (editor: any) => !editor.isEditable;
@@ -80,7 +81,7 @@ function Diagram({ block, editor }: any) {
         </div>
       </div>
       <div className="dg-body" style={{ display: 'grid', gridTemplateColumns: showCode && showView ? 'repeat(auto-fit, minmax(280px, 1fr))' : '1fr', gap: 8 }}>
-        {showCode && <textarea className="blk-in mono" aria-label="Mermaid source" spellCheck={false} readOnly={ro(editor)} value={text} rows={Math.max(4, text.split('\n').length)} onChange={(e) => set({ text: e.target.value })} />}
+        {showCode && <CodeEditor value={text} readOnly={ro(editor)} rows={Math.max(4, text.split('\n').length)} onChange={(t) => set({ text: t })} />}
         {showView && <MermaidView text={text} />}
       </div>
       {open && <DiagramDialog text={text} readOnly={ro(editor)} onApply={(t) => set({ text: t })} onClose={() => setOpen(false)} />}

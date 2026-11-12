@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Sheet } from '../dialogs';
 import { CODE_KINDS, KINDS, codeKindOf, kindOf } from './diagramKinds';
+import { CodeEditor } from './CodeEditor';
 import { MermaidView } from './schema';
 
 /** Pop-out editor for a Mermaid diagram: form or code on the left, the rendered diagram (with zoom) on the right. Nothing changes until "Apply". */
@@ -40,7 +41,7 @@ export function DiagramDialog({ text, readOnly, onApply, onClose }: { text: stri
           <div className="dge-pane">
             {tab === 'form'
               ? (Form ? <Form text={draft} onChange={setDraft} readOnly={readOnly} /> : <p className="fe-unsupported">{draft.trim() ? 'There is no form for this diagram type – edit it as code.' : 'Pick a diagram type above to start from an example, or write Mermaid code.'}</p>)
-              : <textarea className="blk-in mono dge-code" aria-label="Mermaid source" spellCheck={false} readOnly={readOnly} value={draft} onChange={(e) => setDraft(e.target.value)} />}
+              : <div className="dge-codewrap"><CodeEditor fill value={draft} onChange={setDraft} readOnly={readOnly} /><p className="ce-hint">Tab indents · Ctrl+Space completes · Ctrl+/ comments</p></div>}
           </div>
         </section>
         <section className="dge-right" aria-label="Preview"><MermaidView text={draft} /></section>
