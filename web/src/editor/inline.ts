@@ -13,7 +13,8 @@ export function mdToInline(md: string, styles: Styles = {}): Inline[] {
     if (!m) { out.push({ type: 'text', text: rest, styles }); break; }
     if (m.index) out.push({ type: 'text', text: rest.slice(0, m.index), styles });
     const t = m[0];
-    if (m[1]) out.push({ type: 'text', text: t.slice(1, -1), styles: { ...styles, code: true } });
+    // The editor's code mark excludes every other mark (bold+code would make ProseMirror throw), so code stands alone.
+    if (m[1]) out.push({ type: 'text', text: t.slice(1, -1), styles: { code: true } });
     else if (m[2]) out.push(...mdToInline(t.slice(2, -2), { ...styles, bold: true }));
     else if (m[3]) out.push(...mdToInline(t.slice(2, -2), { ...styles, strike: true }));
     else if (m[4]) out.push(...mdToInline(t.slice(1, -1), { ...styles, italic: true }));
