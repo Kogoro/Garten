@@ -158,6 +158,8 @@ export function oidcRouter() {
       if (user.disabled) return fail(res, 'This account is disabled');
       startSession(res, user, req.get('user-agent'));
       audit(req, 'auth.login.sso', { actor: user });
+      // The session cookie is httpOnly, so tell the app (once, briefly) that it should ask who it belongs to.
+      res.cookie('specs_sso', '1', { sameSite: 'lax', secure: SECURE_COOKIES, maxAge: 60_000, path: '/' });
       res.redirect(st.next);
     } catch (e) {
       console.error('oidc callback:', e.message);

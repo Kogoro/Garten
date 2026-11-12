@@ -54,6 +54,15 @@ export async function init() {
   state.garden = (await idb.get('meta', 'garden')) ?? {};
   state.fbOps = (await idb.get('meta', 'fbOps')) ?? {};
   pickTeam((await idb.get('meta', 'teamId')) ?? null);
+  // Single sign-on ends in a redirect to the app with only a session cookie set: pick that session up (password login does this itself).
+  const ssoFlag = /(?:^|;\s*)specs_sso=1/.test(document.cookie);
+  if (ssoFlag) document.cookie = 'specs_sso=; Max-Age=0; path=/';
+  if (ssoFlag && navigator.onLine) {
+    try {
+      const res = await fetch('/api/me', { credentials: 'same-origin', headers: { 'x-specs': '1' } });
+      if (res.ok) await adoptLogin((await res.json()).me);
+    } catch { /* offline or no session: the login page stays */ }
+  }
   addEventListener('online', () => ((state.online = true), emit(), sync()));
   addEventListener('offline', () => ((state.online = false), emit()));
   document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && sync());
