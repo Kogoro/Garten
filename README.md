@@ -1,274 +1,135 @@
-# Specs – Prototyp v0.10 (React)
+# Garten (Specs)
 
-Self-hosted, offline-first App, um auf Handy **und Desktop** Spezifikationen und Dokumente für KI-Agenten zu schreiben – **pro Team**.
-Freigegebene (approved) Specs werden als Markdown in das Git-Repo **des Teams** geschrieben (Commit + Tag pro Version, Autor = Freigebender),
-optional automatisch in dessen Entwicklungs-Repository gepusht und über einen **MCP-Server** an Agenten ausgeliefert. Entwürfe bleiben privat.
+Self-hosted, offline-first App, um auf Handy und Desktop Spezifikationen und Dokumente für KI-Agenten zu schreiben – **pro Team**.
+Freigegebene (approved) Specs werden als Markdown in das Git-Repo des Teams geschrieben (Commit + Tag pro Version, Autor = Freigebender),
+optional in dessen Entwicklungs-Repository gepusht und über einen **MCP-Server** an Agenten ausgeliefert. Entwürfe bleiben privat.
 
-## Start
+## Installation
+
+**Docker**
 
 ```bash
 ADMIN_PASSWORD='mein-passwort' docker compose up -d --build   # ohne ADMIN_PASSWORD: wird erzeugt und im Log angezeigt
 docker compose logs specs
 ```
 
-<http://localhost:3000> → `admin@localhost` anmelden. `SEED_DEMO=1` (Default) füllt das erste Team mit Beispieldaten.
-Konfiguration per Umgebungsvariablen, siehe `docker-compose.yml`.
-**v0.3 ändert das Datenbankschema** (Teams). Ein Volume aus v0.2 wird mit klarer Fehlermeldung abgelehnt: `docker compose down -v` oder erst das Repo sichern.
+<http://localhost:3000> → `admin@localhost`. `SEED_DEMO=1` (Default) füllt das erste Team mit Beispieldaten. Konfiguration per Umgebungsvariablen, siehe `docker-compose.yml`.
 
-## Teams, Einladungen, Rollen
-
-* **Jeder Nutzer kann ein eigenes Team anlegen** (Workspace-Menü → *Create a new team*; max. `MAX_TEAMS_PER_USER`, abschaltbar mit `ALLOW_TEAM_CREATION=0`) und wird dessen Team-Admin. Der Team-Schlüssel (Präfix der Spec-IDs) wird aus dem Namen abgeleitet.
-* **Mitglieder werden vom Team-Admin eingeladen** (*Members & Git → Invite people*): E-Mail + Rolle → einmaliger Link (7 Tage gültig). Neue Personen legen über den Link ihr Konto an; wer schon ein Konto hat, sieht die Einladung nach dem Login (Annehmen/Ablehnen) – oder per SSO, sobald die E-Mail eingeladen ist. Einladungen lassen sich widerrufen. Mit konfiguriertem Mailserver (siehe unten) wird die Einladung **per E-Mail** verschickt; der Link wird trotzdem angezeigt, damit eine fehlgeschlagene Zustellung nichts blockiert. Ohne Mailserver kopiert der Admin den Link.
-* **Der Instanz-Admin verwaltet nur Teams und Konten** (Seite *Admin*): Teams ansehen, umbenennen, löschen (mit Schlüssel-Bestätigung); Konten deaktivieren, löschen, zum Admin machen, Passwort zurücksetzen, Tokens einsehen/widerrufen. Er lädt niemanden ein – das tun die Team-Admins. Ein Nutzer, der einziger Team-Admin ist, kann nicht gelöscht werden.
-* **Rollen gelten pro Team:**
-
-| Recht | viewer | editor | approver | admin (Team) |
-|---|:-:|:-:|:-:|:-:|
-| Lesen | ✓ | ✓ | ✓ | ✓ |
-| Entwürfe schreiben, löschen | | ✓ | ✓ | ✓ |
-| Agent darf Entwürfe lesen (`mcp:drafts`) | | ✓ | ✓ | ✓ |
-| Agent darf Entwürfe schreiben (`mcp:write`) | | ✓ | ✓ | ✓ |
-| Freigeben / zurückziehen / nach Git pushen | | | ✓ | ✓ |
-| Mitglieder einladen, Git-Verbindung, Team-Einstellungen | | | | ✓ |
-
-Alle Daten (Specs, Dokumente, Glossar, Git-Repo, MCP-Zugriff) sind strikt an ein Team gebunden. Mitglieder können ein Team verlassen. Login per E-Mail/Passwort oder optional OpenID Connect (`OIDC_*`).
-
-## E-Mail (SMTP)
-
-Optional und nur für Einladungen. Setze `SMTP_URL` (`smtp://user:pass@host:587` für STARTTLS oder `smtps://user:pass@host:465` für implizites TLS) und `SMTP_FROM` (`Specs <no-reply@example.com>`); mit `SMTP_REQUIRE_TLS=1` verweigert der Server unverschlüsselten Versand. Passwörter mit Sonderzeichen URL-kodieren.
-
-* Die Mail nennt Team, einladende Person, Rolle, den einmaligen Link und die Gültigkeit (Text + HTML, Namen werden HTML-escaped).
-* Seite **Team → Invite people**: „Send invitation“, in der Liste offener Einladungen **Resend** (erzeugt einen neuen Link, der alte wird ungültig) und **Revoke**.
-* Schlägt der Versand fehl, bleibt die Einladung bestehen: die Oberfläche zeigt den Grund (ohne Zugangsdaten) und den Link zum Kopieren.
-* **Admin → E-mail** zeigt, ob SMTP konfiguriert ist, und schickt per **Send test e-mail** eine Testnachricht an dein eigenes Konto.
-* Missbrauchsschutz: höchstens 30 Einladungen pro Team und Stunde.
-
-## Spec-Typen
-
-Jede Spec hat einen **Typ**, der ihre Startstruktur (Vorlage) bestimmt und Agenten sagt, was sie lesen. Eingebaut: **Feature spec**, **API spec**, **UI spec / design rule**, **Data model**, **Non-functional requirement**, **Integration** (jeweils mit Vorlage aus Überschriften, Code-/Mermaid-Blöcken).
-
-* *New spec* öffnet die Typ-Auswahl; der Typ erscheint als Chip in Liste und Editor-Leiste, die Liste lässt sich nach Typ filtern, im ⋯-Menü ändert man ihn später (der Inhalt bleibt).
-* **Eigene Typen pro Team:** *Members & Git → Spec types → New type* (Name, Beschreibung, Vorlage als Markdown, optional „Start from“ ein eingebauter Typ). Ein Typ, den noch Specs verwenden, lässt sich nicht löschen.
-* **Git/MCP:** Die freigegebene Datei trägt `type: api` im Front-Matter; `list_specs` liefert `type` und `type_label` und filtert mit `list_specs(type: "api")`.
-* Bestehende Specs sind „Feature spec“; die Spalte wird automatisch migriert.
-
-## Spec als Formular
-
-Ein Spec-Typ kann seinen Inhalt als **Formular** beschreiben statt als freien Editor: vordefinierte Felder, Listen und **Tabs**, ganz ohne Editor. Eingebaut sind **API** (Tabs *Overview / Endpoints / Contract / Quality*), **Architecture spec** (Tabs *Context / Design / Consequences*: Status, Kontext, Treiber, Entscheidung, Übersichtsdiagramm, Komponenten, Alternativen, Konsequenzen, Risiken, offene Fragen, Requirements), **ADR** (klassisches Entscheidungsprotokoll: Status, Deciders, Kontext, Treiber, Optionen, Entscheidung, Konsequenzen, Links), **UI spec** und **NFR** als Formular (öffnen direkt als Formular); *Feature*, *Data model* und *Integration* haben ein Formular zur Auswahl, öffnen aber im Editor. Im Overflow-Menü wechselst du jederzeit zwischen **Form**, **Blocks** und **Markdown** – es ist immer dieselbe Datei.
-
-* **Feldtypen:** Einzeilig, Text, Auswahl, Liste, Checkliste, Requirements (R1, R2 …, fortlaufend), API-Endpoints (Karten mit Tabs Description / Request / Responses), Diagramm (Mermaid mit Vorschau), Code. In Listen: `Enter` neue Zeile, `Rücktaste` in leerer Zeile löscht sie, `Alt+↑/↓` verschiebt.
-* **Gespeichert wird Markdown:** jedes Feld ist ein Abschnitt `## FELDNAME` (Liste = `- Punkt`, Checkliste = `- [x] …`, Requirements = `R1 …`, Endpoints = ` ```endpoint GET /pfad `-Fences). Agenten, Git und der Block-Editor sehen dieselbe Datei.
-* **Nichts geht verloren:** Abschnitte, die das Formular nicht kennt (z. B. nach einem Typwechsel oder von einem Agenten geschrieben), und Text vor dem ersten Abschnitt bleiben erhalten und stehen unter „Other content“.
-* **Eigene Formular-Typen:** Team-Admins definieren unter *Members & Git → Spec types* Felder (Name, Typ, Auswahl-Optionen, Hinweis, Tab), Tabs und ob Specs als Formular öffnen. „Start from“ übernimmt ein eingebautes Formular als Vorlage.
-* **Für Agenten:** `list_spec_types` liefert je Typ die Abschnitte mit Art (`kind`), Optionen und Hinweisen – so schreiben Agenten Drafts, die im Formular sauber ankommen.
-
-## Feedback des Agenten zu Specs
-
-Agenten widersprechen oder fragen nach, **ohne den Spec zu ändern**: mit Scope `mcp:write` gibt es `add_feedback(spec_id, kind, text, section?, evidence?)` (`kind`: concern, conflict, question, suggestion, gap) und `list_feedback(spec_id?, status?)`. Gleiche offene Einträge (gleicher Abschnitt und Text) werden zusammengeführt, pro Spec sind höchstens 50 offen.
-
-* **In der App:** Der Button *Feedback* in der Editor-Leiste (Badge mit der Zahl offener Einträge), ein Chip „N feedback“ in der Spec-Liste und ein Hinweis auf der Release-Seite. Das Feedback-Sheet zeigt Art, Abschnitt, Text, Beleg (`evidence`), Absender (Token/Client) und die Version, auf die es sich bezieht. Editor+ können **Accept / Dismiss / Reopen / Mark done** und antworten; auch Menschen können Feedback anlegen.
-* **Der Agent sieht die Entscheidung:** `list_feedback` liefert Status und Antwort, so wiederholt er sich nicht. Mit `withdraw_feedback(id)` nimmt er eigenes, noch offenes Feedback zurück (nie das anderer, nie nach einer Entscheidung).
-* **Accept & add to spec:** übernimmt den Befund als Checklisten-Punkt unter `## REVIEW NOTES` im Spec (eine ungeprüfte Änderung am Arbeitsstand, die du verfeinern kannst); „Accept“ allein ändert den Spec nicht.
-* **E-Mail-Digest:** Bei neuem Feedback bekommen Approver und Admins des Teams (nicht der Absender) eine gesammelte Mail nach einer Ruhephase (`FEEDBACK_MAIL_DEBOUNCE_MS`, Standard 2 min), sofern `SMTP_URL` gesetzt ist. Team-Admins schalten das unter *Members & Git* ab. Zusätzlich zeigt die Seitenleiste die Zahl offener Einträge.
-* **API:** `GET/POST /api/teams/:id/feedback`, `PATCH …/feedback/:fid` (Rechte: lesen = alle, anlegen/bearbeiten = editor+); die offenen Zähler kommen mit jedem Sync.
-
-## Foundation-Dokumente: Vision, Strategie, Glossar
-
-Jedes Team hat immer **`vision.md`, `strategy.md` und `glossary.md`** (werden mit dem Team angelegt, lassen sich nicht löschen). Beliebige weitere Dokumente lassen sich als Foundation-Dokument **anheften** (⋯-Menü → *Pin*).
-
-* Sie gehören **keinem Spec** – kein Verlinken nötig. Sobald sie Inhalt haben (reine Überschriften zählen als leer), gehen sie nach der letzten Änderung **automatisch live** (Standard; einstellbar pro Team: dann „Publish now“ durch einen Approver) und landen im Repo unter `<Ordner>/docs/`.
-* **MCP:** `get_team_context()` liefert Vision, Strategie, weitere angeheftete Dokumente und das Glossar in einem Aufruf; der Server weist Agenten per `instructions` darauf hin, es zuerst aufzurufen. Leere Teile werden weggelassen. `list_documents` markiert sie mit `always: true`.
-* **Glossar:** wird aus allen **Definition**-Blöcken freigegebener Specs, Dokumente und der Foundation-Dokumente erzeugt (`GLOSSARY.md`, `get_glossary`) – abfragbar, sobald es nicht leer ist.
-
-## Git-Verbindung pro Team
-
-Seite **Team → Git connection** (Team-Admin). Jedes Team hat sein eigenes lokales Repo (`/data/repos/<team>`) und optional **einen eigenen Remote** – typischerweise das Entwicklungsprojekt, damit der Agent die Specs direkt im Repo findet.
-
-| Einstellung | Bedeutung |
-|---|---|
-| URL | `https://…` oder SSH (`git@host:org/repo.git`). Andere Schemata (`file://`, `ext::`, `-…`) werden abgelehnt; `http://` nur mit `GIT_ALLOW_HTTP=1`. Adressen im privaten oder lokalen Netz (Loopback, `10.x`, `192.168.x`, Cloud-Metadaten, einteilige Rechnernamen) nur mit `GIT_ALLOW_PRIVATE=1` – sonst könnte ein Team-Admin vom Server aus das interne Netz abtasten. Namen werden vor jeder Verbindung neu aufgelöst. |
-| Branch | Ziel-Branch. Existiert er schon mit Commits, werden sie zuerst gemergt (bei Konflikten in Dateien, die Specs verwaltet, gewinnt Specs). |
-| Ordner | Specs schreibt **nur** in `<Ordner>/` (Default `specs/`): `<ID>.md`, `docs/…`, `GLOSSARY.md`. Alles andere im Repo bleibt unangetastet. Nach der ersten Freigabe gesperrt. |
-| Authentifizierung | *HTTPS-Token* (Benutzername + Token, nur schreibbar) oder *SSH-Deploy-Key* (der Server erzeugt ein ed25519-Paar; den öffentlichen Teil als Deploy-Key mit Schreibrecht eintragen). |
-| Auto-Push | Push (inkl. Version-Tags) nach jeder Freigabe/Rücknahme; **Test connection** und **Push now** manuell, Status wird angezeigt. |
-
-Tokens und Private Keys werden mit AES-256-GCM verschlüsselt gespeichert (`SECRET_KEY`, daraus per scrypt abgeleitet, oder automatisch erzeugte Schlüsseldatei im Volume) und nie wieder ausgegeben. Fehlermeldungen werden von Zugangsdaten bereinigt. Für produktive Instanzen `SECRET_KEY` außerhalb des Daten-Volumes setzen (sonst liegt der Schlüssel in jedem Backup neben den Geheimnissen).
-
-Ein gespeichertes Token (Git und Webhook) gehört zu dem Server, für den es eingegeben wurde: Wird die URL auf einen anderen Host geändert, wird es verworfen und muss neu eingegeben werden. Symbolische Links und Submodule aus dem Remote werden nie ausgecheckt; Specs schreibt nie außerhalb des Team-Repos. SSH-Host-Keys werden pro Team gelernt (erste Verbindung), ein geänderter Schlüssel ist ein Fehler – nach einem echten Serverwechsel `POST /api/teams/<id>/git/forget-host-key`. Ein Test der Verbindung zeigt die gelernten Fingerabdrücke.
-
-## Editor
-
-* **Blöcke** (Text, Überschriften, Requirement `R1…`, Checkliste, Liste, **Definition**, Zitat, Code, **Diagramm**, **API-Endpoint**, Trennlinie), gespeichert als normales Markdown; Umschalten *Blocks ⇄ Markdown* jederzeit (Overflow-Menü). Der Editor basiert seit v0.8 auf **BlockNote** (React, ProseMirror) mit eigenen Blöcken; Markdown bleibt das einzige Speicherformat (Inline: **fett**, *kursiv*, `code`, ~~durchgestrichen~~, Links).
-* **Einfügen am Cursor:** Toolbar/Menü fügen den Block dort ein, wo der Cursor steht – mitten im Text wird der Block geteilt (Kopf | neuer Block | Rest), ein leerer Textblock wird ersetzt. `/` in einem leeren Block öffnet das Block-Menü.
-* **Drag & Drop:** am Griff ⋮⋮ ziehen (BlockNote-Seitenmenü); ein Klick ohne Ziehen öffnet das Block-Menü. `@` im Text öffnet die Dokument-Auswahl (verlinkt das Dokument mit dem Spec).
-* **API-Endpoint-Block** (` ```endpoint GET /pfad `): beliebig oft wiederholbar, als Formular mit **Tabs** *Description / Request / Responses* (Methode, Pfad); im Markdown als `Request:` / `Responses:` lesbar für Agenten. Der Typ *API* startet mit einem Endpoint.
-* **Diagramme:** ` ```mermaid `-Blöcke mit Umschalter **Diagramm | Code | Split** (auch für Leser) und Vorlagen; Mermaid ist im Build enthalten (Lazy-Chunk) und wird vom Service Worker vorab gecacht (rendert offline). Andere Textformate (`plantuml`, `d2`, `dot`, `yaml` …) gehen als Code-Block unverändert an den Agenten.
-
-## Glossar: Definitionen, Verweise, globales Glossar
-
-Der **Definition**-Block speichert Begriffe als Markdown-Definitionsliste (agentenlesbar, Git-freundlich):
-
-```
-Attempt window
-: Das Zeitfenster, in dem Wiederholungen eines Rechnungslaufs als derselbe Versuch zählen. Siehe [[Idempotency key]].
-: Aliases: retry window, window
-: See also: Ledger entry
-: Source: global:7c1e…@3
-```
-
-* **Verweise:** `[[Begriff]]` oder `[[Begriff|Anzeigetext]]` in einer Definition; zusätzlich Felder **Also known as** (Synonyme) und **See also** im Block. Die Glossar-Seite löst Verweise auf (Klick springt zum Begriff), markiert **nicht definierte** Begriffe rot und fasst sie oben zusammen, zeigt *Referenced by* und *Used in* (Specs/Dokumente, die den Begriff oder ein Synonym erwähnen) und findet Begriffe auch über Synonyme.
-* **Online nachschlagen (kostenlos):** Im Dialog *New glossary term* und beim Bearbeiten eines Begriffs sucht **Search definitions online** Definitionen in Wikipedia, Wiktionary und (Englisch) dictionaryapi.dev – ohne Schlüssel, ohne Kosten, in 7 Sprachen wählbar. Die Anfrage läuft über den Specs-Server (`GET /api/lookup?q=&lang=`), nur der Suchbegriff verlässt die Instanz, der Client nennt sich generisch (keine E-Mail-Adresse). **Use as definition** übernimmt den Text **mit Quelle und Lizenz** (CC BY-SA) in das Definitionsfeld; kürzen oder umformulieren kannst du ihn, der Quellenhinweis bleibt. Nur online; `LOOKUP=0` schaltet die Funktion ab, 20 Abfragen pro Minute und Nutzer.
-* **Glossar-Verweise in Dokumenten und Specs:** Im Editor öffnet das Präfix **`#`** eine Liste der Glossarbegriffe; eingefügt wird `#[Begriff]` (auch von Hand: `#[Begriff|Anzeigetext]`). In *Used in* des Begriffs taucht das Dokument dann auf; Agenten lesen den Verweis als normalen Text. `[[Begriff]]` gilt weiterhin innerhalb von Definitionen.
-* **Globales Glossar:** Instanz-Admins pflegen es unter *Admin → Global glossary*. Teams importieren Begriffe über **Glossary → Import** als **editierbare Kopie** in ihr `glossary.md` (mit Herkunftsvermerk `Source: global:<id>@<rev>`). Ändert ein Admin den globalen Begriff, zeigt die Team-Glossar-Seite *Update available* mit **Update from global**; lokale Anpassungen bleiben, bis man das bewusst übernimmt. Bereits vorhandene Begriffe werden beim Import nicht überschrieben. **Datei-Import (Admin):** *Import file…* liest CSV/TSV (Spalten `term, definition, aliases, see`; Trennzeichen automatisch, deutsche Spaltennamen ok), JSON (Liste, `{terms:[…]}` oder `{"Begriff":"Definition"}`) oder Markdown-Definitionslisten, zeigt eine Vorschau (neu / vorhanden / Probleme) und importiert wahlweise *vorhandene behalten* oder *aktualisieren*. *Export* liefert `global-glossary.md`.
-* **Glossar-Seite** wie die Dokumentenseite: links Liste mit Ordnern (Überschriften in `glossary.md`), rechts die Definition mit Synonymen, Verweisen und Bearbeiten – ohne Umweg über `glossary.md`.
-* **Für Agenten:** `get_glossary(term?)` findet auch über Synonyme und liefert `aliases`, `see_also` (explizite Verweise + `[[…]]`), `from_global_glossary` und die Quelle; `get_team_context` listet `**Term** (also: …): Definition — see also: …`. `GLOSSARY.md` im Repo enthält dieselben Angaben.
-* Alle Definitionen aus freigegebenen Specs, Dokumenten und den Foundation-Dokumenten fließen ein – ohne Verlinken.
-
-## Dokumente in Ordnern
-
-Dokument-IDs sind Pfade (`adr/ADR-007.md`, bis 5 Ebenen). **Ordner sind eigene Objekte:** *New → Folder* legt auch leere Ordner an; an jedem Ordner gibt es *+* (Dokument hier anlegen) und ⋯ (Unterordner, Umbenennen/Verschieben samt Inhalt, Löschen wenn leer). Dokumente: **Move / rename** (Verlinkungen folgen) und **Delete** im ⋯-Menü. (In Git existieren Ordner nur, solange sie freigegebene Dokumente enthalten.) Löschen: nur Entwürfe bzw. Dokumente, die kein freigegebener Spec nutzt (erst *Revoke*). Bei jeder Freigabe räumt Specs verwaiste Dokumente im Repo auf.
-
-## Agenten anbinden (MCP)
-
-Ein Zugang gehört immer zu **einem Team** und handelt mit den **aktuellen** Rechten der Person in diesem Team (Rollen-Downgrade oder Entfernen aus dem Team wirkt sofort).
-
-1. **OAuth 2.1** (empfohlen; Discovery, Dynamic Client Registration, PKCE, Refresh-Tokens): `claude mcp add --transport http specs <PUBLIC_URL>/mcp` → im Browser anmelden, **Team wählen**, Zugriff erlauben.
-2. **Persönliches Token** (`spc_…`) unter *Account → Agent access*: Team, Scope (`mcp:read` / `mcp:drafts` / `mcp:write`), Ablauf. Nur einmal sichtbar, gespeichert als Hash; Admins können Tokens aller Nutzer einsehen und widerrufen.
-
-Tools: `get_team_context`, `list_specs`, `get_spec(id, version?)`, `list_documents(folder?)`, `get_document(path)`, `get_glossary(term?)`, `list_spec_types`, dazu für den Kreislauf (siehe unten) `get_work_list`, `get_spec_changes`, `list_decisions`, `list_reports`; mit Draft-Scope zusätzlich `include_drafts` / `draft=true`.
-
-**Agenten schreiben Entwürfe, Menschen geben frei:** mit Scope `mcp:write` (Rolle editor+; bei OAuth eine eigene, nicht vorangehakte Checkbox) kommen `create_draft_spec`, `update_draft_spec`, `create_draft_document`, `update_draft_document` hinzu. Es gibt **kein** Freigabe-Tool: Agenten-Änderungen bleiben Entwurf (eine freigegebene Version bleibt unverändert, bis ein Approver die neue freigibt). Die Server-ID wird vergeben, `base_rev` verhindert Überschreiben, Foundation-Dokumente (Vision, Strategie, Glossar) sind für Agenten gesperrt, Limit 60 Schreibzugriffe/Stunde. In der UI erscheint der Chip **Agent draft** (mit Token-/Client-Name), bis ein Mensch den Eintrag bearbeitet.
-
-## Agenten selbstständig arbeiten lassen
-
-Menschen schreiben und geben frei, Agenten bauen – und melden zurück. Der Mensch braucht dafür keinen Zugriff auf den Code: Er sieht in der App, **was der Agent fragt, was ihm aufgefallen ist und wie weit jeder freigegebene Spec umgesetzt ist**.
-
-**Der Kreislauf**
-
-1. Ein Approver gibt einen Spec frei. Der **Agent trigger** des Teams (Webhook) startet den Agenten – oder er läuft nach Zeitplan.
-2. Der Agent ruft `get_work_list` auf: alle freigegebenen Specs, die noch nicht (oder nicht in der aktuellen Version) als umgesetzt gemeldet sind, mit Zustand `new`, `changed`, `in_progress`, `partial`, `blocked`. Bei `changed` liefert `get_spec_changes(id)` den Unterschied zur zuletzt gebauten Version.
-3. Lässt der Spec eine Wahl offen, rät der Agent nicht, sondern fragt: `request_decision(spec_id, question, options, recommended?, blocking?, context?)`. Mit `blocking: true` überspringt er den Spec, bis ein Mensch geantwortet hat (`waiting_for_decision` in der Arbeitsliste), und arbeitet an den anderen weiter.
-4. Der Mensch antwortet im **Garden** – eine Option antippen, optional eine Notiz, *Send answer*. Das geht **offline**: Die Antwort liegt auf dem Gerät („Waiting to sync“) und geht mit dem nächsten Sync raus. Danach löst der Trigger erneut aus, und der Spec steht mit `decisions_answered` wieder in der Arbeitsliste.
-5. Am Ende meldet der Agent mit `report_implementation(spec_id, status, summary, criteria, evidence?, deviations?)`: Status (`implemented`, `partial`, `blocked`, `in_progress`), jedes Akzeptanzkriterium mit `met` / `deviating` / `open`, Belege (Commit, Pull Request, Tests) und Abweichungen vom Spec. Ein neuer Release desselben Specs macht den Bericht „Outdated“.
-
-**In der App**
-
-* **Garden** (Seitenleiste unter *Agents*, auf dem Handy in der Tab-Leiste, mit Badge): oben, was auf dich wartet (Entscheidungen zuerst, dann offenes Feedback), darunter der Umsetzungsstand jedes freigegebenen Specs (Blocked → Outdated → Partly built → In progress → Not started → Implemented) und die zuletzt beantworteten Entscheidungen. Antippen einer Zeile öffnet den Bericht mit Kriterien, Abweichungen, Belegen und Verlauf.
-* Im Editor eines freigegebenen Specs zeigt ein Chip den Stand („Implemented v3 · 4/4 criteria“); derselbe Chip steht in der Spec-Liste.
-* Entscheidungen und Feedback beantworten Editor+; Berichte sind für Menschen nur lesbar. Agenten können weiterhin nichts freigeben.
-* Offline sind Garden, offene Entscheidungen/Feedback und der jeweils neueste Bericht pro Spec verfügbar; ältere Berichte lädt das Sheet online nach.
-
-**Agent trigger (Webhook pro Team)** – *Members & Git → Agent trigger*, nur Team-Admins:
-
-* Adresse (`https://…`), optional Token (wird als `Authorization: Bearer …` gesendet), zusätzliche Header, Ereignisse (*a spec is released*, *a decision is answered*) und Format. Token und Header-Werte werden verschlüsselt gespeichert und nie wieder angezeigt.
-* Mehrere Freigaben/Antworten kurz hintereinander ergeben **einen** Aufruf (`HOOK_DEBOUNCE_MS`, Standard 5 s). Format `text` sendet `{"text": "…"}` mit einer Zusammenfassung, Format `full` zusätzlich `event`, `team`, `released[]`, `answered[]`, `mcpUrl`.
-* Aufrufe an lokale/private Adressen sind gesperrt (`HOOK_ALLOW_LOCAL=1` hebt das für einen Runner im LAN auf). *Send test* schickt einen Aufruf „Connection test“; Status und Antwort des letzten Aufrufs stehen in der Karte.
-* Der Webhook ist nur der Anstoß. Maßgeblich ist immer die Arbeitsliste – ein verpasster Aufruf geht also nicht verloren, der nächste Lauf holt alles nach.
-
-**Belege, die man wiederholen kann (Checks)** – Ein Bericht ist erst belastbar, wenn sich seine Aussagen erneut prüfen lassen. Deshalb registriert der Agent pro Akzeptanzkriterium einen **Check** (`register_check`: Art `test`, `ci`, `command`, `metric`, `url` oder `manual`, Aufruf, Erwartung, optional das Kriterium und `max_age_days`, Standard 14) und meldet jedes Ergebnis mit `report_check_result` (pass/fail/error, Messwert, Link zum Lauf, Commit). Im Bericht nennt das Kriterium die Checks (`checks: [...]`).
-
-* **Verifiziert statt behauptet:** Die App zeigt je Kriterium *Verified* (alle genannten Checks bestehen gerade), *Check failing*, *Check stale* oder *Claimed only* (kein Check). Die Zusammenfassung lautet z. B. „4/4 criteria · 3 verified“; die Karte *Checks* im Bericht listet Aufruf, Erwartung, letztes Ergebnis, Quelle (*reported by CI* oder *by the agent*) und Link zum Lauf, auch offline.
-* **Wiedervorlage:** Ein Check ist **stale**, wenn sein letztes Ergebnis älter als `max_age_days` ist oder zu einer älteren Spec-Version gehört; **failing** nach einem fehlgeschlagenen Lauf. Dann steht der Spec in `get_work_list` wieder mit Zustand `recheck` und `checks_to_run` – der Agent führt die Checks erneut aus (`list_checks` zeigt, wie), meldet das Ergebnis und repariert bei Fehlern den Code. Ein neuer Release macht alle bisherigen Ergebnisse stale. `retire_check` nimmt einen Check außer Dienst, wenn der Spec ihn nicht mehr braucht.
-* **Belege aus der CI statt vom Agenten:** Eine Pipeline kann mit einem eigenen Token (Scope *Read & write drafts*, Rolle Editor+) Ergebnisse melden; sie gelten als `source: ci`:
-  ```bash
-  curl -fsS -X POST "$SPECS_URL/api/ci/checks/results" -H "Authorization: Bearer $SPECS_TOKEN" -H 'content-type: application/json' \
-    -d '{"results":[{"spec_id":"SPEC-012","name":"unit: key rotation","status":"pass","value":"12 passed","ref":"'"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"'","commit":"'"$GITHUB_SHA"'"}]}'
-  ```
-  (max. 50 Ergebnisse pro Aufruf; der Check muss vorher vom Agenten registriert sein.) Läuft die Pipeline bei jedem Push, bleiben die Belege automatisch frisch. Die App führt selbst nichts aus – sie speichert Aufruf und Ergebnisse; ausgeführt wird in CI oder durch den Agenten.
-
-**Leitplanken** – Neben Vision und Strategie hat jedes Team das Foundation-Dokument **Guardrails** (`guardrails.md`, Abschnitte *Always* / *Never*, eine Regel pro Zeile `- G1: …`). Freigegebene Leitplanken liefert `get_team_context` jedem Agenten ungefragt, mit dem Hinweis, dass sie verbindlich sind: würde eine Aufgabe eine Regel brechen, hält der Agent an und fragt (`request_decision`). Agenten können sie nicht ändern. An jedem Feedback-Eintrag und an den Abweichungen eines Berichts steht **Make it a rule**: Regel formulieren, *Always* oder *Never* wählen – sie landet nummeriert im Dokument (live nach der üblichen kurzen Verzögerung der Foundation-Dokumente).
-
-**Mit Claude Code in der Cloud (Routine)** – Stand der Anthropic-Doku vom November 2026, Routinen sind dort als Research Preview geführt:
-
-1. Der Server muss aus dem Internet erreichbar sein (siehe *HTTPS / PUBLIC_URL* → `scripts/go-public.sh`).
-2. *Account → Agent access*: Token für das Team mit **„Read & write drafts (you approve)“** anlegen. Nur mit diesem Scope darf der Agent fragen und berichten.
-3. Im Ziel-Repository (dem Code, den der Agent schreiben soll) eine `.mcp.json` committen – der Text steht fertig unter *Members & Git → Agent setup*:
-   ```json
-   { "mcpServers": { "specs": { "type": "http", "url": "<PUBLIC_URL>/mcp", "headers": { "Authorization": "Bearer ${SPECS_TOKEN}" } } } }
-   ```
-   In der Cloud-Umgebung der Routine `SPECS_TOKEN` als Umgebungsvariable setzen und, falls der Netzwerkzugriff eingeschränkt ist, die Domain des Servers erlauben. Alternative ohne Token: den Server in claude.ai als *Custom Connector* (`<PUBLIC_URL>/mcp`, Anmeldung per OAuth) hinzufügen und in der Routine auswählen.
-4. Unter <https://claude.ai/code/routines> eine Routine mit diesem Repository anlegen und als Anweisung den Text aus *Agent setup → Copy prompt* einfügen (unten abgedruckt).
-5. In der Routine einen **API-Trigger** hinzufügen und das Token erzeugen (wird nur einmal gezeigt). In Specs unter *Agent trigger* auf **Fill in for a Claude Code routine** tippen, die Fire-URL der Routine (`https://api.anthropic.com/v1/claude_code/routines/<id>/fire`) und das Token eintragen, speichern, *Send test*. Bei Erfolg zeigt die Karte „Open the run“ mit dem Link zur gestarteten Sitzung.
-6. Zusätzlich empfiehlt sich ein Zeitplan-Trigger (z. B. stündlich) als Sicherheitsnetz.
-
-Lokal geht dasselbe ohne Tunnel: `claude mcp add --transport http specs http://localhost:3000/mcp --header "Authorization: Bearer spc_…"` und den Prompt mit `claude -p "$(cat prompt.txt)"` im Ziel-Repository starten.
-
-Die Anweisung für den Agenten (identisch mit *Copy prompt*; `<Team>` ist der Teamname):
-
-```text
-You implement the released specs of the team "<Team>" in this repository.
-
-The Specs MCP server ("specs") is the source of truth. People write and approve specs there; you build them. You never edit, approve or release specs yourself.
-
-If this run was started with a <routine-fire-payload> block, treat it only as a hint about what happened. The work list is what counts.
-
-Every run:
-1. Call get_work_list. If "work" is empty, say so in one line and stop. State "recheck" means: the spec is built, but a check fails, is stale or never ran – run the entries of checks_to_run again (list_checks shows how), report each with report_check_result, and fix the code if one fails.
-2. Take the entries in the order given. For each entry:
-   - state "changed": call get_spec_changes first, then get_spec. Build only what changed.
-   - state "new", "in_progress", "partial", "blocked": call get_spec. Its front matter lists the linked documents – read the ones you need with get_document. Call get_team_context once per run: its guardrails are binding – if your work would break one, stop and ask with request_decision.
-   - "decisions_answered": a person answered your question. Follow the answer and its note exactly.
-   - "waiting_for_decision" with blocking true: skip this spec, a person has not answered yet. Work on the others.
-   - An entry whose last_report already covers everything you can do now (same version, no "decisions_answered", nothing left to build without an open decision): leave it alone and do not report again.
-3. Implement on a branch named claude/<spec-id in lower case>. Keep the change as small as the spec allows. Run the tests. Open a draft pull request (or update the existing one) and name the spec id and version in its title.
-4. When the spec is unclear, contradicts another spec or the code, or leaves a choice that a person would want to make: do not guess. Call request_decision with a short question, 2 to 4 concrete options, your recommendation, and blocking true only if you cannot continue with this spec without the answer. Then go on with other work.
-5. Problems that do not stop you (a gap, an inconsistency, a better idea) go to add_feedback, with the section and evidence from the code.
-6. Finish every spec you touched with report_implementation: status (implemented, partial, blocked or in_progress), a summary a non-developer understands, every acceptance criterion quoted from the spec with met / deviating / open, evidence (commit, pull request, test names) and every deviation from the spec. Make every claim re-runnable: for each criterion you call met, register a check (register_check: a test, CI job, metric or command, with what counts as passing), run it, report the result (report_check_result) and name the check in the criterion. A criterion without a passing check is "open", not "met". Report honestly: a failing check stays failing. The status describes the code against the spec, not the pull request: "implemented" when every criterion is met and tested, even while the pull request is still open.
-
-Stop when the work list holds nothing you can work on. End with one line per spec: id, status, pull request.
-```
-
-**API:** `GET /api/teams/:id/reports?spec=`, `GET /api/teams/:id/checks?spec=`, `POST /api/ci/checks/results`, `GET /api/teams/:id/feedback?spec=&kind=decision`, `PATCH /api/teams/:id {hook: {url, token?, clearToken?, headers?, events?, format?}}`, `POST /api/teams/:id/hook/test`. Antworten und Triage vom Gerät laufen über den Sync (`feedbackOps`), Entscheidungen und neueste Berichte kommen mit jedem Sync zurück.
-
-## Bedienung: Tastatur, Barrierefreiheit, Qualitätsprüfung
-
-* **Tastatur:** `Strg/⌘ K` öffnet die Befehlspalette (Specs, Dokumente und Begriffe finden, Seiten wechseln, Neuer Spec, Sync, Darstellung, Dichte), `?` zeigt alle Kürzel (`g` dann `s`/`d`/`l`/`r`/`a`/`t`/`y` springt zu Specs, Dokumenten, Glossar, Release, Garden, Members & Git, Sync; `n` neuer Spec; `/` sucht in der Liste). Der erste Tab-Stopp ist ein Sprunglink zum Inhalt; jede Seite hat einen eigenen Fenstertitel.
-* **Persönliches:** Sortierung, Filter, Typ und Listendichte merkt sich das Gerät (Menü *Account* → *Lists*, oder Palette). *Garden* zeigt *Agents at work* und bietet **Pause/Resume agents** (Team-Admins): pausierte Agenten bekommen eine leere Arbeitsliste und keine Webhook-Aufrufe, Antworten und Berichte werden weiter angenommen. *Team health* (Garden) rechnet Durchlaufzeiten und Umsetzungsstand aus den vorhandenen Daten – nichts wird gesammelt oder gesendet.
-* **Prüfung:** `npm run ux-audit` startet eine Wegwerf-Instanz mit Stressdaten und prüft die gerenderte App auf Handy und Desktop (axe-core WCAG 2.2 AA, Fokus, Touch-Ziele, Titel/Landmarken, Sicherheits-Header, Ladezeit auf einem langsamen Handy). Einordnung gegen die Enterprise-UX-Leitfäden: `docs/UX-SCORECARD.md`; Begriffe: `docs/UI-VOCABULARY.md`; Design-Tokens und Komponenten: `docs/DESIGN-SYSTEM.md`.
-* **Sicherheits-Header:** Die App liefert eine Content-Security-Policy (nur eigene Skripte, keine fremden Verbindungen), `frame-ancestors 'none'`, `nosniff`, Referrer- und Permissions-Policy; Assets sind komprimiert und mit Hash dauerhaft gecacht.
-
-## Wie es funktioniert
-
-| Teil | Umsetzung |
-|---|---|
-| Frontend | React 19 + TypeScript (Vite) in `web/`; Zustand `zustand`, Router `react-router` (Hash-Routen), PWA via `vite-plugin-pwa` (Workbox). Gemeinsamer Code mit dem Server (Glossar-Parser, Block-Modell, Spec-Typen) in `shared/`. |
-| Offline-first | Service Worker (App-Shell + Mermaid + Editor, vorab gecacht) + IndexedDB (pro Team). Login-Zustand ist gecacht. Änderungen landen lokal; „Waiting to sync“ ist die Outbox, auch für Löschen/Verschieben/Freigeben. |
-| Sync | `POST /api/teams/:id/sync` je Team: Push + Pull seit Cursor, Revision pro Item → bei Abweichung **Konflikt** („Keep mine / Use server“); Löschungen kommen als Tombstones. |
-| Freigabe | Server schreibt Spec + verlinkte Dokumente + `GLOSSARY.md`, committet als der Freigebende, taggt `ID/vN`, pusht ggf. zum Team-Remote. |
-| Server | Node 24, Express, `node:sqlite`, `git`/`ssh-keygen` CLI, MCP SDK. Ein Container, ein Volume `/data`. |
-| Navigation | **Eine** durchgängige Navigation, keine Seiten-Tabs mehr: Desktop = Sidebar (Team-Wechsler, Content: Specs/Documents/Glossary, Publish: Release, Agents: Garden, Team: Members & Git, Instance: Admin, unten Sync-Status und Benutzermenü); Handy = Tab-Leiste (Specs, Garden, Docs, Release, More; Sync liegt unter More) + Team-Menü oben rechts, Editor im Vollbild. Überall dieselbe kompakte Kopfzeile. |
-| Themes | **System / Hell / Dunkel** (Konto → Appearance oder Benutzermenü); Mermaid-Diagramme und die OAuth-Zustimmungsseite folgen dem Theme. |
-
-## Installation auf Debian / Ubuntu (VM, Server, LXC)
-
-Auf Debian 12/13 oder Ubuntu 24.04 mit systemd, als root:
+**Debian 12/13 / Ubuntu 24.04 (VM, Server, LXC), als root:**
 
 ```bash
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/Kogoro/Garten/main/scripts/install-debian.sh)"
 ```
 
-Das Skript installiert Garten nach `/opt/garten`, legt die Daten unter `/var/lib/garten/data` ab und startet den Dienst `garten` auf `http://<IP>:3000`. Das ist unverschlüsseltes HTTP und funktioniert nur online: Browser erlauben den Offline-Modus (Service Worker) nur über HTTPS (siehe [HTTPS / PUBLIC_URL](#https--public_url)). Einstellungen stehen in `/etc/garten/garten.env` (dieselben Variablen wie in `docker-compose.yml`, zusätzlich `HOST`, `LOOKUP`).
+Installiert den **neuesten Release** nach `/opt/garten`, Daten unter `/var/lib/garten/data`, Einstellungen in `/etc/garten/garten.env` (dieselben Variablen wie in `docker-compose.yml`), Dienst `garten` auf `http://<IP>:3000`. Zugangsdaten stehen in `/root/garten.creds`.
 
-1. **Zugangsdaten:** `cat /root/garten.creds` (E-Mail `admin@localhost`, zufälliges Passwort; nach der Anmeldung unter *Account* ändern und die Datei löschen).
-2. **Anmelden:** `http://<IP>:3000` öffnen.
-3. **Aktualisieren:** `garten update`. Daten und Einstellungen bleiben. **Backup:** `garten backup` (Archiv in `/root`). `garten info`, `garten logs`, `garten url https://spec.example.org` (eigene Adresse, z. B. mit eigenem Reverse-Proxy, der HTTPS übernimmt).
+| Befehl | |
+|---|---|
+| `garten update` | auf den neuesten Release aktualisieren (Daten und Einstellungen bleiben) |
+| `garten info` · `garten logs` | Adresse, Version, Status · Log |
+| `garten backup` | Archiv in `/root` |
+| `garten url https://spec.example.org` | eigene Adresse (Reverse-Proxy mit HTTPS) |
 
-**Grenzen:** Nur per VPN erreichbar heißt: Cloud-Routinen von Claude Code können den Server nicht erreichen (lokale Agenten im VPN schon). Getestet wurde das Skript in einem Debian-13-Container (Installation, Update, Anmeldung).
+`GARTEN_REF=v0.11.0 garten update` installiert eine bestimmte Version, `GARTEN_REF=main` den Entwicklungsstand. Plain HTTP funktioniert nur online – Offline-Modus und Handy-Installation brauchen HTTPS (siehe unten). Nur per VPN erreichbar heißt: Cloud-Routinen von Claude Code erreichen den Server nicht.
 
-## HTTPS / PUBLIC_URL
+## Releases
 
-Service Worker („Offline-Start“, Installation auf dem Handy) brauchen **HTTPS** (Ausnahme `localhost`). Hinter einem Reverse Proxy mit TLS `PUBLIC_URL=https://…` und `TRUST_PROXY=1` (= genau ein Proxy davor; eine Zahl gibt die Anzahl der Proxys an, Express-Werte wie `loopback` sind möglich – nie „allen vertrauen“, sonst lässt sich die Anmelde-Drossel mit einem erfundenen `X-Forwarded-For` umgehen) setzen – `PUBLIC_URL` muss stimmen, sonst funktioniert OAuth für MCP nicht.
+Version in `package.json` erhöhen, committen, dann Tag setzen und pushen:
 
-### Eigene Domain: HTTPS am Proxy, HTTP zum Server
-
-Der Proxy beendet TLS und leitet an `http://<Server>:3000` weiter. In der Umgebung des Servers (`docker-compose.yml`, `.env` oder `/etc/garten/garten.env`):
-
-```
-PUBLIC_URL=https://specs.example.org     # genau die Adresse, die der Browser sieht (auch für MCP und OAuth)
-TRUST_PROXY=1                            # ein Proxy davor: echte Client-Adresse für die Login-Begrenzung
+```bash
+git tag v0.12.0 && git push origin v0.12.0
 ```
 
-Der Proxy muss `Host` und `X-Forwarded-For`/`X-Forwarded-Proto` weiterreichen; WebSockets braucht die App nicht. Mit `https://` in `PUBLIC_URL` sind Cookies `Secure`, und der Server sendet `Strict-Transport-Security`. Danach lässt sich die App am Handy installieren und arbeitet offline.
+Der Workflow `.github/workflows/release.yml` prüft, dass der Tag zur `package.json`-Version passt, und legt den GitHub-Release mit automatisch erzeugten Notizen an (Tags mit `-`, z. B. `v0.12.0-rc.1`, sind Vorab-Releases und werden von `garten update` nicht gewählt). Ohne veröffentlichten Release bricht `garten update` ab, statt auf `main` auszuweichen.
+
+## Teams, Einladungen, Rollen
+
+* Jeder Nutzer kann ein **eigenes Team** anlegen (`MAX_TEAMS_PER_USER`, abschaltbar mit `ALLOW_TEAM_CREATION=0`) und wird dessen Team-Admin. Alle Daten (Specs, Dokumente, Glossar, Git-Repo, MCP-Zugriff) sind strikt an ein Team gebunden.
+* **Einladung** durch den Team-Admin (*Members & Git → Invite people*): E-Mail + Rolle → einmaliger Link, 7 Tage gültig; mit SMTP wird er zusätzlich per Mail verschickt. Offene Einladungen lassen sich erneut senden (*Resend*, alter Link verfällt) und widerrufen.
+* Der **Instanz-Admin** verwaltet nur Teams und Konten (Seite *Admin*), lädt aber niemanden ein. Der einzige Admin eines Teams kann nicht gelöscht werden.
+* Login per E-Mail/Passwort oder optional OpenID Connect (`OIDC_*`).
+
+| Recht | viewer | editor | approver | admin |
+|---|:-:|:-:|:-:|:-:|
+| Lesen | ✓ | ✓ | ✓ | ✓ |
+| Entwürfe schreiben, löschen; Agent-Scopes `mcp:drafts`/`mcp:write` | | ✓ | ✓ | ✓ |
+| Freigeben / zurückziehen / nach Git pushen | | | ✓ | ✓ |
+| Mitglieder, Git-Verbindung, Team-Einstellungen | | | | ✓ |
+
+**E-Mail (optional, nur Einladungen und Feedback-Digest):** `SMTP_URL` (`smtp://user:pass@host:587` STARTTLS oder `smtps://…:465`, Sonderzeichen URL-kodieren) und `SMTP_FROM`; `SMTP_REQUIRE_TLS=1` verweigert unverschlüsselten Versand. *Admin → E-mail* schickt eine Testmail. Höchstens 30 Einladungen pro Team und Stunde.
+
+## Specs, Dokumente, Glossar
+
+* **Spec-Typen:** Feature, API, UI, Data model, NFR, Integration, dazu Architecture spec und ADR – jeweils mit Vorlage. Teams definieren eigene Typen (*Members & Git → Spec types*). Der Typ steht im Front-Matter (`type: api`) und ist per MCP filterbar.
+* **Formular statt Editor:** Ein Typ kann seinen Inhalt als Formular mit Feldern, Listen und Tabs beschreiben (Feldtypen u. a. Requirements, API-Endpoints, Mermaid-Diagramm, Checkliste). Gespeichert wird immer Markdown (`## FELDNAME`); über das Overflow-Menü wechselt man zwischen **Form**, **Blocks** und **Markdown**. Unbekannte Abschnitte bleiben erhalten („Other content“).
+* **Editor:** Blöcke auf Basis von BlockNote (Text, Überschriften, Requirement, Checkliste, Liste, Definition, Zitat, Code, Diagramm, API-Endpoint), `/` öffnet das Block-Menü, `@` verlinkt Dokumente, `#` Glossarbegriffe. Mermaid-Diagramme rendern auch offline; andere Textformate gehen als Code-Block an den Agenten.
+* **Foundation-Dokumente:** Jedes Team hat `vision.md`, `strategy.md`, `glossary.md` und `guardrails.md`; weitere lassen sich anheften. Sie gehören keinem Spec, gehen nach der letzten Änderung automatisch live (pro Team umstellbar auf „Publish now“) und landen unter `<Ordner>/docs/`. `get_team_context()` liefert sie Agenten in einem Aufruf.
+* **Leitplanken:** Abschnitte *Always* / *Never* (`- G1: …`) in `guardrails.md` sind für Agenten verbindlich; würde eine Aufgabe eine Regel brechen, fragt der Agent per `request_decision`. Aus Feedback oder Abweichungen wird per **Make it a rule** eine Regel.
+* **Dokumente in Ordnern:** IDs sind Pfade (bis 5 Ebenen), Ordner sind eigene Objekte, Verschieben/Umbenennen zieht Verlinkungen nach.
+* **Glossar:** Definition-Blöcke werden als Markdown-Definitionsliste gespeichert (`Term` / `: Definition` / `: Aliases:` / `: See also:`), Verweise mit `[[Begriff]]`. Alle Definitionen freigegebener Specs und Dokumente fließen in `GLOSSARY.md` / `get_glossary`. *Search definitions online* (Wikipedia, Wiktionary, dictionaryapi.dev) schickt nur den Suchbegriff, `LOOKUP=0` schaltet das ab. Instanz-Admins pflegen ein **globales Glossar** (*Admin → Global glossary*, Import aus CSV/JSON/Markdown); Teams importieren Begriffe als editierbare Kopie und sehen *Update available*, wenn das Original sich ändert.
+
+## Git-Verbindung pro Team
+
+*Team → Git connection* (Team-Admin). Jedes Team hat ein eigenes Repo (`/data/repos/<team>`) und optional einen Remote, typischerweise das Entwicklungsprojekt.
+
+| Einstellung | Bedeutung |
+|---|---|
+| URL | `https://…` oder SSH. `http://` nur mit `GIT_ALLOW_HTTP=1`, private/lokale Adressen nur mit `GIT_ALLOW_PRIVATE=1`; `file://`, `ext::` u. Ä. werden abgelehnt. |
+| Branch | Ziel-Branch; vorhandene Commits werden zuerst gemergt (bei Konflikten gewinnt Specs). |
+| Ordner | Specs schreibt nur in `<Ordner>/` (Default `specs/`): `<ID>.md`, `docs/…`, `GLOSSARY.md`. Nach der ersten Freigabe gesperrt. |
+| Authentifizierung | HTTPS-Token oder SSH-Deploy-Key (ed25519, mit Schreibrecht eintragen). |
+| Auto-Push | Push inkl. Version-Tags nach jeder Freigabe/Rücknahme; *Test connection* und *Push now* manuell. |
+
+Tokens und Schlüssel liegen AES-256-GCM-verschlüsselt (`SECRET_KEY` oder Schlüsseldatei im Volume – für produktive Instanzen `SECRET_KEY` außerhalb des Daten-Volumes setzen) und werden nie wieder ausgegeben. Ein gespeichertes Token gilt nur für seinen Host. SSH-Host-Keys werden pro Team beim ersten Kontakt gelernt; nach einem echten Serverwechsel `POST /api/teams/<id>/git/forget-host-key`.
+
+## Agenten anbinden (MCP)
+
+Ein Zugang gehört zu **einem Team** und handelt mit den **aktuellen** Rechten der Person.
+
+1. **OAuth 2.1** (empfohlen): `claude mcp add --transport http specs <PUBLIC_URL>/mcp` → anmelden, Team wählen, erlauben.
+2. **Persönliches Token** (`spc_…`) unter *Account → Agent access*: Team, Scope (`mcp:read` / `mcp:drafts` / `mcp:write`), Ablauf. Nur einmal sichtbar, als Hash gespeichert.
+
+**Lesen:** `get_team_context`, `list_specs`, `get_spec(id, version?)`, `list_documents`, `get_document`, `get_glossary`, `list_spec_types`, `get_work_list`, `get_spec_changes`, `list_decisions`, `list_reports`, `list_checks`.
+**Schreiben** (`mcp:write`): `create_draft_spec`, `update_draft_spec`, `create_draft_document`, `update_draft_document`, `add_feedback`, `list_feedback`, `withdraw_feedback`, `request_decision`, `report_implementation`, `register_check`, `report_check_result`, `retire_check`. Es gibt **kein** Freigabe-Tool: Agenten-Änderungen bleiben Entwurf (Chip *Agent draft*), `base_rev` verhindert Überschreiben, Foundation-Dokumente sind gesperrt, Limit 60 Schreibzugriffe/Stunde.
+
+## Agenten selbstständig arbeiten lassen
+
+Menschen schreiben und geben frei, Agenten bauen und melden zurück.
+
+1. Ein Approver gibt frei; der **Agent trigger** (Webhook) startet den Agenten, oder er läuft nach Zeitplan.
+2. Der Agent holt `get_work_list` (Zustände `new`, `changed`, `in_progress`, `partial`, `blocked`, `recheck`) und baut.
+3. Bei offenen Fragen ruft er `request_decision` auf (optional `blocking`) statt zu raten. Menschen antworten im **Garden** – auch offline; danach löst der Trigger erneut aus.
+4. Am Ende `report_implementation`: Status, jedes Akzeptanzkriterium (`met` / `deviating` / `open`), Belege, Abweichungen. Ein neuer Release macht den Bericht „Outdated“.
+5. **Checks** machen Belege wiederholbar: pro Kriterium ein registrierter Check (`test`, `ci`, `command`, `metric`, `url`, `manual`), die App zeigt *Verified*, *Check failing*, *Check stale* oder *Claimed only*. Veraltete oder fehlgeschlagene Checks setzen den Spec wieder in die Arbeitsliste. Eine Pipeline kann Ergebnisse selbst melden: `POST /api/ci/checks/results` mit Token-Scope *Read & write drafts* (max. 50 pro Aufruf, `source: ci`). Die App führt nichts selbst aus.
+6. **Feedback:** Agenten widersprechen oder fragen nach, ohne den Spec zu ändern (`add_feedback`: concern, conflict, question, suggestion, gap). Editor+ können annehmen, ablehnen, antworten oder per *Accept & add to spec* als Punkt unter `## REVIEW NOTES` übernehmen. Approver und Admins bekommen einen Mail-Digest (`FEEDBACK_MAIL_DEBOUNCE_MS`, abschaltbar).
+
+**Garden** zeigt, was auf dich wartet (Entscheidungen, Feedback), den Umsetzungsstand jedes freigegebenen Specs und *Team health*; Team-Admins können Agenten pausieren.
+
+**Agent trigger** (*Members & Git → Agent trigger*, Team-Admin): Adresse, optional Token (`Authorization: Bearer …`) und Header, Ereignisse (Freigabe, Antwort), Format `text` oder `full`. Aufrufe werden entprellt (`HOOK_DEBOUNCE_MS`, 5 s); mit Token kommen `X-Specs-Timestamp` und `X-Specs-Signature: sha256=<HMAC-SHA256(Token, "<Timestamp>.<Body>")>` mit. Lokale/private Ziele sind gesperrt (`HOOK_ALLOW_LOCAL=1` erlaubt sie). Der Webhook ist nur der Anstoß – maßgeblich ist die Arbeitsliste.
+
+**Claude Code als Routine in der Cloud** (Stand November 2026, Research Preview):
+
+1. Server aus dem Internet erreichbar machen (siehe *HTTPS* → `scripts/go-public.sh`).
+2. Token mit Scope **Read & write drafts** anlegen.
+3. Im Ziel-Repository eine `.mcp.json` committen (fertig unter *Members & Git → Agent setup*):
+   ```json
+   { "mcpServers": { "specs": { "type": "http", "url": "<PUBLIC_URL>/mcp", "headers": { "Authorization": "Bearer ${SPECS_TOKEN}" } } } }
+   ```
+   `SPECS_TOKEN` in der Routine-Umgebung setzen und ggf. die Domain erlauben. Alternativ als Custom Connector in claude.ai (OAuth).
+4. Unter <https://claude.ai/code/routines> eine Routine für das Repository anlegen; als Anweisung *Agent setup → Copy prompt* einfügen. Dort einen API-Trigger erzeugen, in Specs unter *Agent trigger* **Fill in for a Claude Code routine** wählen, Fire-URL und Token eintragen, *Send test*. Zusätzlich empfiehlt sich ein stündlicher Zeitplan-Trigger.
+
+Lokal ohne Tunnel: `claude mcp add --transport http specs http://localhost:3000/mcp --header "Authorization: Bearer spc_…"`.
+
+## HTTPS und PUBLIC_URL
+
+Service Worker (Offline-Start, Installation am Handy) brauchen HTTPS (Ausnahme `localhost`). Hinter einem TLS-Reverse-Proxy setzen:
+
+```
+PUBLIC_URL=https://specs.example.org   # genau die Adresse, die der Browser sieht (auch für MCP/OAuth)
+TRUST_PROXY=1                          # genau ein Proxy davor (nie „allen vertrauen“)
+```
+
+Der Proxy muss `Host`, `X-Forwarded-For` und `X-Forwarded-Proto` weiterreichen. Auf einer Debian-Installation: `garten url https://specs.example.org`.
 
 ```caddy
 specs.example.org {
@@ -276,71 +137,34 @@ specs.example.org {
 }
 ```
 
-```nginx
-server {
-  listen 443 ssl http2; server_name specs.example.org;
-  location / {
-    proxy_pass http://192.168.10.47:3000;
-    proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    client_max_body_size 8m;
-  }
-}
-```
-
-Auf einer Installation mit dem Skript: `garten url https://specs.example.org` stellt die Einstellungen um.
-
-### Von unterwegs erreichbar: `scripts/go-public.sh`
-
-Für das Handy unterwegs und für Agenten in der Cloud, ohne Portfreigabe am Router – über einen Cloudflare-Tunnel (Container `cloudflare/cloudflared`, Compose-Profil `public`):
-
-```bash
-scripts/go-public.sh           # Tunnel starten, PUBLIC_URL + TRUST_PROXY=1 in .env setzen, Adresse ausgeben
-scripts/go-public.sh prepare   # nur die Prüfungen davor (Server läuft, Demo-Passwort ersetzt) – nichts wird öffentlich
-scripts/go-public.sh status    # Adresse und ob sie antwortet
-scripts/go-public.sh stop      # Tunnel schließen, zurück zu http://localhost:3000
-```
-
-* Das Skript **weigert sich**, solange `admin@localhost` noch das Demo-Passwort `admin-demo-1` hat, und fragt ein neues ab (mind. 12 Zeichen). Alle anderen Konten sind danach ebenfalls aus dem Internet erreichbar – Anmeldeversuche sind gedrosselt (10 in 5 Minuten), 2FA gibt es nicht.
-* Ohne weitere Einrichtung entsteht ein **Quick Tunnel** `https://<zufällig>.trycloudflare.com` (kein Konto nötig, von Cloudflare ohne Verfügbarkeitszusage). **Die Adresse ändert sich bei jedem Neustart des Tunnels** (Reboot, `stop`/`start`). Die installierte App und ihre Offline-Daten hängen an der Adresse: vor dem Herunterfahren synchronisieren, danach das Skript erneut starten, die neue Adresse auf dem Handy öffnen und in `.mcp.json`/Connector eintragen.
-* Für eine **feste Adresse** einen eigenen Cloudflare-Tunnel anlegen (Zero Trust → Tunnels, Public Hostname → `http://specs:3000`) und `TUNNEL_TOKEN=…` sowie `PUBLIC_URL=https://specs.example.com` in `.env` eintragen; das Skript startet dann diesen Tunnel (Profil `public-named`).
-* Solange `PUBLIC_URL` mit `https://` beginnt, sind die Sitzungs-Cookies „Secure“: Anmelden über `http://localhost:3000` hält dann nicht mehr – auch am Rechner die Tunnel-Adresse benutzen.
-* Der Rechner muss wach bleiben, z. B. `systemd-inhibit --what=sleep:idle sleep infinity`.
+**Von unterwegs erreichbar ohne Portfreigabe:** `scripts/go-public.sh` startet einen Cloudflare-Tunnel (Compose-Profil `public`), setzt `PUBLIC_URL` und `TRUST_PROXY=1` in `.env`; `prepare` prüft nur, `status` zeigt die Adresse, `stop` schließt den Tunnel. Das Skript weigert sich, solange `admin@localhost` das Demo-Passwort hat. Ein Quick Tunnel (`*.trycloudflare.com`) wechselt bei jedem Neustart die Adresse; für eine feste Adresse `TUNNEL_TOKEN` und `PUBLIC_URL` in `.env` eintragen. Mit `https://` in `PUBLIC_URL` sind Cookies `Secure` – dann auch am Rechner die öffentliche Adresse benutzen.
 
 ## Sicherheit im Betrieb
 
-* **Passwörter:** mindestens 10 Zeichen, keine Allerwelts-Passwörter; scrypt (alte Hashes werden beim nächsten Login erneuert). Ein Passwortwechsel beendet alle anderen Sitzungen; ein Reset durch den Admin beendet alle Sitzungen und Tokens des Kontos. Sitzungen enden nach `SESSION_IDLE_DAYS` (14) ohne Nutzung, sind unter `GET /api/me/sessions` einsehbar und einzeln beendbar. Anmeldeversuche werden pro IP, pro Konto und pro IP+Konto gedrosselt.
-* **SSO (OIDC):** `state` ist per Cookie an den Browser gebunden, das ID-Token wird geprüft (Signatur über `jwks_uri`, Issuer, Audience, Ablauf, Nonce). Die E-Mail-Adresse muss vom Provider bestätigt sein (`email_verified`); Provider ohne diesen Claim: `OIDC_TRUST_UNVERIFIED_EMAIL=1`. Ein bestehendes Konto mit Passwort, Instanz-Admins und bereits verknüpfte Konten werden **nicht** automatisch mit einer SSO-Identität verknüpft – nur Konten ohne Passwort (z. B. vom Admin angelegt oder eingeladen).
-* **Header:** Content-Security-Policy (nur eigene Skripte), `X-Frame-Options: DENY`, COOP, Permissions-Policy, bei `https://` auch HSTS und das Cookie-Präfix `__Host-`.
-* **Audit-Log:** Anmeldungen (auch fehlgeschlagene), Rollen/Mitglieder, Tokens, OAuth-Freigaben, Git-/Webhook-Einstellungen, Freigaben von Specs, Team-/Nutzer-Verwaltung. Instanz-Admins lesen es unter `GET /api/admin/audit` (`limit`, `before`, `action`, `team`); Aufbewahrung `AUDIT_RETENTION_DAYS` (180). Geheimnisse werden nie protokolliert.
-* **Webhooks:** mit Token werden `X-Specs-Timestamp` und `X-Specs-Signature: sha256=<HMAC-SHA256(Token, "<Timestamp>.<Body>")>` mitgeschickt, damit der Empfänger Integrität prüfen und alte Aufrufe verwerfen kann. Texte von Menschen (Titel, Notizen) stehen einzeilig und gekürzt im Aufruf; der MCP-Server weist Agenten an, Inhalte von Specs/Feedback als Daten und nicht als Anweisungen zu behandeln.
-* **Mail:** Ohne `SMTP_REQUIRE_TLS` wird TLS für jeden Mailserver verlangt, der nicht auf derselben Maschine läuft.
-* **Aufräumen:** abgelaufene Sitzungen, OAuth-Anfragen/-Codes/-Tokens, alte Einladungen und ungenutzte registrierte OAuth-Clients werden stündlich gelöscht.
+* **Passwörter:** mindestens 10 Zeichen, scrypt; Anmeldeversuche pro IP, Konto und IP+Konto gedrosselt (10 in 5 Min.); Sitzungen enden nach `SESSION_IDLE_DAYS` (14). Keine 2FA.
+* **SSO (OIDC):** `state` und Nonce gebunden, ID-Token geprüft; E-Mail muss bestätigt sein (`OIDC_TRUST_UNVERIFIED_EMAIL=1` hebt das auf). Bestehende Passwort-Konten, Admins und verknüpfte Konten werden nicht automatisch verknüpft.
+* **Header:** CSP (nur eigene Skripte), `frame-ancestors 'none'`, `nosniff`, COOP, Permissions-Policy; bei `https://` auch HSTS und Cookie-Präfix `__Host-`.
+* **Audit-Log:** Anmeldungen, Rollen, Tokens, Freigaben, Git-/Webhook-Einstellungen, Verwaltung – `GET /api/admin/audit`, Aufbewahrung `AUDIT_RETENTION_DAYS` (180). Geheimnisse werden nie protokolliert.
+* Der MCP-Server weist Agenten an, Inhalte von Specs und Feedback als Daten zu behandeln, nicht als Anweisungen.
 
 ## Entwicklung und Tests
 
 ```bash
-npm run build                # Frontend bauen (web/dist); der Server liefert es aus (WEB_DIR überschreibt den Pfad)
-cd web && npm run dev        # Vite-Dev-Server mit Proxy auf :3000 (Server separat starten: npm start)
-npm test                     # baut das Frontend und führt alles aus (~350 Checks)
-node tests/api.test.mjs      # Sessions, Teams/Rollen, Ordner, Glossar, Agent-Drafts, Entscheidungen, Berichte, Webhook, PATs, OAuth-Flow, Git-Push in ein echtes Bare-Repo
-node tests/oidc.test.mjs     # SSO gegen einen Mock-Identity-Provider (inkl. ID-Token-, State- und Verknüpfungs-Prüfungen)
-node tests/unit.test.mjs     # Sicherheits-Bausteine: Netzwerk-Wächter, Validierung, Drossel, Geheimnisse, Pfad-Sicherheit, Aufräumen
-cd web && npm test           # Vitest: Markdown ⇄ Editor-Round-Trip (BlockNote), Inline-Formatierung
-node web/e2e/ui.test.mjs     # Browser (Playwright): Offline, Blöcke, Cursor-Einfügen, Drag & Drop, Diagramme, Glossar, Ordner, Teams, Git, Rollen
+npm run build                # Frontend bauen (web/dist)
+cd web && npm run dev        # Vite-Dev-Server mit Proxy auf :3000 (Server separat: npm start)
+npm test                     # baut das Frontend und führt alle Tests aus
+npm run ux-audit             # Barrierefreiheit/Performance auf Handy und Desktop (axe-core, WCAG 2.2 AA)
 ```
 
-Die UI-Tests sind aus der Vanilla-JS-Version (v0.7) übernommen und für BlockNote angepasst; `web/PARITY.md` hält den Stand fest.
+Einzelne Suiten: `tests/api.test.mjs`, `tests/oidc.test.mjs`, `tests/unit.test.mjs`, `web` (Vitest), `web/e2e/ui.test.mjs` (Playwright). Weitere Dokumente: `docs/DESIGN-SYSTEM.md`, `docs/UI-VOCABULARY.md`, `docs/UX-SCORECARD.md`, `web/PARITY.md`.
+
+Stack: React 19 + TypeScript (Vite, PWA) in `web/`, Node 24 + Express + `node:sqlite` + `git` im Server, gemeinsamer Code in `shared/`. Offline-first über Service Worker und IndexedDB; Sync per `POST /api/teams/:id/sync` mit Konflikterkennung pro Item.
 
 ## Bekannte Lücken
 
-* Agenten-Kreislauf: gegen einen lokalen Claude-Code-Lauf und einen nachgestellten Routine-Endpunkt getestet, **nicht** gegen eine echte Claude-Code-Routine in der Cloud. Der Tunnel-Start in `scripts/go-public.sh` (Quick Tunnel und eigener Tunnel) ist ungetestet; Passwort-Prüfung, `.env`-Pflege, `status` und `stop` sind getestet. Leitplanken sind ein Foundation-Dokument, kein Spec-Typ; sie werden nicht maschinell durchgesetzt (nur der Agent hält sich daran, Checks können sie nicht prüfen). Die App führt Checks nicht selbst aus – ob ein CI-Ergebnis stimmt, hängt an der Pipeline, die es meldet. Beantworten zwei Menschen dieselbe Entscheidung (einer davon offline), ersetzt die später beim Server ankommende Antwort die frühere – ohne Konflikt-Dialog; der Agent wird dann erneut angestoßen.
-
-* Drag & Drop ist mit der Maus getestet; auf echten Touch-Geräten noch nicht.
-* Git: Remote-Zugriff wurde mit lokalem Bare-Repo getestet, nicht gegen GitHub/GitLab; SSH-Host-Keys werden beim ersten Kontakt übernommen (`accept-new`). Die Remote-URL ist frei wählbar → Team-Admins können den Server zu beliebigen Hosts verbinden lassen (SSRF-Fläche; bei Bedarf per Egress-Firewall begrenzen).
-* Der zentrale Glossar-Export enthält nur Begriffe aus freigegebenen, verlinkten Dateien.
-* Rechte gelten pro Team, nicht pro Spec. Der Team-Schlüssel lässt sich nach dem Anlegen nicht ändern. Spec-Typen haben nur Vorlagen und (für API) den Endpoint-Block. Das globale Glossar wird beim Import kopiert, nicht live vererbt. Es gibt nur Einladungs-Mails (keine Passwort-Reset-Mail, keine Benachrichtigungen); Zustellung ist „fire and forget“ ohne Bounce-Auswertung.
-* v0.3 → v0.4: das Schema wird automatisch migriert (Ordner als Objekte, Foundation-Dokumente, Einladungen). Bereits vorhandene `glossary.md`/`vision.md` werden angeheftet, nicht überschrieben.
-* Nur OIDC als SSO; keine 2FA, Konfliktlösung auf Dokument-Ebene (kein Textmerge); Diagramme nur Mermaid; ein visueller (WYSIWYG-)Mermaid-Editor ist noch nicht gebaut (machbar über Mermaids eigenen Parser, zunächst für Flowchart/Sequence).
-* v0.8: Code-Blöcke verlieren Info-Strings hinter der Sprache; nummerierte Listen werden als Aufzählung gespeichert; das Ziehen zeigt BlockNotes eigenen Drop-Indikator. Mobil/Touch ist noch nicht auf echten Geräten getestet.
+* Der Agenten-Kreislauf ist gegen einen lokalen Claude-Code-Lauf und einen nachgestellten Routine-Endpunkt getestet, nicht gegen eine echte Cloud-Routine. Der Tunnel-Start in `go-public.sh` ist ungetestet.
+* Git-Remote-Zugriff ist nur gegen ein lokales Bare-Repo getestet, nicht gegen GitHub/GitLab. Die frei wählbare Remote-URL ist eine SSRF-Fläche (ggf. per Egress-Firewall begrenzen).
+* Leitplanken und Checks werden nicht maschinell durchgesetzt. Beantworten zwei Menschen dieselbe Entscheidung, gewinnt die später eintreffende Antwort ohne Konflikt-Dialog.
+* Drag & Drop und Mobil/Touch sind nicht auf echten Geräten getestet.
+* Rechte gelten pro Team, nicht pro Spec; der Team-Schlüssel ist nicht änderbar. Nur OIDC als SSO, keine 2FA, nur Einladungs- und Digest-Mails, Konfliktlösung nur auf Dokumentebene, Diagramme nur Mermaid.
+* Der Markdown-Round-Trip verliert Info-Strings hinter der Code-Sprache; nummerierte Listen werden als Aufzählung gespeichert.
