@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Installs – or updates – Garten (Specs) natively on Debian 12/13 or Ubuntu 24.04: in a VM, an LXC container or a small server.
-# Run as root. Safe to run again: it updates the code and keeps data and settings.
+# Run as root. Safe to run again: it moves to the latest GitHub release and keeps data and settings.
 #
 #   bash -c "$(curl -fsSL https://raw.githubusercontent.com/Kogoro/Garten/main/scripts/install-debian.sh)"
 #
@@ -18,19 +18,27 @@
 #                    http://…     no TLS (port 3000). Works online only – browsers refuse offline mode without HTTPS.
 #                    https://…    your own reverse proxy does TLS and forwards to port 3000
 #   GARTEN_ADMIN   e-mail address of the first admin (default admin@localhost; only used on an empty database)
-#   GARTEN_REPO, GARTEN_REF   where the code comes from (default https://github.com/Kogoro/Garten.git, main)
+#   GARTEN_REPO    where the code comes from (default https://github.com/Kogoro/Garten.git)
+#   GARTEN_REF     a tag or branch to install instead of the latest release (e.g. v0.11.0, or main for the development state)
 set -euo pipefail
 
 main() {
   local APP_DIR=/opt/garten HOME_DIR=/var/lib/garten DATA_DIR=/var/lib/garten/data ETC_DIR=/etc/garten
   local ENVF=$ETC_DIR/garten.env CREDS=/root/garten.creds
-  local REPO="${GARTEN_REPO:-https://github.com/Kogoro/Garten.git}" REF="${GARTEN_REF:-main}"
+  local REPO="${GARTEN_REPO:-https://github.com/Kogoro/Garten.git}" REF="${GARTEN_REF:-}"
 
   step() { printf '\n==> %s\n' "$*"; }
   die() { printf '\n✗ %s\n' "$*" >&2; exit 1; }
   getenv() { [ -f "$ENVF" ] && sed -n "s/^$1=//p" "$ENVF" | tail -1 || true; }
   setenv() { local rest; rest=$(grep -v "^$1=" "$ENVF" || true); { [ -n "$rest" ] && printf '%s\n' "$rest"; printf '%s=%s\n' "$1" "$2"; } > "$ENVF.tmp"; chmod 600 "$ENVF.tmp"; mv "$ENVF.tmp" "$ENVF"; }
   unsetenv() { local rest; rest=$(grep -v "^$1=" "$ENVF" || true); printf '%s\n' "$rest" > "$ENVF.tmp"; chmod 600 "$ENVF.tmp"; mv "$ENVF.tmp" "$ENVF"; }
+
+  # The newest published release of the repository: GitHub redirects /releases/latest to /releases/tag/<tag>.
+  latest_release() {
+    local base="${REPO%.git}" loc
+    loc="$(curl -fsSIL --max-time 20 -o /dev/null -w '%{url_effective}' "$base/releases/latest" 2>/dev/null)" || return 1
+    case "$loc" in */releases/tag/*) printf '%s\n' "${loc##*/}" ;; *) return 1 ;; esac
+  }
 
   [ "$(id -u)" = 0 ] || die "Run this as root."
   command -v apt-get >/dev/null || die "This installer needs Debian or Ubuntu (apt-get)."
@@ -77,6 +85,9 @@ main() {
   chmod 750 "$HOME_DIR"
 
   # ---------------------------------------------------------------- code
+  if [ -z "$REF" ]; then
+    REF="$(latest_release)" || die "Could not find a published release of $REPO. Publish one, or install a branch or tag explicitly: GARTEN_REF=main"
+  fi
   step "Fetching Garten ($REF)"
   if [ -d "$APP_DIR/.git" ]; then
     git -C "$APP_DIR" remote set-url origin "$REPO"
@@ -153,10 +164,10 @@ ENVF=/etc/garten/garten.env
 url() { sed -n 's/^PUBLIC_URL=//p' "$ENVF" | tail -1; }
 case "${1:-info}" in
   info)
-    echo "Garten    $(url)   ($(systemctl is-active garten))"
+    echo "Garten    $(url)   ($(systemctl is-active garten))   version $(node -p "require('/opt/garten/package.json').version" 2>/dev/null || echo ?)"
     [ -f /root/garten.creds ] && echo "Login     see /root/garten.creds"
     echo "Data      /var/lib/garten/data      Settings  $ENVF"
-    echo "Commands  garten update | url <https://…|auto> | backup | logs"
+    echo "Commands  garten update (latest release) | url <https://…|auto> | backup | logs"
     ;;
   update) exec bash /opt/garten/scripts/install-debian.sh ;;
   url) [ -n "${2:-}" ] || { echo "Usage: garten url <https://address | auto>" >&2; exit 1; }; GARTEN_URL="$2" exec bash /opt/garten/scripts/install-debian.sh ;;
