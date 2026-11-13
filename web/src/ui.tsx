@@ -55,7 +55,7 @@ export const effectiveTheme = (): 'light' | 'dark' => { const p = themePref(); r
 export function applyTheme() {
   const p = themePref(); const el = document.documentElement;
   if (p === 'system') el.removeAttribute('data-theme'); else el.dataset.theme = p;
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', effectiveTheme() === 'light' ? '#F5F6F8' : '#0F1214');
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', effectiveTheme() === 'light' ? '#F9FAF9' : '#0B0D0C');
 }
 export function setTheme(pref: string) { try { pref === 'system' ? localStorage.removeItem(KEY) : localStorage.setItem(KEY, pref); } catch { /* private mode */ } applyTheme(); }
 
