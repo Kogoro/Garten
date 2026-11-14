@@ -201,6 +201,28 @@ export function replaceWord(md, word, term) {
   return String(md ?? '').split(/(```[\s\S]*?```|`[^`\n]*`)/).map((part, i) => (i % 2 ? part : part.replace(re, (_m, pre) => `${pre}${term}`))).join('');
 }
 
+const PROTECTED = /(```[\s\S]*?```|`[^`\n]*`|#\[[^\]\n]*\]|\[\[[^\]\n]*\]\]|\[[^\]\n]*\]\([^)\n]*\))/;
+const wordRe = (w, flags = 'iu') => new RegExp(`(^|[^\\p{L}\\p{N}])(${esc(w.trim())})(?![\\p{L}\\p{N}])`, flags);
+/** The first plain mention of `word` (outside code, links and references), or null. */
+export function firstMention(md, word) {
+  const parts = String(md ?? '').split(PROTECTED);
+  for (let i = 0; i < parts.length; i += 2) { const m = wordRe(word).exec(parts[i]); if (m) return m[2]; }
+  return null;
+}
+/** Turns the first plain mention of `word` into a reference #[term] (#[term|word] when the text differs). */
+export function linkFirst(md, word, term) {
+  const parts = String(md ?? '').split(PROTECTED);
+  for (let i = 0; i < parts.length; i += 2) {
+    const m = wordRe(word).exec(parts[i]);
+    if (!m) continue;
+    const at = m.index + m[1].length;
+    const ref = m[2] === term ? `#[${term}]` : `#[${term}|${m[2]}]`;
+    parts[i] = parts[i].slice(0, at) + ref + parts[i].slice(at + m[2].length);
+    return parts.join('');
+  }
+  return md;
+}
+
 /** glossary.md (the old single file) -> [{ folder, term, body, aliases, see, origin }]. "## X" is a folder, "### Y" a sub-folder of the last "## X". */
 export function splitGlossaryMd(md) {
   const out = [];

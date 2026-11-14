@@ -1,7 +1,8 @@
 import { Fragment, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { parse as parseBlocks } from '@shared/blocksModel.js';
-import { definitionsOf, isGlossaryPath, isProposedPath, isTermPath, termFolder, plainText, firstParagraph, avoidHits, parseTermFile } from '@shared/glossaryFiles.js';
+import { definitionsOf, isGlossaryPath, isProposedPath, isTermPath, termFolder, plainText, firstParagraph, avoidHits, parseTermFile, firstMention, allRefs } from '@shared/glossaryFiles.js';
+import { setTermLookup } from './editor/termLookup';
 import { mdToInline, type Inline } from './editor/inline';
 import type * as Store from './store/core';
 import type { Item } from './store/types';
@@ -10,7 +11,15 @@ export interface Def { term: string; definition: string; aliases: string[]; see:
 export interface Term { term: string; defs: Def[] }
 
 /** Every term of the team: term files (own = true, with their folder) and definition lists in specs and documents. Proposals are not terms yet. */
+let memo: { v: number; team: string | null; terms: Term[] } = { v: -1, team: null, terms: [] };
 export function glossaryTerms(S: typeof Store): Term[] {
+  // parsed once per store version: lists, chips, suggestions and health all read it on every render
+  if (memo.v === S.getVersion() && memo.team === S.state.teamId) return memo.terms;
+  const terms = computeTerms(S);
+  memo = { v: S.getVersion(), team: S.state.teamId, terms };
+  return terms;
+}
+function computeTerms(S: typeof Store): Term[] {
   const map = new Map<string, Term>();
   for (const it of S.state.items.values() as Iterable<Item>) {
     if (it.del || it.kind === 'folder' || isProposedPath(it.id)) continue;
@@ -70,6 +79,7 @@ export function Linkify({ text, idx }: { text: string; idx: Map<string, string> 
 function Inl({ c, idx }: { c: Inline[]; idx: Map<string, string> }) {
   return <>{c.map((x, i) => {
     if (x.type === 'link') return <a key={i} href={x.href} target="_blank" rel="noopener noreferrer"><Inl c={x.content} idx={idx} /></a>;
+    if (x.type === 'termref') return <TermRef key={i} name={x.props.term} idx={idx} label={x.props.label || x.props.term} />;
     let el: ReactNode = x.styles.code ? <code>{x.text}</code> : <Linkify text={x.text} idx={idx} />;
     if (x.styles.strike) el = <s>{el}</s>;
     if (x.styles.italic) el = <em>{el}</em>;
@@ -148,6 +158,38 @@ export function glossaryIssues(S: typeof Store): Issue[] {
   for (const t of terms) {
     if (!t.defs.some((d) => d.own) || referenced.has(t.term.toLowerCase())) continue;
     if (!mentions(S, t, new Set(t.defs.map((d) => d.item.id))).length) out.push({ id: `unused:${t.term}`, kind: 'unused', title: t.term, detail: 'No spec or document mentions it', term: t.term });
+  }
+  return out;
+}
+
+/** Lets the term chips in the editors show the current glossary. Call while rendering a page that hosts an editor. */
+export function registerTermLookup(S: typeof Store) {
+  const terms = glossaryTerms(S);
+  const idx = termIndex(terms);
+  setTermLookup((name) => {
+    const canon = idx.get(name.trim().toLowerCase());
+    const t = canon ? terms.find((x) => x.term === canon) : undefined;
+    if (!t) return null;
+    const d = t.defs.find((x) => x.own) ?? t.defs[0];
+    return { term: t.term, folder: d.folder ?? d.item.id, text: firstParagraph(d.definition) || plainText(d.definition), aliases: [...new Set(t.defs.flatMap((x) => x.aliases))], avoid: [...new Set(t.defs.flatMap((x) => x.avoid))], version: d.own && d.item.status === 'approved' ? d.item.version : undefined };
+  });
+}
+
+/** Words to avoid of the glossary's own terms: [{ term, avoid[] }] */
+export const avoidList = (S: typeof Store) => glossaryTerms(S).map((t) => ({ term: t.term, avoid: [...new Set(t.defs.filter((d) => d.own).flatMap((d) => d.avoid))] })).filter((t) => t.avoid.length);
+export interface Suggestion { kind: 'avoid' | 'link'; word: string; term: string; line?: number }
+/** What the glossary suggests for one spec: avoided words to replace, and defined terms it mentions without referencing them. */
+export function specSuggestions(S: typeof Store, body: string): Suggestion[] {
+  const out: Suggestion[] = [];
+  const seen = new Set<string>();
+  for (const h of avoidHits(body, avoidList(S))) { const k = `a:${h.word.toLowerCase()}`; if (!seen.has(k)) { seen.add(k); out.push({ kind: 'avoid', word: h.word, term: h.term, line: h.line }); } }
+  const refs = new Set(allRefs(body).map((r: string) => r.toLowerCase()));
+  const avoided = new Set(out.map((x) => x.word.toLowerCase()));
+  const own = new Set(definitionsOf('', body).map((d: any) => d.term.toLowerCase()));
+  for (const t of glossaryTerms(S).filter((x) => x.defs.some((d) => d.own))) {
+    const names = [t.term, ...new Set(t.defs.flatMap((d) => d.aliases))].filter((n) => n.length >= 4);
+    if (own.has(t.term.toLowerCase()) || names.some((n) => refs.has(n.toLowerCase()))) continue;
+    for (const n of names) { const w = firstMention(body, n); if (w && !avoided.has(w.toLowerCase())) { out.push({ kind: 'link', word: w, term: t.term }); break; } }
   }
   return out;
 }

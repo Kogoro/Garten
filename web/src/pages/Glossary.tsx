@@ -13,7 +13,7 @@ import { foundState } from '../lib';
 import { Icon, ago, toast, useStore } from '../ui';
 import { api } from '../store/core';
 import { readZip, writeZip, download } from '../zip';
-import { ISSUE_GROUPS, Md, TermRef, glossaryIssues, glossaryPath, glossaryTerms, groupOf, plain, termIndex, usages, type Issue, type Term } from '../glossaryLib';
+import { ISSUE_GROUPS, Md, registerTermLookup, TermRef, glossaryIssues, glossaryPath, glossaryTerms, groupOf, plain, termIndex, usages, type Issue, type Term } from '../glossaryLib';
 
 const SpecEditor = lazy(() => import('../editor/SpecEditor').then((m) => ({ default: m.SpecEditor })));
 type Store = ReturnType<typeof useStore>;
@@ -299,7 +299,7 @@ function GlossaryList({ arg }: { arg?: string }) {
               <button type="button" role="menuitem" onClick={async () => { close(); await S.loadGlobalGlossary(); setSheet({ t: 'import' }); }}><Icon name="glossary" size={16} /><span>Import from global glossary…</span></button>
               <button type="button" role="menuitem" data-act="gl-import-file" onClick={() => { close(); file.current?.click(); }}><Icon name="up" size={16} /><span>Import file <small>ZIP, CSV</small></span></button>
               <button type="button" role="menuitem" data-act="gl-export-csv" onClick={() => { close(); exportTerms(S, 'csv'); }}><Icon name="file" size={16} /><span>Export as CSV</span></button>
-              <button type="button" role="menuitem" data-act="gl-export-zip" onClick={() => { close(); exportTerms(S, 'zip'); }}><Icon name="file" size={16} /><span>Export as ZIP <small>one file per term</small></span></button>
+              <button type="button" role="menuitem" data-act="gl-export-zip" onClick={() => { close(); exportTerms(S, 'zip'); }}><Icon name="file" size={16} /><span>Export as ZIP <small>a file per entry</small></span></button>
             </>}
           </Dropdown>
         )}
@@ -514,6 +514,7 @@ function TermEdit({ path, onDone, title = 'Edit term', proposal }: { path: strin
   const [updateRefs, setUpdateRefs] = useState(true);
   const [keepAlias, setKeepAlias] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  registerTermLookup(S);
   const names = glossaryTerms(S).map((t) => t.term);
   const renamed = !proposal && term.trim() && term.trim() !== orig.term;
   const refs = renamed ? S.referencesTo(orig.term, path) : [];
@@ -538,9 +539,9 @@ function TermEdit({ path, onDone, title = 'Edit term', proposal }: { path: strin
           {renamed && nRefs > 0 && (
             <div className="rename-note card" data-rename>
               <Icon name="link" size={18} />
-              <div className="grow"><b>Renamed from “{orig.term}”</b><span>{nRefs} reference{nRefs === 1 ? '' : 's'} in {refs.length} item{refs.length === 1 ? '' : 's'} point to the old name ({refs.slice(0, 4).map((r) => parseTermFile(r.item.body)?.term ?? r.item.id).join(', ')}{refs.length > 4 ? ' …' : ''}).</span>
-                <label className="cb"><input type="checkbox" checked={updateRefs} onChange={(e) => setUpdateRefs(e.target.checked)} />Update the {nRefs} reference{nRefs === 1 ? '' : 's'}</label>
-                <label className="cb"><input type="checkbox" checked={keepAlias} onChange={(e) => setKeepAlias(e.target.checked)} />Keep “{orig.term}” as a synonym</label></div>
+              <div className="grow"><b>Renamed from “{orig.term}”</b><span>{nRefs} reference{nRefs === 1 ? '' : 's'} in {refs.length} item{refs.length === 1 ? "" : "s"} point{nRefs === 1 ? "s" : ""} to the old name ({refs.slice(0, 4).map((r) => parseTermFile(r.item.body)?.term ?? r.item.id).join(', ')}{refs.length > 4 ? ' …' : ''}).</span>
+                <label className="chk"><input type="checkbox" checked={updateRefs} onChange={(e) => setUpdateRefs(e.target.checked)} />Update the {nRefs} reference{nRefs === 1 ? '' : 's'}</label>
+                <label className="chk"><input type="checkbox" checked={keepAlias} onChange={(e) => setKeepAlias(e.target.checked)} />Keep “{orig.term}” as a synonym</label></div>
             </div>
           )}
           <div>
