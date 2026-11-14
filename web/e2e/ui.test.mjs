@@ -650,13 +650,13 @@ try {
   await d.getByRole('button', { name: 'Add endpoint' }).click(); await d.getByRole('button', { name: 'Add endpoint' }).click();
   await d.locator('[aria-label="HTTP method 1"]').selectOption('POST'); await d.locator('[aria-label="Path 1"]').fill('/orders');
   await d.locator('[aria-label="Endpoint 1 description"]').fill('Creates an order. Idempotent via Idempotency-Key.');
-  await d.locator('[data-content-type=endpoint]').first().getByRole('tab', { name: 'Responses' }).click(); await d.locator('[aria-label="Endpoint 1 responses"]').fill('201 Created');
+  await d.locator('[aria-label="Endpoint 1 responses"]').fill('201 Created'); // description, request and responses are stacked: no third tab level
   await d.locator('[aria-label="Path 2"]').fill('/orders/{id}'); await d.locator('[aria-label="Endpoint 2 description"]').fill('Returns one order.');
   await d.getByRole('tab', { name: 'Quality', exact: true }).click();
   await d.locator('[data-field=requirements] .btn', { hasText: 'Add' }).click();
   const reqs = d.locator('[aria-label="REQUIREMENTS 1"]'); await reqs.fill('Orders are never duplicated'); await reqs.press('Enter'); await d.keyboard.type('Creating an order takes under 300 ms');
   await d.locator('[data-field=acceptance] .btn', { hasText: 'Add' }).click(); await d.keyboard.type('Retry with the same key returns the first order'); await d.locator('[aria-label="Done 1"]').check();
-  ok('form: fields, select, repeatable endpoint cards with tabs, requirement and checklist rows (Enter adds a row)');
+  ok('form: fields, select, repeatable endpoint cards with stacked sections, requirement and checklist rows (Enter adds a row)');
   await setMode(d, 'markdown');
   const formMd = await d.inputValue('#body');
   assert.match(formMd, /## OVERVIEW\n\nOrders for the checkout\.\n\n## AUTHENTICATION\n\nOAuth 2\n\n## ENDPOINTS\n\n```endpoint POST \/orders\nCreates an order\. Idempotent via Idempotency-Key\.\n\nResponses:\n201 Created\n```\n\n```endpoint GET \/orders\/\{id\}\nReturns one order\.\n```/);

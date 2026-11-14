@@ -18,7 +18,7 @@ Everything visual comes from the tokens at the top of `web/src/styles.css`. Chan
 | Hierarchy | one primary action per view | Everything else is a hairline button, a ghost button or a text link; never two solid buttons side by side |
 | Header | title left; sync status as a dot (grey = on the server, amber = waiting, red = needs you); team button on phones | Same on every screen |
 | Add | **Phone:** floating button bottom right above the navigation (`Fab`). **Desktop:** labelled button in the header. | Never both: mobile patterns stay off the desktop and the other way round (the audit checks it) |
-| Tabs | Pages with several sections (Members & Git, Admin, Account) use tabs | Same on phone and desktop; arrow keys switch |
+| Tabs | Pages with several sections (Members & Git, Admin, Account, a spec) use tabs | Same on phone and desktop; arrow keys switch. **Two levels at most, and they look different:** level 1 is an underline strip (accent marks the active tab, it switches between views of the object), level 2 is a segmented control on the tint (neutral, it only groups content inside one tab). There is no level 3: use stacked sections, a disclosure, or one scrolling page with headings. If a group has more than four parts or long labels, use headings instead of level 2. |
 
 Type roles: page title 24 px / 600 (18 px in the one-row phone bar) · section 16–18 px / 600 · card and row title 14 px / 600 · body 14 px (16 px on phones, iOS zooms into smaller fields) · meta 13 px · caption 12 px / 500.
 

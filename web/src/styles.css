@@ -1243,3 +1243,15 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 .placeholder { gap: 8px; }
 .placeholder svg { width: 24px; height: 24px; opacity: .5; }
 .gd-stats > div:first-child:not(.hot) b { font-size: 16px; color: var(--muted); letter-spacing: 0; }
+
+/* ===== two tab levels: level 1 underline (accent), level 2 segmented control (neutral); a third level does not exist ===== */
+.specform .form-tabs.seg-tabs { position: sticky; top: 0; display: flex; width: fit-content; max-width: 100%; gap: 4px; padding: 4px; margin: 0 0 8px; border: 0; border-radius: var(--radius-lg); background: var(--tint); overflow-x: auto; }
+.specform .form-tabs.seg-tabs .tab { flex: none; min-height: 32px; padding: 4px 12px; margin: 0; border: 0; border-radius: var(--radius-md); color: var(--muted); font-size: 13px; font-weight: 500; }
+.specform .form-tabs.seg-tabs .tab.on, .specform .form-tabs.seg-tabs .tab[aria-selected="true"] { background: var(--panel); color: var(--text); font-weight: 600; box-shadow: var(--shadow-card); }
+.form-tabs.seg-tabs .tab .dot { display: none; }
+.ep-section { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.ep-section .ep-l { margin-top: 0; }
+/* the endpoint block of the block editor is a level-2 switcher inside the Content tab: segmented as well */
+.endpoint > .tabs { display: flex; width: fit-content; max-width: 100%; gap: 4px; padding: 4px; margin: 8px 0; border: 0; border-radius: var(--radius-lg); background: var(--tint); }
+.endpoint > .tabs .tab { padding: 4px 12px; min-height: 32px; margin: 0; border: 0; border-radius: var(--radius-md); color: var(--muted); font-size: 13px; font-weight: 500; }
+.endpoint > .tabs .tab.on, .endpoint > .tabs .tab[aria-selected="true"] { background: var(--panel); color: var(--text); font-weight: 600; box-shadow: var(--shadow-card); border: 0; }
