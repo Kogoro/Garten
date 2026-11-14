@@ -42,7 +42,9 @@ function SpecList({ selected }: { selected?: string }) {
   const n = (f: (s: Item) => boolean) => all.filter(f).length;
   const [newSpec, setNewSpec] = useState(false);
   const create = () => setNewSpec(true);
-  const firstLoad = !S.state.lastSync && !all.length; // nothing synced yet: show the shape of the list, not "No specs yet"
+  // The first sync has not finished (lastSync is only set when it has): what is on the device may be a part of the team's specs, and the rest would be
+  // inserted above it. Show the shape of the list until then, not a partial list and not "No specs yet". Offline, the cache is all there is.
+  const firstLoad = !S.state.lastSync && S.state.online && !S.state.error;
   return (
     <>
       <Bar title="Specs">{S.can('write') && <button className="btn primary only-desktop" data-act="new-spec" onClick={create}><Icon name="plus" size={14} /> New</button>}</Bar>
@@ -61,7 +63,7 @@ function SpecList({ selected }: { selected?: string }) {
       <div className="list" id="list">
         {firstLoad && <div className="list-card" aria-busy="true" aria-label="Loading specs">{[0, 1, 2].map((i) => <div className="row skel" key={i}><i /><i /></div>)}</div>}
         {!firstLoad && !specs.length && <div className="empty">{all.length ? 'No specs match.' : S.can('write') ? 'No specs yet. Create your first one — it works offline.' : 'No specs yet.'}</div>}
-        {specs.length > 0 && <div className="list-card">{specs.map((s) => (
+        {!firstLoad && specs.length > 0 && <div className="list-card">{specs.map((s) => (
           <Link key={s.id} className={`row ${selected === s.id ? 'active' : ''}`} to={`/spec/${encodeURIComponent(s.id)}`}>
             <div className="row-title">{s.title || <span className="muted">Untitled spec</span>}</div>
             <div className="row-meta"><span className="row-id">{s.id}</span><TypeChip s={s} S={S} /><StatusChip i={s} S={S} /><AgentChip s={s} S={S} /><ImplChip spec={s} />{S.feedbackCount(s.id) > 0 && <span className="chip warn" title="Open feedback">{S.feedbackCount(s.id)} feedback</span>}<ItemSync i={s} S={S} quiet /><span className="row-when">{s.links.length > 0 && <span className="row-docs">{s.links.length} document{s.links.length === 1 ? '' : 's'}</span>}<span>{s.fetchedAt && !S.hasUnreleased(s) ? <>Agent fetched {ago(Date.parse(s.fetchedAt))}</> : <><span className="row-word">Edited </span>{ago(touched(s))}</>}</span></span></div>

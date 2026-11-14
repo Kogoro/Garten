@@ -1310,3 +1310,11 @@ i.dot-ok { background: var(--accent); } i.dot-w { background: var(--amber); } i.
   .gd-col > .sect-title { display: none; }
 }
 @media (max-width: 700px) { .gd-row .approve { height: 40px; min-height: 40px; } }
+@media (max-width: 700px) {
+  /* the buttons that answer a decision or a finding are the main thing to tap on the Garden: 40 px */
+  .dc-item .btn.small, .fb-item .btn.small, .gd-agents .btn.small, .gd-row .btn.small { height: 40px; min-height: 40px; }
+}
+/* the stage switch is for phones only (the specificity beats .seg.seg-fill), and the agents panel may wrap its second line */
+.seg.seg-fill.gd-seg { display: none; }
+@media (max-width: 899px) { .seg.seg-fill.gd-seg { display: flex; } }
+.gd-side .gd-row .grow > span { white-space: normal; }
