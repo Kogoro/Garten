@@ -42,6 +42,7 @@ function SpecList({ selected }: { selected?: string }) {
   const n = (f: (s: Item) => boolean) => all.filter(f).length;
   const [newSpec, setNewSpec] = useState(false);
   const create = () => setNewSpec(true);
+  const firstLoad = !S.state.lastSync && !all.length; // nothing synced yet: show the shape of the list, not "No specs yet"
   return (
     <>
       <Bar title="Specs">{S.can('write') && <button className="btn primary only-desktop" data-act="new-spec" onClick={create}><Icon name="plus" size={14} /> New</button>}</Bar>
@@ -58,7 +59,8 @@ function SpecList({ selected }: { selected?: string }) {
       </div>
       {!q && <Onboarding />}
       <div className="list" id="list">
-        {!specs.length && <div className="empty">{all.length ? 'No specs match.' : S.can('write') ? 'No specs yet. Create your first one — it works offline.' : 'No specs yet.'}</div>}
+        {firstLoad && <div className="list-card" aria-busy="true" aria-label="Loading specs">{[0, 1, 2].map((i) => <div className="row skel" key={i}><i /><i /></div>)}</div>}
+        {!firstLoad && !specs.length && <div className="empty">{all.length ? 'No specs match.' : S.can('write') ? 'No specs yet. Create your first one — it works offline.' : 'No specs yet.'}</div>}
         {specs.length > 0 && <div className="list-card">{specs.map((s) => (
           <Link key={s.id} className={`row ${selected === s.id ? 'active' : ''}`} to={`/spec/${encodeURIComponent(s.id)}`}>
             <div className="row-title">{s.title || <span className="muted">Untitled spec</span>}</div>

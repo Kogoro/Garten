@@ -1288,3 +1288,8 @@ i.dot-ok { background: var(--accent); } i.dot-w { background: var(--amber); } i.
   .gd-top { gap: 12px; }
   .fb-spec { padding: 8px 0; }
 }
+/* first load: the list keeps its shape while the first sync is on its way, so nothing jumps when the rows arrive */
+.row.skel { flex-direction: column; align-items: stretch; gap: 8px; padding: 16px; }
+.row.skel i { display: block; height: 16px; border-radius: 8px; background: var(--tint); }
+.row.skel i:last-child { width: 55%; height: 12px; }
+@media (prefers-reduced-motion: no-preference) { .row.skel i { animation: bootp 1.4s ease-in-out infinite; } }

@@ -22,6 +22,8 @@ Everything visual comes from the tokens at the top of `web/src/styles.css`. Chan
 
 Type roles: page title 24 px / 600 (18 px in the one-row phone bar) · section 16–18 px / 600 · card and row title 14 px / 600 · body 14 px (16 px on phones, iOS zooms into smaller fields) · meta 13 px · caption 12 px / 500.
 
+Until the first sync has finished the Specs list shows three skeleton rows instead of "No specs yet", so the list does not jump when the rows arrive (CLS stays 0).
+
 Empty states recede: no frame, fill, shadow or icon, 13 px in the tertiary text colour. Empty sections on the Garden collapse into one line ("Nothing waits for you."), and a zero in the summary is small and grey.
 
 Status chips (`.chip`) render as a dot plus words: grey dot = neutral, check = fine, amber = waiting, red = problem; type and id chips are plain text. The sidebar has two quiet groups (Garden, Specs, Documents, Glossary, Release · Members & Git, Admin); on phones the tab bar starts with Garden.
