@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { DecisionCard, FbItem, useFbAct } from '../feedback';
 import { ImplChip, ReportSheet, implState } from '../reports';
@@ -7,6 +7,7 @@ import { Icon, ago, toast, touched, useStore } from '../ui';
 import { Hint } from '../Hint';
 import { awaitsApproval } from '../lib';
 import { useTeamInfo } from '../hooks';
+import { ApproveButton } from './ItemEditor';
 
 const dur = (h: number | null | undefined) => (h == null ? '–' : h < 1 ? `${Math.max(1, Math.round(h * 60))} min` : h < 48 ? `${Math.round(h)} h` : `${Math.round(h / 24)} days`);
 /** How the process runs, from data the app already has: nothing is collected or sent anywhere. */
@@ -16,19 +17,12 @@ function Health() {
   useEffect(() => { let on = true; if (S.state.online) S.teamApi('GET', '/metrics').then((d: any) => on && setM(d.metrics)).catch(() => { /* offline or no access: no card */ }); return () => { on = false; }; }, [S.state.teamId, S.state.online]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!m) return null;
   const i = m.implementation;
-  return (
-    <details className="card health" id="gd-health">
-      <summary><b>Team health</b><small className="muted"> last {m.days} days · computed on this server only</small></summary>
-      <dl className="kvgrid">
-        <div><dt>Released</dt><dd>{m.releasedInPeriod} of {m.releasedSpecs} specs</dd></div>
-        <div><dt>Draft to release</dt><dd>{dur(m.medianHoursDraftToRelease)} <small>median</small></dd></div>
-        <div><dt>Answering agents</dt><dd>{dur(m.medianHoursToAnswer)} <small>median, {m.decisionsAnswered} answered</small></dd></div>
-        <div><dt>Waiting for you</dt><dd>{m.openDecisions} <small>{m.openDecisions ? `oldest ${dur(m.oldestOpenDecisionHours)}` : ''}</small></dd></div>
-        <div><dt>Implemented</dt><dd>{i.implemented} <small>of {m.releasedSpecs}{i.blocked ? ` · ${i.blocked} blocked` : ''}{i.outdated ? ` · ${i.outdated} outdated` : ''}{i.none ? ` · ${i.none} not started` : ''}</small></dd></div>
-        {m.claimsVerified && <div><dt>Claims proven by checks</dt><dd>{m.claimsVerified.verified} of {m.claimsVerified.met}</dd></div>}
-      </dl>
-    </details>
-  );
+  const parts: ReactNode[] = [<span key="r"><b>{m.releasedInPeriod}</b> released</span>];
+  if (m.medianHoursDraftToRelease != null) parts.push(<span key="d">draft to release <b>{dur(m.medianHoursDraftToRelease)}</b> median</span>);
+  if (m.medianHoursToAnswer != null) parts.push(<span key="a">agents answered in <b>{dur(m.medianHoursToAnswer)}</b> median</span>);
+  if (m.claimsVerified) parts.push(<span key="c"><b>{m.claimsVerified.verified} of {m.claimsVerified.met}</b> claims proven by checks</span>);
+  if (i.blocked) parts.push(<span key="b"><b>{i.blocked}</b> blocked</span>);
+  return <p className="gd-health" id="gd-health">Last {m.days} days: {parts.map((x, k) => <span key={k}>{k ? ' · ' : ''}{x}</span>)}</p>;
 }
 
 const STATUS_TEXT: Record<string, string> = { implemented: 'implemented', partial: 'partly built', blocked: 'blocked', in_progress: 'in progress' };
@@ -38,7 +32,7 @@ const who = (x: any) => String(x?.via ?? x?.author ?? 'An agent').replace(/^toke
 export function GardenPage() {
   const S = useStore();
   const act = useFbAct();
-  const { info } = useTeamInfo();
+  const { info, reload } = useTeamInfo();
   const [report, setReport] = useState<string | null>(null);
   const decisions = S.openDecisions(), feedback = S.openFeedback(), answered = S.answeredDecisions().slice(0, 10);
   const waiting = S.fbPending();
@@ -55,6 +49,16 @@ export function GardenPage() {
   async function setPaused(on: boolean) {
     try { await S.teamApi('PATCH', '', { agentPaused: on }); await S.refreshMe(); toast(on ? 'Agents paused' : 'Agents resumed'); } catch (e: any) { toast(e instanceof TypeError ? 'Pausing needs a connection to the server.' : e.message); }
   }
+  async function pushNow() {
+    toast('Pushing…');
+    try { await S.teamApi('POST', '/git/push'); toast('Pushed'); } catch { toast('Push failed'); }
+    await reload();
+  }
+  async function testTrigger() {
+    try { const r: any = await S.teamApi('POST', '/hook/test'); toast(r?.ok === false ? `Trigger test failed${r.info ? `: ${String(r.info).slice(0, 80)}` : ''}` : 'Trigger test sent'); } catch (e: any) { toast(e instanceof TypeError ? 'Testing needs a connection to the server.' : e.message); }
+    await reload();
+  }
+  const [colSel, setColSel] = useState<string | null>(null);
   const synced = !!S.state.garden[S.state.teamId] && S.state.garden[S.state.teamId].rev >= 0;
 
   // agents, judged from what they reported and asked: one row per name
@@ -77,6 +81,7 @@ export function GardenPage() {
     { key: 'attention', title: 'Needs attention', items: rows.filter((x) => x.st.key !== 'none' && bad(x)), hot: true },
     { key: 'done', title: 'Implemented', items: rows.filter((x) => x.st.key === 'implemented' && !bad(x)) },
   ].filter((c) => c.items.length);
+  const activeCol = cols.find((c) => c.key === colSel)?.key ?? ['attention', 'progress', 'new', 'done'].find((k) => cols.some((c) => c.key === k)); // phones show one stage: the most urgent one first
   const row = ({ s, r }: (typeof rows)[number]) => (
     <button type="button" className="gd-row" key={s.id} data-spec={s.id} onClick={() => setReport(s.id)}>
       <span className="grow"><b><span className="mono">{s.id}</span> {s.title}</b><span>{r ? `${who(r)} · ${ago(Date.parse(r.createdAt))} · ${String(r.summary).split('\n')[0].slice(0, 140)}` : `v${s.version} released${s.releasedAt ? ` ${ago(Date.parse(s.releasedAt))}` : ''} – no report yet`}</span></span>
@@ -115,7 +120,7 @@ export function GardenPage() {
           {!synced && <p className="note">Nothing loaded from the server yet – open the app once while online.</p>}
         </section>
         {paused && <section className="card warn" id="gd-paused" role="status"><span style={{ color: 'var(--amber)' }}><Icon name="warn" size={18} /></span><div className="grow"><b>Agents are paused</b><span>They get an empty work list and no webhook calls. Answers and reports are still accepted. When you resume, they pick up everything that is open on their next run.</span></div></section>}
-        {gitFailed && <section className="card bad" id="gd-git" role="status"><span style={{ color: 'var(--red)' }}><Icon name="warn" size={18} /></span><div className="grow"><b>The last Git push failed</b><span>{git.lastError ?? 'The team repository could not be pushed.'} Released specs do not reach the remote until it works.</span></div><Link className="btn small" style={{ flex: 'none' }} to="/release">Open Release</Link></section>}
+        {gitFailed && <section className="card bad" id="gd-git" role="status"><span style={{ color: 'var(--red)' }}><Icon name="warn" size={18} /></span><div className="grow"><b>The last Git push failed</b><span>{git.lastError ?? 'The team repository could not be pushed.'} Released specs do not reach the remote until it works.</span></div>{S.can('approve') && <button type="button" className="btn small" style={{ flex: 'none' }} data-act="git-push" onClick={pushNow}>Push now</button>}<Link className="btn small" style={{ flex: 'none' }} to="/release">Open Release</Link></section>}
         {queuedApprovals.length > 0 && <section className="card warn" id="gd-queued"><span style={{ color: 'var(--amber)' }}><Icon name="up" size={18} /></span><div className="grow"><b>{queuedApprovals.length} approval{queuedApprovals.length === 1 ? '' : 's'} waiting to sync</b><span>Approved on this device: {queuedApprovals.map((x) => x.id).join(', ')}. {S.state.online ? 'Sending…' : 'They are released as soon as the server is reachable.'}</span></div></section>}
         {waiting > 0 && <section className="card warn" id="gd-waiting"><span style={{ color: 'var(--amber)' }}><Icon name="up" size={18} /></span><div className="grow"><b>{waiting} answer{waiting === 1 ? '' : 's'} waiting to sync</b><span>Saved on this device. {S.state.online ? 'Sending…' : 'Sent as soon as the server is reachable – the agent continues after that.'}</span></div></section>}
         {S.state.gardenNotice && <section className="card bad" id="gd-notice"><span style={{ color: 'var(--red)' }}><Icon name="warn" size={18} /></span><div className="grow"><b>Not accepted by the server</b><span>{S.state.gardenNotice}</span></div><button className="btn small" style={{ flex: 'none' }} onClick={S.dismissGardenNotice}>OK</button></section>}
@@ -123,7 +128,6 @@ export function GardenPage() {
         <div className="gd-grid">
           <div className="gd-main">
             <div id="gd-needs-list" className="garden">
-              {!decisions.length && !feedback.length && !toApprove.length && <p className="quiet" id="gd-clear">Nothing waits for you.</p>}
               {decisions.length > 0 && <section id="gd-decisions">
                 <div className="sect-title"><span>Decisions</span><small style={{ color: 'var(--amber)' }}>{decisions.length}</small></div>
                 <div className="fb-list">{decisions.map((d, i) => <DecisionCard key={d.id} f={d} showSpec act={act} collapsed={i > 0} />)}</div>
@@ -134,7 +138,7 @@ export function GardenPage() {
               </section>}
               {toApprove.length > 0 && <section id="gd-approve">
                 <div className="sect-title"><span>Ready to approve</span><small>{toApprove.length}</small></div>
-                <div className="list-card">{toApprove.slice(0, 8).map((x) => <Link key={x.id} className="gd-row" to={`/spec/${encodeURIComponent(x.id)}`} data-spec={x.id}><span className="grow"><b><span className="mono">{x.id}</span> {x.title}</b><span>{x.status === 'approved' ? `Edited since v${x.version}` : 'Draft'} · {ago(touched(x))}</span></span><span className="chip">{x.status === 'approved' ? `v${x.version + 1}` : 'new'}</span><Icon name="chevron" size={14} /></Link>)}</div>
+                <div className="list-card">{toApprove.slice(0, 8).map((x) => <div key={x.id} className="gd-row static" data-spec={x.id}><Link className="grow gd-link" to={`/spec/${encodeURIComponent(x.id)}`}><b><span className="mono">{x.id}</span> {x.title}</b><span>{x.status === 'approved' ? `Edited since v${x.version}` : 'Draft'} · {ago(touched(x))}</span></Link><ApproveButton i={x} S={S} /></div>)}</div>
                 {toApprove.length > 8 && <Link className="btn" to="/" onClick={() => { try { localStorage.setItem("specs-pref-specs-filter", "pending"); } catch { /* private mode */ } }}>Show all {toApprove.length} in Specs</Link>}
               </section>}
             </div>
@@ -149,7 +153,7 @@ export function GardenPage() {
                     <span className={`st ${a.state === 'blocked' ? 'warn' : ''}`}><i className={a.state === 'running' ? 'dot-ok' : a.state === 'blocked' ? 'dot-w' : ''} aria-hidden="true" />{a.state === 'blocked' ? 'Blocked' : a.state === 'running' ? 'Running' : 'Idle'}</span>
                   </div>
                 ))}
-                {info?.hook && <div className="gd-row static"><span className="grow"><b>Agent trigger</b><span>{info.hook.lastAt ? `Last call ${ago(Date.parse(info.hook.lastAt))}${info.hook.lastInfo ? ` · ${String(info.hook.lastInfo).slice(0, 60)}` : ''}` : 'Not called yet'}</span></span><span className={`st ${info.hook.lastOk === false ? 'bad' : ''}`}>{info.hook.lastOk === false ? <><i className="dot-b" aria-hidden="true" />Failed</> : info.hook.lastOk ? <><Icon name="check" size={14} />OK</> : null}</span></div>}
+                {info?.hook && <div className="gd-row static"><span className="grow"><b>Agent trigger</b><span>{info.hook.lastAt ? `Last call ${ago(Date.parse(info.hook.lastAt))}${info.hook.lastInfo ? ` · ${String(info.hook.lastInfo).slice(0, 60)}` : ''}` : 'Not called yet'}</span></span>{S.can('admin') && <button type="button" className="btn small ghost" data-act="hook-test" onClick={testTrigger}>Send test</button>}<span className={`st ${info.hook.lastOk === false ? 'bad' : ''}`}>{info.hook.lastOk === false ? <><i className="dot-b" aria-hidden="true" />Failed</> : info.hook.lastOk ? <><Icon name="check" size={14} />OK</> : null}</span></div>}
               </div>
             </section>}
           </aside>
@@ -158,8 +162,9 @@ export function GardenPage() {
         <section id="gd-impl">
           <div className="sect-title"><span>Pipeline</span><small>{done} of {rows.length} released specs implemented</small></div>
           {!rows.length && <p className="quiet">No released specs yet. Agents start when you approve a spec under <Link to="/release">Release</Link>.</p>}
+          {cols.length > 1 && <div className="seg seg-fill gd-seg" role="group" aria-label="Pipeline stage">{cols.map((c) => <button key={c.key} type="button" className="filter" aria-pressed={activeCol === c.key} onClick={() => setColSel(c.key)}>{c.title} {c.items.length}</button>)}</div>}
           <div className="gd-pipe">
-            {cols.map((c) => <div className="gd-col" key={c.key} data-col={c.key}>
+            {cols.map((c) => <div className="gd-col" key={c.key} data-col={c.key} data-active={activeCol === c.key}>
               <div className="sect-title"><span>{c.title}</span><small style={c.hot ? { color: 'var(--red)' } : undefined}>{c.items.length}</small></div>
               <div className="list-card">{c.items.map(row)}</div>
             </div>)}

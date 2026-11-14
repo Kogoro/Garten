@@ -137,6 +137,7 @@ export function DecisionCard({ f, showSpec, act, collapsed }: { f: any; showSpec
           <button className="btn primary small" type="button" data-act="dc-send" disabled={!ready} onClick={send}>{answered ? 'Change answer' : 'Send answer'}</button>
           {answered ? <button className="btn small" type="button" onClick={() => { setEditing(false); setPick(f.answer); setNote(f.reply ?? ''); }}>Cancel</button>
             : <button className="btn small" type="button" data-act="dc-dismiss" title="The question needs no answer" onClick={() => act(f, { status: 'dismissed', reply: note.trim() })}>Dismiss</button>}
+          {showSpec && f.specId && <Link className="btn small ghost" to={`/spec/${encodeURIComponent(f.specId)}`}>Open spec</Link>}
         </div>
       </> : <>
         {folded && open && can && <div className="btns"><button className="btn small" type="button" data-act="dc-open" onClick={() => setFolded(false)}>Answer</button></div>}
