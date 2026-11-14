@@ -306,6 +306,13 @@ export function apiRouter() {
     res.json({ versions: await store.specVersions(req.team, id) });
   }));
 
+  // commits that touched one released document (History of a glossary term)
+  team.get('/doc-history', requireTeam('read'), wrap(async (req, res) => {
+    const id = String(req.query.path ?? '');
+    if (!store.DOC_ID.test(id)) return res.status(400).json({ error: 'path is required' });
+    res.json({ history: await store.docHistory(req.team, id) });
+  }));
+
   team.get('/metrics', requireTeam('read'), (req, res) => res.json({ metrics: teamMetrics(req.team) }));
   team.get('/checks', requireTeam('read'), (req, res) => {
     const specId = req.query.spec ? String(req.query.spec) : undefined;

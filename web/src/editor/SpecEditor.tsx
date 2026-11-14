@@ -50,7 +50,6 @@ function loadable(blocks: BnBlock[]): BnBlock[] | undefined {
 
 /** Block editor for a Markdown body. The Markdown string stays the single source of truth: `value` in, `onChange(md)` out. */
 export type EditorApi = { insert: (key: string) => void; insertText: (t: string) => void; getSelection: () => string };
-import { termRef } from '@shared/glossary.js';
 
 export function SpecEditor({ docKey, value, readOnly, onChange, onReady, refs, onRef, terms }: { docKey: string; value: string; readOnly: boolean; onChange: (md: string) => void; onReady?: (api: EditorApi | null) => void; refs?: string[]; onRef?: (docId: string) => void; terms?: string[] }) {
   const initial = useMemo(() => loadable(mdToBn(value)), [docKey]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -62,13 +61,14 @@ export function SpecEditor({ docKey, value, readOnly, onChange, onReady, refs, o
     const view: any = (editor as any).prosemirrorView;
     const off: number | undefined = view?.state?.selection?.$from?.parentOffset;
     const content: any[] = Array.isArray(cur.content) ? cur.content : [];
-    const len = content.reduce((n, c) => n + (c.type === 'link' ? c.content.reduce((m: number, x: any) => m + x.text.length, 0) : c.text.length), 0);
+    const size = (c: any): number => (c.type === 'link' ? c.content.reduce((m: number, x: any) => m + x.text.length, 0) : typeof c.text === 'string' ? c.text.length : 1); // a term chip is one position
+    const len = content.reduce((n, c) => n + size(c), 0);
     if (off === undefined || off <= 0 || off >= len) return cur;
     const head: any[] = [], tail: any[] = [];
     let pos = 0;
     const cut = (c: any, into: (x: any) => void, from: number, to: number) => { if (to > from) into({ ...c, text: c.text.slice(from, to) }); };
     for (const c of content) {
-      if (c.type === 'link') { (pos + c.content.reduce((m: number, x: any) => m + x.text.length, 0) <= off ? head : tail).push(c); pos += c.content.reduce((m: number, x: any) => m + x.text.length, 0); continue; }
+      if (c.type !== 'text') { (pos + size(c) <= off ? head : tail).push(c); pos += size(c); continue; }
       const a = pos, b = pos + c.text.length; pos = b;
       cut(c, (x) => head.push(x), 0, Math.max(0, Math.min(off - a, c.text.length)));
       cut(c, (x) => tail.push(x), Math.max(0, off - a), c.text.length);
@@ -137,7 +137,7 @@ export function SpecEditor({ docKey, value, readOnly, onChange, onReady, refs, o
         }}
       >
         <SuggestionMenuController {...({ triggerCharacter: '/', getItems: slash } as any)} />
-        {terms && terms.length > 0 && <SuggestionMenuController {...({ triggerCharacter: '#', getItems: async (q: string) => terms.filter((t) => t.toLowerCase().includes(q.toLowerCase())).slice(0, 12).map((t) => ({ title: t, onItemClick: () => editor.insertInlineContent([{ type: 'text', text: `${termRef(t)} `, styles: {} }]) })) } as any)} />}
+        {terms && terms.length > 0 && <SuggestionMenuController {...({ triggerCharacter: '#', getItems: async (q: string) => terms.filter((t) => t.toLowerCase().includes(q.toLowerCase())).slice(0, 12).map((t) => ({ title: t, onItemClick: () => editor.insertInlineContent([{ type: 'termref', props: { term: t, label: '' } } as any, { type: 'text', text: ' ', styles: {} }]) })) } as any)} />}
         {refs && <SuggestionMenuController {...({ triggerCharacter: '@', getItems: async (q: string) => refs.filter((r) => r.toLowerCase().includes(q.toLowerCase())).slice(0, 12).map((r) => ({ title: r, onItemClick: () => { onRef?.(r); editor.insertInlineContent([{ type: 'text', text: `@${r} `, styles: {} }]); } })) } as any)} />}
       </BlockNoteView>
     </div>

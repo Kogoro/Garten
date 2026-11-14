@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import type { SpecType } from './store/types';
 
 export interface MenuItem { key: string; label: string; danger?: boolean; current?: boolean; disabled?: boolean }
-interface MenuState { title: string; items: MenuItem[]; resolve: (k: string | null) => void }
+interface MenuState { title: string; text?: string; items: MenuItem[]; resolve: (k: string | null) => void }
 
 interface UiState {
   mode: 'blocks' | 'markdown';
@@ -20,7 +20,7 @@ export const useUi = create<UiState>((set) => ({
 }));
 
 /** Bottom-sheet menu: resolves with the picked key, or null when dismissed. */
-export function openMenu(title: string, items: MenuItem[]): Promise<string | null> {
-  return new Promise((resolve) => useUi.getState().set({ menu: { title, items, resolve } }));
+export function openMenu(title: string, items: MenuItem[], text?: string): Promise<string | null> {
+  return new Promise((resolve) => useUi.getState().set({ menu: { title, text, items, resolve } }));
 }
 export type { SpecType };

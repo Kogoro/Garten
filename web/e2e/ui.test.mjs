@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createServer } from 'node:http';
 import { startServer, Client, startSmtpSink } from '../../tests/helpers.mjs';
+import { formatTermFile } from '../../shared/glossaryFiles.js';
 
 const SHOTS = process.env.SHOTS;
 if (SHOTS) mkdirSync(SHOTS, { recursive: true });
@@ -462,7 +463,7 @@ try {
   await d.click('.bar [data-act=dd-toggle]'); await d.getByRole('menuitem', { name: 'Term' }).click();
   await d.fill('#termname', 'Dunning');
   await d.route('**/api/lookup**', (r) => r.fulfill({ json: { query: 'Dunning', lang: 'en', results: [{ source: 'Wikipedia', title: 'Dunning (debt)', text: 'Dunning is the process of communicating with customers to ensure the collection of accounts receivable.', url: 'https://en.wikipedia.org/wiki/Dunning', license: 'CC BY-SA 4.0', licenseUrl: 'https://creativecommons.org/licenses/by-sa/4.0/' }] } }));
-  await d.click('[data-act=lookup]'); await d.locator('[data-lookup-hit]').waitFor(); await d.click('[data-act=lookup-use]');
+  await d.click('[data-act=lookup-open]'); await d.click('[data-act=lookup]'); await d.locator('[data-lookup-hit]').waitFor(); await d.click('[data-act=lookup-use]');
   assert.match(await d.inputValue('#termdef'), /Dunning is the process.*\(Source: Wikipedia, CC BY-SA 4\.0 – https:\/\/en\.wikipedia\.org\/wiki\/Dunning\)/); ok('glossary: online lookup offers a definition and copies it with its source');
   await d.unroute('**/api/lookup**');
   await d.fill('#termdef', 'Reminding customers about unpaid invoices.'); await d.click('[data-act=create-term]');
@@ -470,7 +471,7 @@ try {
   // folder + a term with synonyms and references inside it
   await d.click('.bar [data-act=dd-toggle]'); await d.getByRole('menuitem', { name: 'Folder' }).click();
   await d.fill('#glfname', 'Payments'); await d.click('[data-act=do-gl-folder]');
-  await d.locator('#glList .ftoggle', { hasText: 'Payments' }).waitFor(); ok('glossary folders: create a folder (a section heading in glossary.md)');
+  await d.locator('#glList .ftoggle', { hasText: 'Payments' }).waitFor(); ok('glossary folders: create a folder (a folder of term files)');
   await d.click('.bar [data-act=dd-toggle]'); await d.getByRole('menuitem', { name: 'Term' }).click();
   await d.fill('#termname', 'Payout'); await d.fill('#termdef', 'Money sent to the merchant after [[Settlement]] and [[Ghost term]].');
   await d.fill('#termaliases', 'disbursement, transfer'); await d.fill('#termsee', 'Chargeback'); await d.selectOption('#termfolder', 'Payments'); await d.click('[data-act=create-term]');
@@ -481,13 +482,18 @@ try {
   assert.ok(order.indexOf('Payments') >= 0 && order.indexOf('Payout') > order.indexOf('Payments')); ok('the term is listed under its folder');
   // edit in the detail pane
   await d.click('[data-act=gl-edit]');
-  await d.fill('#gd-def', 'Money sent to the merchant after [[Settlement]] and [[Ghost term]]. Paid daily.');
-  await d.click('#glEditForm button[type=submit]');
-  await d.locator('#glDetail').getByText('Paid daily.').waitFor(); ok('glossary: edit a term in the detail pane (no jump to glossary.md)');
+  const defPara = d.locator('#glEditForm .bn-editor [data-content-type=paragraph]').last();
+  await defPara.waitFor(); await defPara.click(); await d.keyboard.press('End'); await d.keyboard.type(' Paid **daily**.');
+  await d.locator('#gd-avoid').fill('payout run'); await d.keyboard.press('Enter');
+  await d.click('[data-act=gl-save]');
+  await d.locator('#glDetail .md').getByText('Paid').waitFor(); await d.locator('#glDetail .gd-alias.avoid', { hasText: 'payout run' }).waitFor(); ok('glossary: edit a term in the detail pane with the block editor; words to avoid are kept');
   // folder actions + alias search
   await d.locator('#glList .frow', { hasText: 'Payments' }).locator('[data-act=gl-folder-menu]').click();
-  await d.getByRole('button', { name: 'Rename…' }).click(); await d.fill('#glfname', 'Billing'); await d.click('[data-act=do-gl-folder]');
-  await d.locator('#glList .ftoggle', { hasText: 'Billing' }).waitFor(); await d.locator('#glList .row', { hasText: 'Payout' }).waitFor(); ok('glossary folders can be renamed (terms move with them)');
+  await d.getByRole('button', { name: 'Rename / move…' }).click(); await d.fill('#glfname', 'Finance'); await d.click('[data-act=do-gl-folder]');
+  await d.locator('#glList .ftoggle', { hasText: 'Finance' }).waitFor(); await d.locator('#glList .row', { hasText: 'Payout' }).waitFor(); ok('glossary folders can be renamed (terms move with them)');
+  await d.locator('#glList .frow', { hasText: 'Finance' }).locator('[data-act=gl-folder-menu]').click();
+  await d.getByRole('button', { name: 'New sub-folder' }).click(); await d.fill('#glfname', 'Finance/Cards'); await d.click('[data-act=do-gl-folder]');
+  await d.locator('#glList .frow', { hasText: 'Cards' }).waitFor(); ok('glossary folders nest (Finance/Cards)');
   await d.fill('#gsearch', 'disbursement');
   await d.waitForFunction(() => document.querySelectorAll('#glList .row').length === 1 && /Payout/.test(document.querySelector('#glList .row').textContent)); ok('search also matches synonyms');
   await d.fill('#gsearch', '');
@@ -508,6 +514,7 @@ try {
   await d.locator('#glList .row[href$="/Settlement"]').click();
   await d.locator('#glDetail').getByText('Update available').first().waitFor({ timeout: 10000 });
   await d.locator('#glDetail [data-act=gl-update]').click();
+  await d.locator('.sheet .diff ins').first().waitFor(); await d.click('[data-act=do-gl-update]');
   await d.locator('#glDetail').getByText('Funds move from the processor to our bank account.').waitFor();
   assert.equal(await d.locator('#glDetail').getByText('Update available').count(), 0); ok('an updated global term can be pulled into the team glossary');
   await shot(d, '06e-desktop-glossary-refs');
@@ -515,14 +522,34 @@ try {
   await d.locator('#glList .row', { hasText: 'Ledger entry' }).click();
   await d.locator('#glDetail [data-act=gl-adopt]').waitFor(); ok('terms that live in a spec offer "Add to glossary"');
   await d.locator('#glList .row', { hasText: 'Dunning' }).click();
-  d.once('dialog', (x) => x.accept()); await d.click('[data-act=gl-delete]');
+  await d.click('[data-act=gl-delete]'); await d.click('[data-act=do-delete-term]');
   await d.waitForFunction(() => ![...document.querySelectorAll('#glList .row')].some((r) => /Dunning/.test(r.textContent))); ok('a term can be deleted from the glossary');
-  // the block editor still shows the same definitions (glossary.md is just Markdown)
-  await d.evaluate(() => (location.hash = '#/doc/glossary.md'));
-  await d.locator('[data-content-type=definition]').first().waitFor();
-  assert.equal(await d.locator('.editor .back').getAttribute('href'), '#/glossary');
-  const pay = d.locator('[data-content-type=definition]').filter({ has: d.locator('.def-term[value="Payout"]') });
-  assert.equal(await pay.locator('.def-aliases').inputValue(), 'disbursement, transfer'); ok('glossary.md still carries aliases and references as Markdown; its back link returns to the glossary');
+  // every term is a Markdown file with front matter in the team's working copy
+  for (let i = 0; i < 40; i++) { if ((await admin.sync()).data.items.some((x) => x.id === 'glossary/Finance/payout.md' && !x.deleted)) break; await new Promise((res) => setTimeout(res, 250)); }
+  const payFile = (await admin.sync()).data.items.find((x) => x.id === 'glossary/Finance/payout.md');
+  assert.match(payFile.body, /^---\nterm: "Payout"\naliases: \["disbursement", "transfer"\]\navoid: \["payout run"\]\nsee: \["Chargeback"\]\n---\n\nMoney sent to the merchant after \[\[Settlement\]\] and \[\[Ghost term\]\]\. Paid \*\*daily\*\*\.\n$/); assert.equal(payFile.pinned, true);
+  ok('each term is a Markdown file under glossary/<folder>/ with front matter (synonyms, words to avoid, see also)');
+  // proposed terms wait for an approver
+  await admin.push([{ id: 'glossary/_proposed/grace-period.md', kind: 'doc', baseRev: 0, fields: { title: 'x', body: formatTermFile({ term: 'Grace period', body: 'Days after the due date before **dunning** starts.', folder: 'Finance', proposedBy: 'Claude Code', from: 'notes/billing.md' }) } }]);
+  await d.evaluate(() => window.dispatchEvent(new Event('online')));
+  await d.locator('[role=tab]', { hasText: 'Proposed' }).click();
+  await d.locator('#glProposed .row', { hasText: 'Grace period' }).click();
+  await d.locator('#glDetail .chip', { hasText: 'Proposed by Claude Code' }).waitFor(); assert.equal(await d.inputValue('#pr-folder'), 'Finance');
+  await d.click('[data-act=pr-accept]');
+  await d.locator('#glDetail h1', { hasText: 'Grace period' }).waitFor(); await d.locator('#glDetail strong', { hasText: 'dunning' }).waitFor();
+  await d.locator('[role=tab]', { hasText: 'Terms' }).click(); await d.locator('#glList .row', { hasText: 'Grace period' }).waitFor(); ok('a proposed term is accepted into its folder by an approver and goes live like any term');
+  // health: broken references are listed with a way to define them
+  await d.locator('[role=tab]', { hasText: 'Health' }).click();
+  await d.locator('#glHealth [data-issues=broken] .row', { hasText: 'Ghost term' }).first().click();
+  await d.locator('[data-act=health-define]').waitFor(); ok('health lists broken references and offers to define the missing term');
+  await d.locator('[role=tab]', { hasText: 'Terms' }).click();
+  // in a spec: suggestions link defined terms, which then show as chips with the definition on hover
+  await d.evaluate(() => (location.hash = '#/spec/SPEC-014'));
+  await d.locator('#glossarySugg').waitFor();
+  await d.locator('#glossarySugg .sugg-row', { hasText: 'attempt window' }).locator('[data-act=sugg-link]').click();
+  const chip = d.locator('.bn-editor .term-chip', { hasText: 'attempt window' });
+  await chip.waitFor(); await chip.hover(); await d.locator('.term-card', { hasText: 'time bucket' }).waitFor();
+  ok('a spec suggests linking defined terms; #[Term] shows as a chip with the definition on hover');
   await d.evaluate(() => (location.hash = '#/glossary'));
 
   // --- documents in folders

@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { Dropdown } from '../dialogs';
 import { Bar, Shell } from '../Shell';
 import { CORE_LABEL, enc, foundState, hasContent } from '../lib';
+import { isGlossaryPath } from '@shared/glossaryFiles.js';
 import { PathSheet, type PathSheetKind } from '../sheets';
 import { openMenu, useUi } from '../state';
 import { Fab } from '../Fab';
@@ -16,8 +17,8 @@ interface Node { folders: Map<string, Node>; docs: Item[] }
 function buildTree(S: Store): Node {
   const root: Node = { folders: new Map(), docs: [] };
   const node = (path: string) => path.split('/').filter(Boolean).reduce((n, seg) => { if (!n.folders.has(seg)) n.folders.set(seg, { folders: new Map(), docs: [] }); return n.folders.get(seg)!; }, root);
-  for (const p of S.folderPaths()) node(p);
-  for (const d of S.all('doc').filter((x) => !x.pinned)) node(S.folderOf(d.id)).docs.push(d);
+  for (const p of S.folderPaths().filter((x) => !isGlossaryPath(x))) node(p);
+  for (const d of S.all('doc').filter((x) => !x.pinned && !isGlossaryPath(x.id))) node(S.folderOf(d.id)).docs.push(d);
   return root;
 }
 const countDocs = (n: Node): number => n.docs.length + [...n.folders.values()].reduce((a, f) => a + countDocs(f), 0);
@@ -26,7 +27,7 @@ function DocsList({ selected }: { selected?: string }) {
   const S = useStore(); const ui = useUi();
   const [sheet, setSheet] = useState<null | { kind: PathSheetKind; value?: string; from?: string }>(null);
   const can = S.can('write');
-  const found = S.foundationDocs().filter((d) => d.id !== 'glossary.md');
+  const found = S.foundationDocs();
   const tree = buildTree(S);
 
   async function folderMenu(path: string) {
@@ -61,7 +62,7 @@ function DocsList({ selected }: { selected?: string }) {
     }
     return out;
   };
-  const nDocs = S.all('doc').filter((d) => !d.pinned).length;
+  const nDocs = S.all('doc').filter((d) => !d.pinned && !isGlossaryPath(d.id)).length;
   return (
     <>
       <Bar title="Documents">

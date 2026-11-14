@@ -13,6 +13,7 @@ import { Client as McpClient } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { startServer, Client, startSmtpSink } from './helpers.mjs';
 import { parseGlossaryFile } from '../shared/glossaryImport.js';
+import { formatTermFile } from '../shared/glossaryFiles.js';
 
 const tmp = mkdtempSync(path.join(process.env.TEST_TMP || tmpdir(), 'specs-remote-'));
 const smtp = await startSmtpSink();
@@ -176,7 +177,7 @@ try {
   const own2 = (await editor.c.get('/api/teams')).data.teams.find((x) => x.name === 'Editor Lab');
   const lab = new Client(BASE); lab.cookie = editor.c.cookie; lab.tid = own2.id;
   const labDocs = (await lab.sync()).data.items.filter((i) => i.kind === 'doc');
-  assert.deepEqual(labDocs.map((d) => d.id).sort(), ['glossary.md', 'guardrails.md', 'strategy.md', 'vision.md']); assert.ok(labDocs.every((d) => d.pinned && d.core)); ok('every new team starts with vision, strategy, guardrails and glossary');
+  assert.deepEqual(labDocs.map((d) => d.id).sort(), ['guardrails.md', 'strategy.md', 'vision.md']); assert.ok(labDocs.every((d) => d.pinned && d.core)); ok('every new team starts with vision, strategy and guardrails (the glossary is a folder of term files)');
   const labTok = (await editor.c.post('/api/me/tokens', { name: 'lab', scopes: ['mcp:read'], teamId: own2.id })).data.token;
   assert.match(await ctxTool(labTok), /Nothing has been written down yet/); ok('empty foundation documents are not served (template-only = empty)');
   const vis = labDocs.find((d) => d.id === 'vision.md');
@@ -185,12 +186,22 @@ try {
   await sleep(700);
   const ctx1 = await ctxTool(labTok);
   assert.match(ctx1, /calmest billing system/); ok('a foundation document goes live automatically after the edit – no spec, no link, no approval');
-  const gl2 = labDocs.find((d) => d.id === 'glossary.md');
-  await lab.push([{ id: 'glossary.md', kind: 'doc', baseRev: gl2.rev, fields: { body: '# Glossary\n\nDunning\n: Reminding customers about unpaid invoices.\n' } }]);
+  const dun = await lab.push([
+    { id: 'glossary/Billing', kind: 'folder', baseRev: 0, fields: {} },
+    { id: 'glossary/Billing/dunning.md', kind: 'doc', baseRev: 0, fields: { title: 'dunning', body: formatTermFile({ term: 'Dunning', avoid: ['reminder run'], distinct: ['Retry budget'], body: 'Reminding customers about **unpaid** invoices.\n\n- step 1: e-mail\n- step 2: letter' }) } },
+  ]);
+  assert.equal(dun[1].item.pinned, true); ok('a term file under glossary/ is pinned by the server (a foundation document)');
   await sleep(700);
   const cl2 = await mcp(labTok);
   const lg = JSON.parse((await call(cl2, 'get_glossary')).text);
-  assert.deepEqual(lg.map((g) => g.term), ['Dunning']); assert.match(await ctxTool(labTok), /\*\*Dunning\*\*: Reminding customers/);
+  assert.deepEqual(lg.map((g) => g.term), ['Dunning']); assert.match(lg[0].definition, /- step 2: letter/); assert.deepEqual(lg[0].avoid, ['reminder run']); assert.deepEqual(lg[0].not_to_be_confused_with, ['Retry budget']); assert.equal(lg[0].folder, 'Billing'); assert.equal(lg[0].source, 'glossary/Billing/dunning.md');
+  ok('get_glossary returns the full Markdown definition, words to avoid, distinctions and the folder');
+  const labCtx = await ctxTool(labTok);
+  assert.match(labCtx, /\*\*Dunning\*\*: Reminding customers about unpaid invoices\. — do not say: reminder run/); assert.doesNotMatch(labCtx, /step 2/); ok('get_team_context lists each term with its first paragraph and the words to avoid');
+  const labRepo = `${srv.dir}/repos/${own2.id}`;
+  assert.ok(existsSync(`${labRepo}/specs/docs/glossary/Billing/dunning.md`)); assert.match(readFileSync(`${labRepo}/specs/GLOSSARY.md`, 'utf8'), /- step 1: e-mail[\s\S]*Avoid: reminder run/); ok('the term file is released to docs/glossary/<folder>/ and GLOSSARY.md carries the full definition');
+  const hist = await lab.get(`/api/teams/${own2.id}/doc-history?path=${encodeURIComponent('glossary/Billing/dunning.md')}`);
+  assert.equal(hist.status, 200); assert.equal(hist.data.history.length, 1); assert.match(hist.data.history[0].message, /glossary\/Billing\/dunning\.md/); ok('the history of a term is the Git log of its file');
   const lst = JSON.parse((await call(cl2, 'list_documents')).text);
   assert.ok(lst.find((d) => d.path === 'vision.md' && d.always === true)); ok('the glossary is queryable via MCP without being linked to any spec; foundation docs are flagged "always"');
   await cl2.close();
@@ -213,8 +224,7 @@ try {
   assert.match(await ctxTool(labTok), /Zero double charges/); ok('with auto-release off a foundation document needs an explicit approval');
 
   // ---------------------------------------------------------------- glossary: aliases, references, global glossary
-  const glDoc = (await admin.sync()).data.items.find((i) => i.id === 'glossary.md');
-  await admin.push([{ id: 'glossary.md', kind: 'doc', baseRev: glDoc.rev, fields: { body: `${glDoc.body}\nRetry horizon\n: How long a retry stays idempotent. See [[Idempotency key]] and [[Ledger|the ledger]].\n: Aliases: horizon, retry cut-off\n: See also: Ledger entry\n` } }]);
+  await admin.push([{ id: 'glossary/retry-horizon.md', kind: 'doc', baseRev: 0, fields: { title: 'x', body: formatTermFile({ term: 'Retry horizon', body: 'How long a retry stays idempotent. See [[Idempotency key]] and [[Ledger|the ledger]].', aliases: ['horizon', 'retry cut-off'], see: ['Ledger entry'] }) } }]);
   await sleep(700);
   const cg = await mcp(tokA);
   const viaAlias = JSON.parse((await call(cg, 'get_glossary', { term: 'cut-off' })).text);
@@ -461,7 +471,8 @@ try {
   assert.match((await call(w, 'update_draft_spec', { id: created.id, body: 'stale', base_rev: created.rev })).text, /Conflict/); ok('update with a stale base_rev is rejected');
   const dA1 = JSON.parse((await call(w, 'create_draft_document', { path: 'adr/agent-note.md', body: 'Note' })).text); assert.equal(dA1.status, 'draft');
   assert.equal((await call(w, 'update_draft_document', { path: 'vision.md', body: 'hijack' })).isError, true);
-  assert.equal((await call(w, 'create_draft_document', { path: 'glossary.md', body: 'x' })).isError, true); ok('agents can write documents but never the foundation documents');
+  assert.equal((await call(w, 'create_draft_document', { path: 'vision.md', body: 'x' })).isError, true); ok('agents can write documents but never the foundation documents');
+  assert.match((await call(w, 'create_draft_document', { path: 'glossary/x.md', body: 'x' })).text, /propose_term/); ok('agents cannot write into the glossary folder: they propose terms');
   // derive glossary entries and specs from a document
   await call(w, 'create_draft_document', { path: 'notes/payments.md', body: 'Retries of one run are grouped. Attempt window is a bucket; Settlement run is the nightly batch.' });
   assert.ok(!(await toolNames(await mcp(rdTok.token))).includes('derive_from_document')); ok('derive_from_document needs the write scope');
@@ -471,13 +482,17 @@ try {
     glossary: [{ term: 'Settlement run', definition: 'The nightly batch that books payments.', aliases: ['nightly run'], see_also: ['Attempt window'] }, { term: 'Attempt window', definition: 'Dup of a released term.' }, { term: 'Batch cut-off', definition: 'Latest time a payment joins the run.' }],
     specs: [{ title: 'Nightly settlement', body: 'R1 Payments are booked once per night.\n- [ ] Run is idempotent' }],
   })).text);
-  assert.equal(dv.glossary.document, 'glossary/from-notes-payments.md'); assert.deepEqual(dv.glossary.added.sort(), ['Batch cut-off', 'Settlement run']);
-  assert.equal(dv.glossary.exists[0].term, 'Attempt window'); assert.match(dv.specs[0].id, /-\d{3}$/); assert.deepEqual(dv.specs[0].documents, ['glossary/from-notes-payments.md']); ok('derive_from_document writes a glossary draft, skips known terms, creates linked spec drafts');
-  const dvDoc = (await call(w, 'get_document', { name: 'glossary/from-notes-payments.md', draft: true })).text;
-  assert.match(dvDoc, /Settlement run\n: The nightly batch that books payments\.\n: Aliases: nightly run\n: See also: Attempt window/); assert.doesNotMatch(dvDoc, /Dup of a released/);
-  assert.match((await call(w, 'get_spec', { id: dv.specs[0].id, draft: true })).text, /## SOURCE\n\nDerived from `notes\/payments\.md`/); ok('derived content carries a definition list and a source section');
+  assert.deepEqual(dv.glossary.proposed.sort(), ['glossary/_proposed/batch-cut-off.md', 'glossary/_proposed/settlement-run.md']); assert.deepEqual(dv.glossary.added.sort(), ['Batch cut-off', 'Settlement run']);
+  assert.equal(dv.glossary.exists[0].term, 'Attempt window'); assert.match(dv.specs[0].id, /-\d{3}$/); assert.deepEqual(dv.specs[0].documents, []); ok('derive_from_document proposes terms (one file each), skips known terms and creates spec drafts');
+  const dvDoc = (await call(w, 'get_document', { name: 'glossary/_proposed/settlement-run.md', draft: true })).text;
+  assert.match(dvDoc, /^---\nterm: "Settlement run"\naliases: \["nightly run"\]\nsee: \["Attempt window"\]\nproposed_by: "[^"]+"\nfrom: "notes\/payments\.md"\n---\n\nThe nightly batch that books payments\.\n$/);
+  assert.match((await call(w, 'get_spec', { id: dv.specs[0].id, draft: true })).text, /## SOURCE\n\nDerived from `notes\/payments\.md`/); ok('a proposed term carries who proposed it and its source; specs carry a source section');
   const dv2 = JSON.parse((await call(w, 'derive_from_document', { source: 'notes/payments.md', glossary: [{ term: 'Settlement run', definition: 'Better wording.' }, { term: 'Ledger lock', definition: 'Blocks writes.' }] })).text);
-  assert.deepEqual(dv2.glossary.updated, ['Settlement run']); assert.deepEqual(dv2.glossary.added, ['Ledger lock']); assert.match(dv2.note, /not linked to any spec/); ok('a second call merges by term and warns about an unlinked glossary draft');
+  assert.deepEqual(dv2.glossary.updated, ['Settlement run']); assert.deepEqual(dv2.glossary.added, ['Ledger lock']); ok('a second call updates the proposal of the same term instead of duplicating it');
+  const pt = JSON.parse((await call(w, 'propose_term', { term: 'Payout batch', definition: 'All payouts of one day.\n\n- created at 18:00', folder: 'Payments' })).text);
+  assert.equal(pt.proposed, 'glossary/_proposed/payout-batch.md');
+  assert.equal(JSON.parse((await call(w, 'propose_term', { term: 'Retry window', definition: 'x' })).text).refused, 'already defined'); ok('propose_term adds one proposal and refuses known terms and synonyms');
+  assert.ok(!JSON.parse((await call(w, 'get_glossary')).text).some((g) => g.term === 'Payout batch')); ok('proposed terms never reach agents before an approver accepts them');
   assert.equal((await call(w, 'derive_from_document', { source: 'nope.md', glossary: [{ term: 'X', definition: 'y' }] })).isError, true);
   assert.equal((await call(w, 'derive_from_document', { source: 'notes/payments.md' })).isError, true); ok('unknown source / empty derivation are refused');
   // human approves the agent's draft
@@ -798,6 +813,34 @@ try {
       for (let i = 0; i < 60 && !got.length; i++) await new Promise((r) => setTimeout(r, 250));
       assert.equal(got.length, 1); assert.equal(got[0].released[0].id, 'SPEC-001'); ok('a webhook event that could not be delivered is sent after a restart');
     } finally { b.stop(); late.close(); }
+  }
+
+  // migration: the single glossary.md of older versions becomes a folder of term files on the next start
+  {
+    const dataDir = mkdtempSync(path.join(process.env.TEST_TMP || tmpdir(), 'specs-migrate-'));
+    const env = { DATA_DIR: dataDir, SEED_DEMO: '0', FOUNDATION_DEBOUNCE_MS: '100' };
+    const a = await startServer(env);
+    const ca = new Client(a.base); await ca.login('admin@localhost', 'adminpass1');
+    const old = '# Glossary\n\nLedger\n: The book of record.\n\n## Payments & Billing\n\nSettlement\n: Funds move to our bank.\n: Aliases: payout\n\n### Cards\n\nChargeback\n: A forced reversal. See [[Settlement]].\n';
+    await ca.push([{ id: 'glossary.md', kind: 'doc', baseRev: 0, fields: { title: 'glossary.md', body: old, pinned: true } }, { id: 'glossary/from-notes.md', kind: 'doc', baseRev: 0, fields: { title: 'x', body: '# Terms derived from notes.md\n\nRefund window\n: How long a refund stays possible.\n' } }]);
+    await sleep(800);
+    const repo = path.join(dataDir, 'repos', ca.tid, 'specs');
+    assert.ok(existsSync(path.join(repo, 'docs', 'glossary.md')));
+    a.stop(); await sleep(600);
+    const b = await startServer(env);
+    try {
+      const cb = new Client(b.base); await cb.login('admin@localhost', 'adminpass1');
+      const items = (await cb.sync()).data.items;
+      const live = items.filter((i) => !i.deleted && i.kind === 'doc').map((i) => i.id).sort();
+      assert.deepEqual(live.filter((x) => x.startsWith('glossary/')), ['glossary/Payments-Billing/Cards/chargeback.md', 'glossary/Payments-Billing/settlement.md', 'glossary/_proposed/refund-window.md', 'glossary/ledger.md']);
+      assert.ok(items.some((i) => i.id === 'glossary.md' && i.deleted)); assert.ok(items.some((i) => i.id === 'glossary/Payments-Billing' && i.kind === 'folder' && !i.deleted));
+      const st = items.find((i) => i.id === 'glossary/Payments-Billing/settlement.md');
+      assert.match(st.body, /^---\nterm: "Settlement"\naliases: \["payout"\]\n---\n\nFunds move to our bank\.\n$/); assert.equal(st.pinned, true); assert.equal(st.status, 'approved');
+      ok('migration: every definition of glossary.md becomes a term file, headings become (nested) folders, agent drafts become proposals');
+      assert.ok(existsSync(path.join(repo, 'docs', 'glossary', 'Payments-Billing', 'Cards', 'chargeback.md'))); assert.ok(!existsSync(path.join(repo, 'docs', 'glossary.md')));
+      assert.match(git(path.join(dataDir, 'repos', ca.tid), 'log', '-1', '--format=%s'), /Glossary: one file per term \(3 terms\)/); ok('migration: the released glossary is released again in one commit and glossary.md leaves the repository');
+      assert.ok(!items.find((i) => i.id === 'glossary/_proposed/refund-window.md').pinned); ok('migration: proposals are never live');
+    } finally { b.stop(); }
   }
 
   // pausing the agents: empty work list, no webhook calls, a person can resume

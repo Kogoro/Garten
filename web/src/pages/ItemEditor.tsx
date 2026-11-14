@@ -1,7 +1,8 @@
 import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Dropdown, Sheet, MenuHost } from '../dialogs';
-import { glossaryTerms } from '../glossaryLib';
+import { glossaryTerms, registerTermLookup, specSuggestions, type Suggestion } from '../glossaryLib';
+import { isGlossaryPath, replaceWord, linkFirst } from '@shared/glossaryFiles.js';
 import type { EditorApi } from '../editor/SpecEditor';
 import { BLOCK_MENU } from '../editor/blockTypes';
 import { Hint } from '../Hint';
@@ -81,8 +82,22 @@ export function SaveInd({ i, S }: { i: Item; S: Store }) {
   return <span className={`save-ind ${st === 'dirty' ? 'dirty' : ''} ${st === 'conflict' || st === 'error' ? 'bad' : ''}`} id="saveInd" data-state={st} role="status" title={txt}><Icon name={icon} size={14} /><span className="lbl">{txt}</span></span>;
 }
 
-function approve(i: Item, S: Store) {
+const avoided = (S: Store, body: string) => specSuggestions(S, body).filter((x) => x.kind === 'avoid');
+const replaceAll = (body: string, hits: Suggestion[]) => hits.reduce((b, h) => replaceWord(b, h.word, h.term), body);
+const hitText = (hits: Suggestion[]) => hits.map((h) => `“${h.word}” – the glossary says “${h.term}”${h.line ? ` (line ${h.line})` : ''}`).join('\n');
+/** Words to avoid in a spec: a dialog that offers to replace them. Resolves false when the person cancels. */
+async function checkWords(i: Item, S: Store, go: string, keep: string): Promise<boolean> {
+  const hits = i.kind === 'spec' ? avoided(S, i.body) : [];
+  if (!hits.length) return true;
+  const k = await openMenu(`${hits.length === 1 ? 'A word' : `${hits.length} words`} to avoid in ${i.id}`, [{ key: 'replace', label: `Replace with the glossary’s word${hits.length === 1 ? '' : 's'} and ${go}` }, { key: 'keep', label: keep }], hitText(hits));
+  if (!k) return false;
+  if (k === 'replace') { S.edit(i.id, { body: replaceAll(i.body, hits) }); toast(`${hits.length} word${hits.length === 1 ? '' : 's'} replaced`); }
+  return true;
+}
+
+async function approve(i: Item, S: Store) {
   if (i.kind === 'spec' && !i.title.trim()) return toast('Add a title first');
+  if (!(await checkWords(i, S, 'approve', 'Approve anyway'))) return;
   S.requestApprove(i.id);
   toast(S.state.online && !S.state.sessionExpired ? (i.kind === 'doc' ? 'Releasing…' : 'Approving…') : 'Queued — released after next sync');
 }
@@ -110,7 +125,7 @@ function DocsDd({ i, S, onNew }: { i: Item; S: Store; onNew: () => void }) {
     return <span className="muted hint docinfo">{used.length ? `Used by ${used.map((s) => s.id).join(', ')}` : 'Not linked to a spec yet'}</span>;
   }
   const n = i.links.length;
-  const docs = S.all('doc').filter((d) => !d.pinned || i.links.includes(d.id)).sort((a, b) => a.id.localeCompare(b.id));
+  const docs = S.all('doc').filter((d) => !isGlossaryPath(d.id) && (!d.pinned || i.links.includes(d.id))).sort((a, b) => a.id.localeCompare(b.id));
   const can = S.can('write');
   return (
     <Dropdown id="docsDd" className="docsbtn" ariaLabel="Linked documents" menuClass="docs-menu"
@@ -131,6 +146,24 @@ function DocsDd({ i, S, onNew }: { i: Item; S: Store; onNew: () => void }) {
   );
 }
 
+/** What the glossary suggests for this spec: words to avoid and defined terms that are mentioned but not referenced. Quiet, at the end of the content. */
+function GlossarySuggestions({ item, S }: { item: Item; S: Store }) {
+  const list = specSuggestions(S, item.body);
+  if (!list.length) return null;
+  const apply = (x: Suggestion) => S.edit(item.id, { body: x.kind === 'avoid' ? replaceWord(item.body, x.word, x.term) : linkFirst(item.body, x.word, x.term) });
+  return (
+    <section className="card sugg" id="glossarySugg" aria-label="Glossary suggestions">
+      <div className="sugg-head"><Icon name="book" size={16} /><b>Glossary · {list.length} suggestion{list.length === 1 ? '' : 's'}</b>{list.length > 1 && <button type="button" className="btn ghost small" data-act="sugg-all" onClick={() => S.edit(item.id, { body: list.reduce((b, x) => (x.kind === 'avoid' ? replaceWord(b, x.word, x.term) : linkFirst(b, x.word, x.term)), item.body) })}>Apply all</button>}</div>
+      {list.map((x) => (
+        <div className="sugg-row" key={`${x.kind}:${x.word}`}>
+          <div className="grow"><span>{x.kind === 'avoid' ? <>“{x.word}” is a word to avoid</> : <>“{x.word}” is defined in the glossary</>}</span><small className="muted">{x.kind === 'avoid' ? <>use {x.term} instead{x.line ? ` · line ${x.line}` : ''}</> : <>link it so agents get the definition{x.word !== x.term ? ` of ${x.term}` : ''}</>}</small></div>
+          <button type="button" className="btn small" data-act={x.kind === 'avoid' ? 'sugg-replace' : 'sugg-link'} onClick={() => apply(x)}>{x.kind === 'avoid' ? 'Replace' : 'Link term'}</button>
+        </div>
+      ))}
+    </section>
+  );
+}
+
 export function ItemEditor({ item }: { item: Item }) {
   const S = useStore(); const nav = useNavigate(); const ui = useUi();
   const api = useRef<EditorApi | null>(null);
@@ -145,7 +178,7 @@ export function ItemEditor({ item }: { item: Item }) {
   const blocks = mode === 'blocks';
   const asForm = mode === 'form' && !!form;
   const path = isSpec ? `${S.team()!.key}/${item.id}.md` : `docs/${item.id}`;
-  const back = isSpec ? '/' : item.id === 'glossary.md' ? '/glossary' : '/docs';
+  const back = isSpec ? '/' : isGlossaryPath(item.id) ? '/glossary' : '/docs';
 
   /** What the user marked in this item (blocks editor, Markdown view or read view); empty = nothing selected. */
   function selected(): string {
@@ -158,11 +191,11 @@ export function ItemEditor({ item }: { item: Item }) {
     const src = sel || item.body.trim();
     const canDerive = S.can('write') && hasContent(src);
     const what = sel ? 'selection' : item.kind === 'spec' ? 'this spec' : 'this document';
-    const inGlossary = (t: string) => glossaryTerms(S).some((x) => x.term.toLowerCase() === t.toLowerCase() && x.defs.some((d) => d.item.id === 'glossary.md'));
-    const defs = !sel && item.id !== 'glossary.md' ? newDefinitions(item.body, inGlossary) : [];
+    const inGlossary = (t: string) => !!S.termByName(t);
+    const defs = !sel && !isGlossaryPath(item.id) ? newDefinitions(item.body, inGlossary) : [];
     const deriveItems = canDerive ? [
       { key: 'derive:spec', label: `New spec from ${what}…` },
-      ...(item.id === 'glossary.md' ? [] : [{ key: 'derive:term', label: `Glossary term from ${what}…` }]),
+      ...(isGlossaryPath(item.id) ? [] : [{ key: 'derive:term', label: `Glossary term from ${what}…` }]),
       ...(defs.length ? [{ key: 'derive:defs', label: `Add ${defs.length} definition${defs.length === 1 ? '' : 's'} of this ${isSpec ? 'spec' : 'document'} to the glossary` }] : []),
     ] : [];
     const info = [{ key: 'info', label: `${path}${item.version ? ` · v${item.version}` : ''}${item.updatedBy ? ` · edited by ${item.updatedBy}` : ''}`, disabled: true }];
@@ -175,7 +208,7 @@ export function ItemEditor({ item }: { item: Item }) {
     const phoneItems = phone && isSpec ? [{ key: 'feedback', label: `Feedback: ${S.feedbackCount(item.id)} open` }, { key: 'docs', label: `Linked documents: ${item.links.length}` }] : [];
     const key = await openMenu(item.id, [...info, ...phoneItems, ...impl, ...deriveItems, ...modeItems, ...typeItem, ...actions]);
     if (key === 'derive:spec' || key === 'derive:term') return setDerive({ kind: key === 'derive:spec' ? 'spec' : 'term', text: src, whole: !sel });
-    if (key === 'derive:defs') { S.upsertGlossaryTerms(defs.map((d) => ({ term: d.term, definition: d.definition, aliases: d.aliases, see: d.see }))); return toast(`${defs.length} term${defs.length === 1 ? '' : 's'} added to the glossary`); }
+    if (key === 'derive:defs') { const r = S.importTerms(defs.map((d) => ({ term: d.term, body: d.definition, aliases: d.aliases, see: d.see }))); return toast(`${r.added} term${r.added === 1 ? '' : 's'} added to the glossary`); }
     if (key === 'feedback') return setTab('feedback');
     if (key === 'docs') return setSheet('link');
     if (key === 'report') return setTab('report');
@@ -197,6 +230,16 @@ export function ItemEditor({ item }: { item: Item }) {
   const insertRef = (id: string) => api.current?.insertText(`@${id} `);
 
   const phone = useMedia('(max-width: 700px)');
+  registerTermLookup(S); // the term chips in the editor show the current glossary
+  // Leaving a spec that was edited here and now uses words to avoid: say so once, with a way to fix it.
+  const latest = useRef(item); latest.current = item;
+  const startBody = useRef(item.body);
+  useEffect(() => () => {
+    const it = latest.current;
+    if (it.kind !== 'spec' || it.body === startBody.current || !S.can('write')) return;
+    const hits = avoided(S, it.body).filter((h) => !avoided(S, startBody.current).some((o) => o.word.toLowerCase() === h.word.toLowerCase()));
+    if (hits.length) toast(`${it.id} now uses ${hits.map((h) => `“${h.word}”`).join(', ')} – the glossary says ${[...new Set(hits.map((h) => `“${h.term}”`))].join(', ')}`, { label: 'Replace', run: () => { const cur = S.get(it.id); if (cur) S.edit(it.id, { body: replaceAll(cur.body, hits) }); } });
+  }, [item.id]); // eslint-disable-line react-hooks/exhaustive-deps
   // On a phone an item opens to read first (status, feedback, documents, what the agent did) and switches to editing on purpose.
   // A brand-new, empty item opens ready to type.
   const [editing, setEditing] = useState(() => !phone || (!item.title.trim() && !hasContent(item.body)));
@@ -227,7 +270,7 @@ export function ItemEditor({ item }: { item: Item }) {
         <SaveInd i={item} S={S} />
         </>}
         {!phone && <span id="approveSlot"><ApproveButton i={item} S={S} /></span>}
-        {phone && editing && !ro && <button type="button" className="ed-done" data-act="edit-done" onClick={() => setEditing(false)}>Done</button>}
+        {phone && editing && !ro && <button type="button" className="ed-done" data-act="edit-done" onClick={async () => { if (await checkWords(item, S, 'save', 'Keep my words')) setEditing(false); }}>Done</button>}
         <button type="button" className="icon-btn" data-act="item-menu" aria-label="More actions" aria-haspopup="menu" onClick={itemMenu}><Icon name="more" /></button>
       </header>
       {phone && locked && isSpec && tab === 'content' && (
@@ -255,8 +298,9 @@ export function ItemEditor({ item }: { item: Item }) {
         {asForm
           ? <div className="blocks" id="form"><Suspense fallback={<EditorFallback />}><SpecForm docKey={`${item.team}|${item.id}|${item.specType}`} schema={form!} value={item.body} readOnly={locked} onChange={(md) => S.edit(item.id, { body: md })} /></Suspense></div>
           : blocks
-          ? <div className="blocks" id="blocks"><Suspense fallback={<EditorFallback />}><SpecEditor terms={item.id === 'glossary.md' ? undefined : glossaryTerms(S).map((t) => t.term)} docKey={`${item.team}|${item.id}`} value={item.body} readOnly={locked} onChange={(md) => S.edit(item.id, { body: md })} onReady={(a) => (api.current = a)} refs={isSpec ? S.all('doc').filter((d) => !d.pinned).map((d) => d.id) : undefined} onRef={(id) => !item.links.includes(id) && S.toggleLink(item.id, id)} /></Suspense></div>
+          ? <div className="blocks" id="blocks"><Suspense fallback={<EditorFallback />}><SpecEditor terms={glossaryTerms(S).map((t) => t.term)} docKey={`${item.team}|${item.id}`} value={item.body} readOnly={locked} onChange={(md) => S.edit(item.id, { body: md })} onReady={(a) => (api.current = a)} refs={isSpec ? S.all('doc').filter((d) => !d.pinned && !isGlossaryPath(d.id)).map((d) => d.id) : undefined} onRef={(id) => !item.links.includes(id) && S.toggleLink(item.id, id)} /></Suspense></div>
           : <><label className="sr" htmlFor="body">Content</label><textarea id="body" className="ed-body" spellCheck={false} placeholder="Write Markdown…" readOnly={locked} value={item.body} onChange={(e) => S.edit(item.id, { body: e.target.value })} /></>}
+        {isSpec && !ro && <GlossarySuggestions item={item} S={S} />}
       </div>
       {!locked && !asForm && (!isSpec || tab === 'content') && (
         <div className="toolbar"><div className="tools" id="tools" onPointerDown={(e) => (e.target as HTMLElement).closest('button') && e.preventDefault()}>
