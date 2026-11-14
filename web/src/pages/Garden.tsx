@@ -71,16 +71,15 @@ export function GardenPage() {
         </section>}
 
         <div id="gd-needs-list" className="garden">
-          <section id="gd-decisions">
-            <div className="sect-title"><span>Decisions</span><small style={{ color: decisions.length ? 'var(--amber)' : undefined }}>{decisions.length}</small></div>
-            {!decisions.length && <div className="gd-empty"><Icon name="check" size={18} /><span>No open decisions. Agents ask here when a spec leaves a choice open.</span></div>}
+          {!decisions.length && !feedback.length && <p className="quiet" id="gd-clear">Nothing waits for you.</p>}
+          {decisions.length > 0 && <section id="gd-decisions">
+            <div className="sect-title"><span>Decisions</span><small style={{ color: 'var(--amber)' }}>{decisions.length}</small></div>
             <div className="fb-list">{decisions.map((d) => <DecisionCard key={d.id} f={d} showSpec act={act} />)}</div>
-          </section>
-          <section id="gd-feedback">
-            <div className="sect-title"><span>Feedback</span><small style={{ color: feedback.length ? 'var(--amber)' : undefined }}>{feedback.length}</small></div>
-            {!feedback.length && <div className="gd-empty"><Icon name="check" size={18} /><span>No open feedback.</span></div>}
+          </section>}
+          {feedback.length > 0 && <section id="gd-feedback">
+            <div className="sect-title"><span>Feedback</span><small style={{ color: 'var(--amber)' }}>{feedback.length}</small></div>
             <div className="fb-list">{feedback.map((f) => <FbItem key={f.id} f={f} showSpec act={act} />)}</div>
-          </section>
+          </section>}
         </div>
 
         {toApprove.length > 0 && <section id="gd-approve">

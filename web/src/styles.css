@@ -1234,3 +1234,12 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 .gd-empty, .empty, .hint-empty, .rp-empty, .dd-empty, .ff-empty { border: 0; background: none; box-shadow: none; border-radius: 0; }
 .gd-empty { padding: 4px 0; }
 .list-card:has(> .hint-empty:only-child), .list-card:has(> .empty:only-child) { border: 0; background: none; box-shadow: none; }
+
+/* empty states recede: small, tertiary text, no icon, no big zero */
+.gd-empty, .empty, .rp-empty, .dd-empty, .ff-empty, .hint-empty, .quiet, .placeholder p { color: var(--ph); font-size: 13px; font-weight: 400; line-height: 1.5; }
+.quiet { margin: 0; padding: 4px 0; }
+.gd-empty svg { display: none; }
+.gd-empty { padding: 0; gap: 0; }
+.placeholder { gap: 8px; }
+.placeholder svg { width: 24px; height: 24px; opacity: .5; }
+.gd-stats > div:first-child:not(.hot) b { font-size: 16px; color: var(--muted); letter-spacing: 0; }
