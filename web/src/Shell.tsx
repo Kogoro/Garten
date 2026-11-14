@@ -111,15 +111,15 @@ export function Shell({ master, detail, single, active }: { master: ReactNode; d
       <a className="skip" href="#main" onClick={(e) => { e.preventDefault(); document.getElementById('main')?.focus(); }}>Skip to content</a>
       <nav className="sidebar" id="sidebar" aria-label="Sections">
         <button type="button" className="ws" aria-label="Switch team" onClick={m.workspace}><span className="ws-av">{initial(m.teamName)}</span><b>{m.teamName}</b><Icon name="chevron" size={14} />{m.invites > 0 && <span className="navitem badge" style={{ marginLeft: 6 }}>{m.invites}</span>}</button>
-        <div className="navlabel">Content</div>
-        {link('/', 'Specs', 'specs', nSpecs ? <span className="muted" style={{ marginLeft: 'auto', fontSize: 12 }}>{nSpecs}</span> : null)}{link('/docs', 'Documents', 'docs')}{link('/glossary', 'Glossary', 'glossary')}
-        <div className="navlabel">Release</div>
-        {link('/release', 'Release', 'release')}
-        <div className="navlabel">Agents</div>
-        {link('/garden', 'Garden', 'garden', needs > 0 ? <span className="badge" title="Decisions and feedback that wait for a person">{needs}</span> : null)}
-        <div className="navlabel">Team</div>
-        {link('/team', 'Members & Git', 'team')}
-        {S.isInstanceAdmin() && <><div className="navlabel">Instance</div>{link('/admin', 'Admin', 'shield')}</>}
+        <div className="navgroup">
+          {link('/garden', 'Garden', 'garden', needs > 0 ? <span className="badge" title="Decisions and feedback that wait for a person">{needs}</span> : null)}
+          {link('/', 'Specs', 'specs', nSpecs ? <span className="count" style={{ marginLeft: 'auto' }}>{nSpecs}</span> : null)}{link('/docs', 'Documents', 'docs')}{link('/glossary', 'Glossary', 'glossary')}
+          {link('/release', 'Release', 'release')}
+        </div>
+        <div className="navgroup">
+          {link('/team', 'Members & Git', 'team')}
+          {S.isInstanceAdmin() && link('/admin', 'Admin', 'shield')}
+        </div>
         <div className="sidefoot">
           <SyncPill />
           <button type="button" className="me" data-act="user-menu" aria-label="Account menu" onClick={m.user}><span className="avatar">{initial(me.name)}</span><span className="who"><b>{me.name}</b><small>{t?.role ?? (me.admin ? 'instance admin' : '')}</small></span><Icon name="more" size={18} /></button>
@@ -130,7 +130,7 @@ export function Shell({ master, detail, single, active }: { master: ReactNode; d
         {!single && <section className="detail" id="detail">{detail ?? <div className="placeholder"><Icon name={pi} size={40} /><p>{ptext}</p></div>}</section>}
       </main>
       <nav className="tabbar" id="tabbar" aria-label="Main sections">
-        {([['/', 'Specs', 'specs', 'specs'], ['/garden', 'Garden', 'garden', 'garden'], ['/docs', 'Docs', 'docs', 'docs'], ['/release', 'Release', 'release', 'release']] as const).map(([to, l, i, k]) => (
+        {([['/garden', 'Garden', 'garden', 'garden'], ['/', 'Specs', 'specs', 'specs'], ['/docs', 'Docs', 'docs', 'docs'], ['/release', 'Release', 'release', 'release']] as const).map(([to, l, i, k]) => (
           <NavLink key={to} to={to} end={to === '/'} aria-current={act === k ? 'page' : undefined}><Icon name={i} />{<span>{l}</span>}{k === 'garden' && needs > 0 && <span className="badge">{needs}</span>}</NavLink>
         ))}
         <button type="button" data-act="more-menu" aria-label="More" aria-current={['glossary', 'sync', 'team', 'account', 'admin'].includes(act) ? 'page' : undefined} onClick={m.more}><Icon name="more" /><span>More</span>{moreBadge > 0 && <span className="badge">{moreBadge}</span>}</button>
