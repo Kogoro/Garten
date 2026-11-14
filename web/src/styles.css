@@ -1161,3 +1161,51 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 .btn.ghost.small { border-color: transparent; background: none; color: var(--muted); }
 .docrow { border-radius: 0; }
 .btns > .btn.small { flex: 0 0 auto; }
+
+/* ================= proposal: compact bars, one primary action, title row, segmented filter ================= */
+/* filter: one segmented control, sort and type as a quiet text row */
+.seg.seg-fill { display: flex; width: 100%; overflow-x: auto; scrollbar-width: none; margin-left: 0; border: 0; }
+.seg.seg-fill .filter { flex: 1 1 auto; min-height: 32px; padding: 4px 12px; border: 0; border-radius: var(--radius-md); background: none; color: var(--muted); font-size: 13px; font-weight: 500; white-space: nowrap; }
+.seg.seg-fill .filter[aria-pressed="true"] { background: var(--panel); color: var(--text); font-weight: 600; box-shadow: var(--shadow-card); border: 0; }
+.sortrow { display: flex; justify-content: space-between; gap: 12px; }
+.sortrow .filter.sel { min-height: 24px; max-width: none; padding: 0 4px; border: 0; background: none; color: var(--muted); font-size: 12px; font-weight: 500; }
+.sortrow .filter.sel:hover { color: var(--text); }
+
+/* one primary action per view: while a spec or document is open, the list header's button steps back */
+.shell[data-pane="detail"] .master > .bar .btn.primary { background: var(--panel); color: var(--text); border: 1px solid var(--line); font-weight: 500; }
+.shell[data-pane="detail"] .master > .bar .btn.primary:hover { background: var(--tint); }
+/* repeated actions inside cards are secondary; the first decision on the Garden keeps the one primary */
+.btn.primary.small { background: var(--panel); color: var(--text); border: 1px solid var(--line); font-weight: 500; }
+.btn.primary.small:hover { background: var(--tint); }
+#gd-decisions .fb-list > :first-child .btn.primary.small { background: var(--accent); color: var(--on-accent); border: 0; font-weight: 600; }
+#gd-decisions .fb-list > :first-child .btn.primary.small:hover { background: var(--accent-hover); }
+
+@media (min-width: 900px) {
+  /* buttons in bars are 32 px high inside a 56 px bar */
+  .bar { min-height: 56px; }
+  .bar .btn, .bar .approve, .ed-bar .approve, .bar .dd > .btn, .ed-bar .docsbtn { height: 32px; min-height: 32px; padding: 0 12px; font-size: 14px; border-radius: var(--radius-md); }
+  .bar .btn.primary, .approve { padding: 0 16px; }
+  .bar .icon-btn { width: 32px; height: 32px; min-width: 32px; min-height: 32px; }
+  .pill { min-height: 24px; }
+
+  /* editor bar: actions on top, the title gets its own row, meta below, the tabs close the header */
+  .editor > .ed-bar { flex-wrap: wrap; align-items: center; row-gap: 8px; padding-top: 12px; padding-bottom: 0; }
+  .editor > .ed-bar > .save-ind { order: 1; margin-right: auto; }
+  .editor > .ed-bar > #docsSlot { order: 2; }
+  .editor > .ed-bar > #approveSlot { order: 3; }
+  .editor > .ed-bar > [data-act=item-menu] { order: 4; }
+  .editor > .ed-bar > .ed-title, .editor > .ed-bar > .ed-titlebox { order: 5; flex: 1 1 100%; width: 100%; font: 600 28px/1.2 var(--sans); letter-spacing: -0.02em; height: auto; min-height: 36px; padding: 8px 0 0; }
+  .editor > .ed-bar > #chips { order: 6; flex: 1 1 100%; padding-bottom: 12px; }
+  .editor > .ed-bar > .ed-break { display: none; }
+  .editor > .ed-bar:has(~ .tabs) { border-bottom: 0; }
+  .editor > .ed-bar > h1.ed-title.sr { position: absolute; }
+  .barchips { gap: 12px; }
+}
+.seg.seg-fill, .filters.seg { flex-wrap: nowrap; }
+.seg.seg-fill .filter { padding: 4px 8px; flex: 1 1 0; text-align: center; }
+@media (min-width: 900px) { .editor > .ed-bar:has(~ .tabs) { background: var(--bg); } }
+@media (max-width: 700px) {
+  /* phones: 40 px buttons (touch) inside 56 px bars, so they never fill the bar */
+  .bar, .editor > .ed-bar { min-height: 56px; }
+  .approve, .bar .btn { height: 40px; min-height: 40px; }
+}

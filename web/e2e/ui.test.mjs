@@ -363,15 +363,20 @@ try {
   assert.ok(await d.locator('#list').isVisible() && await d.locator('.editor').isVisible()); ok('desktop: list and editor side by side');
   await d.locator('.bn-inline-content', { hasText: 'idempotency key' }).first().waitFor();
 
-  // --- editor bar: title, status, linked documents, save state, approve and overflow menu in ONE row
+  // --- editor header: one row of actions (sync, documents, Approve, menu), the title on its own row, status and type below
   const bar = await d.locator('.ed-bar').boundingBox();
-  assert.ok(bar.height < 70, `bar height ${bar.height}`);
+  assert.ok(bar.height < 160, `bar height ${bar.height}`);
+  const act = await d.locator('.ed-bar #approveSlot [data-act=approve]').boundingBox();
+  assert.ok(act.height <= 32, `the Approve button is compact (${act.height} px) inside the bar`);
+  const ttl = await d.locator('.ed-bar .ed-title').first().boundingBox();
+  assert.ok(ttl.y > act.y + act.height - 1, 'the title sits below the action row');
+  assert.equal(await d.locator('.master > .bar .btn.primary').evaluate((e) => getComputedStyle(e).backgroundColor !== getComputedStyle(document.querySelector('.ed-bar .approve')).backgroundColor), true); // one primary: the list button steps back while a spec is open
   for (const sel of ['.ed-title', '#chips', '#docsDd', '#saveInd', '#approveSlot [data-act=approve]', '[data-act=item-menu]']) {
     const b = await d.locator(`.ed-bar ${sel}`).boundingBox();
     assert.ok(b && b.y >= bar.y - 1 && b.y + b.height <= bar.y + bar.height + 1, `${sel} sits in the bar`);
   }
   assert.equal(await d.locator('.ed-bar [data-act=mode]').count(), 0); assert.equal(await d.locator('.editor .ed-meta, .editor .links').count(), 0);
-  ok('editor: title, status, documents, save state and Approve share one compact bar; no extra meta/link rows');
+  ok('editor: actions row, title row and status row in one header; compact Approve is the only primary; no extra meta/link rows');
   await d.click('#docsDd [data-act=dd-toggle]');
   await d.locator('#docsDd .dd-menu').waitFor();
   const labelBefore = await d.locator('#docsDd .docsbtn').innerText();
@@ -389,22 +394,22 @@ try {
   const fbRes = await admin.post(`/api/teams/${admin.tid}/feedback`, { specId: 'SPEC-014', kind: 'concern', section: '## REQUIREMENTS', text: 'R3 (keys expire) conflicts with the retry window in ADR-007.', evidence: 'docs/adr/ADR-007.md' });
   assert.equal(fbRes.status, 200);
   await d.evaluate(() => dispatchEvent(new Event('online')));
-  await d.locator('.fbbtn.has .cnt', { hasText: '1' }).waitFor({ timeout: 10000 });
+  await d.locator('#tab-feedback .tab-badge', { hasText: '1' }).waitFor({ timeout: 10000 });
   await d.locator('#list .row', { hasText: 'SPEC-014' }).locator('.chip', { hasText: '1 feedback' }).waitFor(); ok('open feedback shows up as a badge in the editor bar and in the spec list');
-  await d.click('[data-act=feedback]');
+  await d.click('#tab-feedback');
   await d.locator('.fb-item', { hasText: 'conflicts with the retry window' }).waitFor();
-  assert.ok(await d.locator('.fb-item .fb-evidence', { hasText: 'ADR-007.md' }).isVisible()); ok('the feedback sheet shows kind, section, text and evidence');
+  assert.ok(await d.locator('.fb-item .fb-evidence', { hasText: 'ADR-007.md' }).isVisible()); ok('the feedback tab shows kind, section, text and evidence');
   await d.fill('.fb-item input', 'Good catch – extending the window in ADR-007.'); await d.click('[data-act=fb-accept]');
   await d.getByText('No open feedback.').waitFor();
   await d.locator('#tabpanel').getByRole('button', { name: /^All/ }).click(); await d.locator('.fb-item .fb-reply', { hasText: 'Good catch' }).waitFor(); ok('a person accepts feedback with a reply; it leaves the open list');
   await d.click('#tab-content'); // feedback is a tab of the spec now
-  await d.waitForFunction(() => !document.querySelector('.fbbtn.has'), null, { timeout: 10000 }); ok('the badge disappears once nothing is open');
+  await d.waitForFunction(() => !document.querySelector('#tab-feedback .tab-badge'), null, { timeout: 10000 }); ok('the badge disappears once nothing is open');
   // accept a finding and take it into the spec as a review note (checklist item)
   const fb2 = await admin.post(`/api/teams/${admin.tid}/feedback`, { specId: 'SPEC-014', kind: 'question', section: '## ACCEPTANCE CRITERIA', text: 'What happens when the key store is unavailable?' });
   assert.equal(fb2.status, 200);
   await d.evaluate(() => dispatchEvent(new Event('online')));
-  await d.locator('.fbbtn.has').waitFor({ timeout: 10000 });
-  await d.click('[data-act=feedback]'); await d.locator('.fb-item', { hasText: 'key store is unavailable' }).waitFor();
+  await d.locator('#tab-feedback .tab-badge').waitFor({ timeout: 10000 });
+  await d.click('#tab-feedback'); await d.locator('.fb-item', { hasText: 'key store is unavailable' }).waitFor();
   await d.click('[data-act=fb-accept-note]'); await d.getByText('No open feedback.').waitFor(); await d.click('#tab-content');
   await setMode(d, 'markdown');
   assert.match(await d.inputValue('#body'), /## REVIEW NOTES\n\n- \[ \] question \(ACCEPTANCE CRITERIA\): What happens when the key store is unavailable\?/); ok('"Accept & add to spec" turns a finding into a checklist item under REVIEW NOTES (an unreleased edit)');
