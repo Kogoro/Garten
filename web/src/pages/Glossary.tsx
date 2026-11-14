@@ -305,7 +305,7 @@ function GlossaryList({ arg }: { arg?: string }) {
         )}
       </Bar>
       <input type="file" ref={file} hidden aria-label="Glossary file" accept=".zip,.csv,.tsv,.json,.md,.markdown,.txt" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; pickFile(f); }} />
-      <Tabs label="Glossary views" value={tab} onChange={setTab} tabs={[{ id: 'terms', label: 'Terms' }, { id: 'proposed', label: 'Proposed', badge: proposed.length || undefined }, { id: 'health', label: 'Health', badge: serious || undefined }]} />
+      <Tabs label="Glossary views" controls={tab === 'terms' ? 'glList' : tab === 'proposed' ? 'glProposed' : 'glHealth'} value={tab} onChange={setTab} tabs={[{ id: 'terms', label: 'Terms' }, { id: 'proposed', label: 'Proposed', badge: proposed.length || undefined }, { id: 'health', label: 'Health', badge: serious || undefined }]} />
       {tab === 'terms' && <>
         <div className="listtools"><div className="search"><Icon name="search" /><label className="sr" htmlFor="gsearch">Search terms</label><input id="gsearch" type="search" placeholder="Search terms, synonyms and definitions" value={q} onChange={(e) => setQ(e.target.value)} /></div></div>
         <div className="list" id="glList" role="tabpanel" aria-labelledby="tab-terms">
