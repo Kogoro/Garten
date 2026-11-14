@@ -230,7 +230,7 @@ export function ItemEditor({ item }: { item: Item }) {
         {phone && editing && !ro && <button type="button" className="ed-done" data-act="edit-done" onClick={() => setEditing(false)}>Done</button>}
         <button type="button" className="icon-btn" data-act="item-menu" aria-label="More actions" aria-haspopup="menu" onClick={itemMenu}><Icon name="more" /></button>
       </header>
-      {phone && locked && isSpec && (
+      {phone && locked && isSpec && tab === 'content' && (
         <section className="sumstrip" aria-label="Overview">
           <button type="button" className="sumcell" data-act="link-docs" onClick={() => setSheet('link')}><small>Documents</small><span>{item.links.length} linked</span></button>
         </section>
