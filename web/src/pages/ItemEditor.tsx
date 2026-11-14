@@ -2,6 +2,7 @@ import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Dropdown, Sheet, MenuHost } from '../dialogs';
 import { glossaryTerms } from '../glossaryLib';
+import { isGlossaryPath } from '@shared/glossaryFiles.js';
 import type { EditorApi } from '../editor/SpecEditor';
 import { BLOCK_MENU } from '../editor/blockTypes';
 import { Hint } from '../Hint';
@@ -110,7 +111,7 @@ function DocsDd({ i, S, onNew }: { i: Item; S: Store; onNew: () => void }) {
     return <span className="muted hint docinfo">{used.length ? `Used by ${used.map((s) => s.id).join(', ')}` : 'Not linked to a spec yet'}</span>;
   }
   const n = i.links.length;
-  const docs = S.all('doc').filter((d) => !d.pinned || i.links.includes(d.id)).sort((a, b) => a.id.localeCompare(b.id));
+  const docs = S.all('doc').filter((d) => !isGlossaryPath(d.id) && (!d.pinned || i.links.includes(d.id))).sort((a, b) => a.id.localeCompare(b.id));
   const can = S.can('write');
   return (
     <Dropdown id="docsDd" className="docsbtn" ariaLabel="Linked documents" menuClass="docs-menu"
@@ -145,7 +146,7 @@ export function ItemEditor({ item }: { item: Item }) {
   const blocks = mode === 'blocks';
   const asForm = mode === 'form' && !!form;
   const path = isSpec ? `${S.team()!.key}/${item.id}.md` : `docs/${item.id}`;
-  const back = isSpec ? '/' : item.id === 'glossary.md' ? '/glossary' : '/docs';
+  const back = isSpec ? '/' : isGlossaryPath(item.id) ? '/glossary' : '/docs';
 
   /** What the user marked in this item (blocks editor, Markdown view or read view); empty = nothing selected. */
   function selected(): string {
@@ -158,11 +159,11 @@ export function ItemEditor({ item }: { item: Item }) {
     const src = sel || item.body.trim();
     const canDerive = S.can('write') && hasContent(src);
     const what = sel ? 'selection' : item.kind === 'spec' ? 'this spec' : 'this document';
-    const inGlossary = (t: string) => glossaryTerms(S).some((x) => x.term.toLowerCase() === t.toLowerCase() && x.defs.some((d) => d.item.id === 'glossary.md'));
-    const defs = !sel && item.id !== 'glossary.md' ? newDefinitions(item.body, inGlossary) : [];
+    const inGlossary = (t: string) => !!S.termByName(t);
+    const defs = !sel && !isGlossaryPath(item.id) ? newDefinitions(item.body, inGlossary) : [];
     const deriveItems = canDerive ? [
       { key: 'derive:spec', label: `New spec from ${what}…` },
-      ...(item.id === 'glossary.md' ? [] : [{ key: 'derive:term', label: `Glossary term from ${what}…` }]),
+      ...(isGlossaryPath(item.id) ? [] : [{ key: 'derive:term', label: `Glossary term from ${what}…` }]),
       ...(defs.length ? [{ key: 'derive:defs', label: `Add ${defs.length} definition${defs.length === 1 ? '' : 's'} of this ${isSpec ? 'spec' : 'document'} to the glossary` }] : []),
     ] : [];
     const info = [{ key: 'info', label: `${path}${item.version ? ` · v${item.version}` : ''}${item.updatedBy ? ` · edited by ${item.updatedBy}` : ''}`, disabled: true }];
@@ -175,7 +176,7 @@ export function ItemEditor({ item }: { item: Item }) {
     const phoneItems = phone && isSpec ? [{ key: 'feedback', label: `Feedback: ${S.feedbackCount(item.id)} open` }, { key: 'docs', label: `Linked documents: ${item.links.length}` }] : [];
     const key = await openMenu(item.id, [...info, ...phoneItems, ...impl, ...deriveItems, ...modeItems, ...typeItem, ...actions]);
     if (key === 'derive:spec' || key === 'derive:term') return setDerive({ kind: key === 'derive:spec' ? 'spec' : 'term', text: src, whole: !sel });
-    if (key === 'derive:defs') { S.upsertGlossaryTerms(defs.map((d) => ({ term: d.term, definition: d.definition, aliases: d.aliases, see: d.see }))); return toast(`${defs.length} term${defs.length === 1 ? '' : 's'} added to the glossary`); }
+    if (key === 'derive:defs') { const r = S.importTerms(defs.map((d) => ({ term: d.term, body: d.definition, aliases: d.aliases, see: d.see }))); return toast(`${r.added} term${r.added === 1 ? '' : 's'} added to the glossary`); }
     if (key === 'feedback') return setTab('feedback');
     if (key === 'docs') return setSheet('link');
     if (key === 'report') return setTab('report');
@@ -255,7 +256,7 @@ export function ItemEditor({ item }: { item: Item }) {
         {asForm
           ? <div className="blocks" id="form"><Suspense fallback={<EditorFallback />}><SpecForm docKey={`${item.team}|${item.id}|${item.specType}`} schema={form!} value={item.body} readOnly={locked} onChange={(md) => S.edit(item.id, { body: md })} /></Suspense></div>
           : blocks
-          ? <div className="blocks" id="blocks"><Suspense fallback={<EditorFallback />}><SpecEditor terms={item.id === 'glossary.md' ? undefined : glossaryTerms(S).map((t) => t.term)} docKey={`${item.team}|${item.id}`} value={item.body} readOnly={locked} onChange={(md) => S.edit(item.id, { body: md })} onReady={(a) => (api.current = a)} refs={isSpec ? S.all('doc').filter((d) => !d.pinned).map((d) => d.id) : undefined} onRef={(id) => !item.links.includes(id) && S.toggleLink(item.id, id)} /></Suspense></div>
+          ? <div className="blocks" id="blocks"><Suspense fallback={<EditorFallback />}><SpecEditor terms={glossaryTerms(S).map((t) => t.term)} docKey={`${item.team}|${item.id}`} value={item.body} readOnly={locked} onChange={(md) => S.edit(item.id, { body: md })} onReady={(a) => (api.current = a)} refs={isSpec ? S.all('doc').filter((d) => !d.pinned && !isGlossaryPath(d.id)).map((d) => d.id) : undefined} onRef={(id) => !item.links.includes(id) && S.toggleLink(item.id, id)} /></Suspense></div>
           : <><label className="sr" htmlFor="body">Content</label><textarea id="body" className="ed-body" spellCheck={false} placeholder="Write Markdown…" readOnly={locked} value={item.body} onChange={(e) => S.edit(item.id, { body: e.target.value })} /></>}
       </div>
       {!locked && !asForm && (!isSpec || tab === 'content') && (

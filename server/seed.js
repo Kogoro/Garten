@@ -1,4 +1,5 @@
 import * as store from './store.js';
+import { formatTermFile, termPath } from '../shared/glossaryFiles.js';
 import { createGlobalTerm, listGlobalTerms } from './globalGlossary.js';
 
 /** Demo content mirroring the design mockup. Only runs on an empty team (after ensureFoundation). */
@@ -13,8 +14,16 @@ export async function seedDemo(team) {
 
   fill('vision.md', '# Vision\n\n## Where are we heading?\nInvoices that settle themselves: customers are billed exactly once, on time, with no manual follow-up.\n\n## Why does it matter?\nBilling errors are our most expensive support topic and the fastest way to lose trust.\n');
   fill('strategy.md', '# Strategy\n\n## Goals\n- Zero double charges\n- Every billing event is explainable from the ledger\n\n## Principles and trade-offs\n- Correctness over speed: retries must be safe before they are fast\n\n## Out of scope\n- Tax filing\n');
-  fill('glossary.md', '# Glossary\n\nAttempt window\n: The time bucket in which retries of one invoice run count as the same attempt.\n\nIdempotency key\n: A client-chosen token that makes a charge request safe to repeat.\n');
-  for (const id of ['vision.md', 'strategy.md', 'glossary.md']) await store.releaseDoc(team, id);
+  for (const id of ['vision.md', 'strategy.md']) await store.releaseDoc(team, id);
+  // the glossary: a folder of term files (one Markdown file per term, sub-folders group them)
+  store.saveItem(t, { id: 'glossary', kind: 'folder' }, 0);
+  store.saveItem(t, { id: 'glossary/Billing', kind: 'folder' }, 0);
+  const term = (folder, x) => { const id = termPath(folder, x.term); doc(id, formatTermFile(x)); return id; };
+  const terms = [
+    term('Billing', { term: 'Attempt window', aliases: ['retry window'], avoid: ['retry period'], see: ['Idempotency key'], body: 'The **time bucket** in which retries of one invoice run count as the same attempt. A new window opens when the [[Idempotency key]] changes.\n\n- starts with the first delivery attempt\n- closes after `ATTEMPT_WINDOW_MINUTES` (default 30)\n- is never reopened – a late retry starts a new window' }),
+    term('', { term: 'Idempotency key', body: 'A client-chosen token that makes a charge request safe to repeat.' }),
+  ];
+  await store.releaseDocs(team, terms);
 
   store.saveItem(t, { id: 'adr', kind: 'folder' }, 0);
   store.saveItem(t, { id: 'schemas', kind: 'folder' }, 0);

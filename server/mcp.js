@@ -11,7 +11,9 @@ import { listTypes, isKnownType } from './specTypes.js';
 import { glossaryEntries, CORE_DOCS } from './store.js';
 import { hasContent } from '../shared/glossary.js';
 import { Limiter } from './ratelimit.js';
-import { readSource, deriveGlossary, deriveSpecs, attachGlossary } from './derive.js';
+import { readSource, proposeTerms, deriveSpecs } from './derive.js';
+import { isGlossaryPath, isTermPath, firstParagraph, plainText } from '../shared/glossaryFiles.js';
+import { extractTermRefs } from '../shared/glossary.js';
 
 const text = (t) => ({ content: [{ type: 'text', text: t }] });
 const fail = (t) => ({ content: [{ type: 'text', text: t }], isError: true });
@@ -38,7 +40,7 @@ function buildServer(team, canDrafts, writer) {
             'Back every criterion you call met with a re-runnable check: register_check (test, CI job, metric, command), run it, report_check_result, and name it in the criterion – checks are run again after changes, and get_work_list shows the specs whose checks fail or went stale as "recheck". ' +
             'When the spec leaves a choice open that a person should make, do not guess: call request_decision with 2–6 options and your recommendation, continue with other work, and look for the answer with list_decisions later. ' +
             'If you disagree with a spec or find it conflicts with the code, do not edit it: use add_feedback (check list_feedback first). ' +
-            'To turn a document into glossary entries and specs use derive_from_document (prompt: derive_glossary_and_specs). You may create and edit DRAFTS (create_draft_spec, update_draft_spec, create_draft_document, update_draft_document, derive_from_document); you can never approve, publish or delete – a person reviews your drafts in the Specs app. When a draft is ready call propose_acceptance, and for a spec that should go call propose_deletion: an approver decides.'
+            'To turn a document into glossary entries and specs use derive_from_document (prompt: derive_glossary_and_specs); a single new term goes through propose_term. You may create and edit DRAFTS (create_draft_spec, update_draft_spec, create_draft_document, update_draft_document, derive_from_document); you can never approve, publish or delete – a person reviews your drafts in the Specs app. When a draft is ready call propose_acceptance, and for a spec that should go call propose_deletion: an approver decides.'
           : ''),
     },
   );
@@ -121,7 +123,7 @@ function buildServer(team, canDrafts, writer) {
     { description: 'The standing context of this team: vision, strategy, any other foundation documents and the glossary. Read this before working on any spec. Parts without content are omitted.' },
     async () => {
       const released = new Map();
-      for (const d of store.pinnedDocs(t).filter((x) => x.status === 'approved')) {
+      for (const d of store.pinnedDocs(t).filter((x) => x.status === 'approved' && !isGlossaryPath(x.id))) {
         try { const body = await store.readReleasedDoc(team, d.id); if (hasContent(body)) released.set(d.id, body); } catch { /* not in repo (yet) */ }
       }
       const order = ['vision.md', 'strategy.md', 'guardrails.md', ...[...released.keys()].filter((k) => !(k in CORE_DOCS)).sort()];
@@ -130,10 +132,10 @@ function buildServer(team, canDrafts, writer) {
       for (const id of order) if (released.has(id)) md += `\n---\n<!-- ${id} -->\n${released.get(id).trim()}\n`;
       const terms = await glossaryEntries(team);
       if (terms.length) {
-        md += '\n---\n## Glossary\n\n';
+        md += '\n---\n## Glossary\n\nFirst paragraph of every term; get_glossary returns the full definitions (examples, lists). Use these words, never the ones marked "do not say".\n\n';
         for (const e of terms.sort((a, b) => a.term.localeCompare(b.term))) {
           const see = [...new Set([...e.see, ...e.refs])];
-          md += `- **${e.term}**${e.aliases.length ? ` (also: ${e.aliases.join(', ')})` : ''}: ${e.definition}${see.length ? ` — see also: ${see.join(', ')}` : ''} _(${e.source})_\n`;
+          md += `- **${e.term}**${e.aliases.length ? ` (also: ${e.aliases.join(', ')})` : ''}: ${firstParagraph(e.definition) || plainText(e.definition)}${e.avoid?.length ? ` — do not say: ${e.avoid.join(', ')}` : ''}${see.length ? ` — see also: ${see.join(', ')}` : ''} _(${e.source})_\n`;
         }
       }
       if (md.length < 60) md += '\n_Nothing has been written down yet (vision, strategy and glossary are empty)._\n';
@@ -293,36 +295,46 @@ function buildServer(team, canDrafts, writer) {
       run(async ({ spec_id, name }) => { retireCheck(team, spec_id, name); return { retired: name }; }),
     );
 
+    const termInput = {
+      term: z.string().min(1).max(80), definition: z.string().min(1).max(4000).describe('Markdown. First paragraph = one-sentence definition; lists or an "Example" may follow. Reference other terms with [[Term]].'),
+      aliases: z.array(z.string().min(1).max(80)).max(8).optional().describe('Synonyms used in the source'),
+      see_also: z.array(z.string().min(1).max(80)).max(8).optional().describe('Related terms'),
+      avoid: z.array(z.string().min(1).max(80)).max(8).optional().describe('Words people should not use for this term'),
+      folder: z.string().max(100).optional().describe('Suggested glossary folder, e.g. Billing or Billing/Invoices'),
+    };
     server.registerTool(
       'derive_from_document',
       {
         description: 'Turn an existing document (or spec) into glossary entries and spec drafts in ONE call. Read the source first (get_document / get_spec with draft=true), then pass what you found. ' +
-          'glossary: the terms the source uses with a specific meaning – each with a one-sentence definition in the source\'s own words (never invent meaning; skip common words and anything the source does not explain). They are stored as definitions in the draft document glossary/from-<source>.md. ' +
-          'Terms (or aliases) that are already defined – released or in another draft – are NOT written again; they come back under "exists" with their definition, so use that term and link to it. ' +
+          'glossary: the terms the source uses with a specific meaning – each with a definition in the source\'s own words (never invent meaning; skip common words and anything the source does not explain). Each becomes a PROPOSED term (glossary/_proposed/<term>.md) that an approver accepts or declines in the Glossary. ' +
+          'Terms (or aliases) that are already defined – released, in a draft or proposed – are NOT written again; they come back under "exists" with their definition, so use that term and reference it as #[Term]. ' +
           'specs: self-contained requirements the source states or implies, each as its own draft (follow list_spec_types for the body of typed specs); a "## SOURCE" section is added. ' +
-          'Nothing goes live: a person reviews the drafts. The glossary draft is linked to the new specs (or to attach_to) and is released together with the first approved one. ' + REVIEW,
+          'Nothing goes live: a person reviews everything. ' + REVIEW,
         inputSchema: {
           source: z.string().describe('Path of the document (e.g. notes/payments.md) or id of the spec the content comes from'),
-          glossary: z.array(z.object({
-            term: z.string().min(1).max(80), definition: z.string().min(1).max(600),
-            aliases: z.array(z.string().min(1).max(80)).max(8).optional().describe('Synonyms used in the source'),
-            see_also: z.array(z.string().min(1).max(80)).max(8).optional().describe('Related terms'),
-          })).max(60).optional(),
+          glossary: z.array(z.object(termInput)).max(60).optional(),
           specs: z.array(z.object({ title: z.string().min(1).max(200), type: z.string().optional().describe('Spec type key, default feature'), body })).max(10).optional(),
-          attach_to: z.string().optional().describe('Id of an existing draft spec to link the glossary draft to when you derive no new specs'),
         },
       },
-      run(async ({ source, glossary, specs, attach_to }) => {
+      run(async ({ source, glossary, specs }) => {
         if (!glossary?.length && !specs?.length) throw new store.ApiError('Nothing to derive: pass glossary entries and/or specs.');
         readSource(t, source);
-        const g = glossary?.length ? await deriveGlossary(team, source, glossary, by) : null;
-        const created = specs?.length ? deriveSpecs(team, source, specs, { glossaryPath: g?.path }, by) : [];
-        if (attach_to && g?.path) attachGlossary(t, attach_to, g.path, by);
-        const orphan = g?.path && !created.length && !attach_to;
-        return {
-          source, glossary: g ? { document: g.path, rev: g.rev, added: g.added, updated: g.updated, exists: g.exists } : undefined, specs: created,
-          note: REVIEW + (orphan ? ` The glossary draft ${g.path} is not linked to any spec yet, so it cannot go live: call again with attach_to=<spec id>, or a person links it.` : ''),
-        };
+        const g = glossary?.length ? await proposeTerms(team, glossary, by, source) : null;
+        const created = specs?.length ? deriveSpecs(team, source, specs, by) : [];
+        return { source, glossary: g ?? undefined, specs: created, note: `${REVIEW} Proposed terms wait in the Glossary until an approver accepts them.` };
+      }),
+    );
+
+    server.registerTool(
+      'propose_term',
+      {
+        description: 'Propose ONE new glossary term (e.g. a word the specs use that the glossary lacks, or a term you need to name while working). It lands in the Proposed tab of the Glossary; an approver accepts, edits or declines it. Known terms and aliases are refused with their existing definition.',
+        inputSchema: { ...termInput, source: z.string().max(120).optional().describe('Where the term comes from (document path or spec id)') },
+      },
+      run(async ({ source, ...e }) => {
+        const g = await proposeTerms(team, [e], by, source ?? null);
+        if (g.exists.length) return { refused: 'already defined', ...g.exists[0] };
+        return { proposed: g.proposed[0], updated: g.updated.length > 0, note: 'Waits in the Glossary until an approver accepts it.' };
       }),
     );
 
@@ -366,6 +378,7 @@ function buildServer(team, canDrafts, writer) {
       },
       run(async ({ path, body: md }) => {
         if (store.isCoreDoc(path)) throw new store.ApiError(`${path} is a foundation document; only people change those.`);
+        if (isGlossaryPath(path)) throw new store.ApiError('The glossary is a folder of term files that people curate. Use propose_term (or derive_from_document) to suggest a term.');
         if (store.getItem(t, path)) throw new store.ApiError(`${path} already exists – use update_draft_document.`);
         const item = store.saveItem(t, { id: path, kind: 'doc', title: path, body: md, links: [] }, 0, by);
         return { path: item.id, rev: item.rev, status: 'draft', note: REVIEW };
@@ -473,12 +486,25 @@ function buildServer(team, canDrafts, writer) {
 
   server.registerTool(
     'get_glossary',
-    { description: 'The project glossary: all terms defined in released specs and documents, with aliases (synonyms), related terms and their source. Optionally filter by term or alias.', inputSchema: { term: z.string().optional() } },
-    async ({ term }) => {
+    {
+      description: 'The project glossary: every released term with its full definition (Markdown), synonyms (aliases), words to avoid, terms it must not be confused with, related terms and its source. Optionally filter by term or alias, or pass spec to get only the terms that spec uses.',
+      inputSchema: { term: z.string().optional(), spec: z.string().optional().describe('Spec id: only the terms this spec references (#[Term]) or mentions') },
+    },
+    async ({ term, spec }) => {
       const q = term?.trim().toLowerCase();
-      const entries = (await glossaryEntries(team)).filter((e) => !q || e.term.toLowerCase().includes(q) || e.aliases.some((a) => a.toLowerCase().includes(q)));
+      let entries = (await glossaryEntries(team)).filter((e) => !q || e.term.toLowerCase().includes(q) || e.aliases.some((a) => a.toLowerCase().includes(q)));
+      if (spec) {
+        let md = '';
+        try { md = await store.readReleasedSpec(team, spec); } catch { md = canDrafts ? store.getItem(t, spec)?.body ?? '' : ''; }
+        if (!md) return fail(`No released spec "${spec}".`);
+        const refs = new Set(extractTermRefs(md).map((x) => x.toLowerCase()));
+        const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const mentions = (e) => [e.term, ...e.aliases].some((n) => refs.has(n.toLowerCase()) || new RegExp(`(^|[^\\p{L}\\p{N}])${esc(n)}(?![\\p{L}\\p{N}])`, 'iu').test(md));
+        entries = entries.filter(mentions);
+      }
       return text(JSON.stringify(entries.sort((a, b) => a.term.localeCompare(b.term)).map((e) => ({
-        term: e.term, definition: e.definition, aliases: e.aliases, see_also: [...new Set([...e.see, ...e.refs])], from_global_glossary: !!e.origin, source: e.source,
+        term: e.term, definition: e.definition, aliases: e.aliases, avoid: e.avoid ?? [], not_to_be_confused_with: e.distinct ?? [],
+        see_also: [...new Set([...e.see, ...e.refs])], folder: e.folder ?? null, from_global_glossary: !!e.origin, source: e.source,
       })), null, 2));
     },
   );

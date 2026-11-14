@@ -56,6 +56,7 @@ export function MenuHost() {
   return (
     <Sheet onClose={() => done(null)}>
       <h2>{menu.title}</h2>
+      {menu.text && <p className="menu-text">{menu.text}</p>}
       <div className="menu">
         {menu.items.map((it) => <button key={it.key} type="button" className={`menu-item ${it.danger ? 'danger' : ''} ${it.current ? 'current' : ''}`} disabled={it.disabled} onClick={() => done(it.key)}>{it.label}{it.current ? ' ✓' : ''}</button>)}
       </div>
