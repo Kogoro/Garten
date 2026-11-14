@@ -136,7 +136,7 @@ try {
   const draftTok = (await editor.c.post('/api/me/tokens', { name: 'drafts', scopes: ['mcp:read', 'mcp:drafts'], teamId: T1 })).data;
 
   let c0; let c = await mcp(readTok.token);
-  assert.deepEqual(await toolNames(c), ['get_document', 'get_glossary', 'get_spec', 'get_spec_changes', 'get_team_context', 'get_work_list', 'list_checks', 'list_decisions', 'list_documents', 'list_reports', 'list_spec_types', 'list_specs']);
+  assert.deepEqual(await toolNames(c), ['get_criteria', 'get_document', 'get_glossary', 'get_spec', 'get_spec_changes', 'get_team_context', 'get_work_list', 'list_checks', 'list_decisions', 'list_documents', 'list_reports', 'list_spec_types', 'list_specs']);
   assert.equal(await hasParam(c, 'list_specs', 'include_drafts'), false); ok('read token: no draft parameters exposed');
   assert.ok(JSON.parse((await call(c, 'list_specs')).text).find((s) => s.id === id && s.approved_by === 'approver user'));
   assert.match((await call(c, 'get_spec', { id })).text, /```mermaid\nflowchart LR/); ok('agent receives released spec incl. mermaid block');
@@ -664,6 +664,9 @@ try {
     const reps = (await gView.c.get(`/api/teams/${T1}/reports?spec=${gid}`)).data.reports;
     assert.equal(reps.length, 1); assert.equal(reps[0].criteria[1].status, 'open'); assert.equal(reps[0].evidence[0].ref, 'abc1234'); assert.match(reps[0].via, /Builder agent/); assert.match(reps[0].deviations, /ISO/); ok('an agent reports criteria, evidence and deviations; everyone in the team can read the report');
     w = (await work()).work.find((x) => x.spec_id === gid); assert.equal(w.state, 'partial'); assert.equal(w.last_report.status, 'partial');
+    const gc = JSON.parse((await call(ro, 'get_criteria', { spec_id: gid })).text);
+    assert.deepEqual(gc.criteria.map((c) => [c.id, c.text, c.last_reported]), [['AC1', 'CSV export', 'met'], ['AC2', 'PDF export', 'open']]); assert.equal(reps[0].criteria[0].id, 'AC1');
+    assert.equal((await call(ro, 'get_criteria', { spec_id: draftId })).isError, true); ok('get_criteria: the spec\'s own checklist with stable ids and what the last report said; reports are matched to it');
     await call(ag, 'report_implementation', { spec_id: gid, status: 'implemented', summary: 'CSV and PDF export are done.', criteria: crit.map((c) => ({ text: c.text, status: 'met' })), evidence: [{ kind: 'pr', ref: 'https://git.example/pr/7' }] });
     const wl = await work(); assert.equal(wl.work.find((x) => x.spec_id === gid), undefined); assert.ok(wl.up_to_date >= 1);
     const s3 = (await gEd.c.post(syncUrl, { since: 1e9, changes: [] })).data;
@@ -675,6 +678,15 @@ try {
     const ch = JSON.parse((await call(ro, 'get_spec_changes', { id: gid })).text);
     assert.equal(ch.from, 1); assert.equal(ch.to, 2); assert.deepEqual(ch.sections_changed, [{ section: 'ACCEPTANCE CRITERIA', change: 'changed' }, { section: 'OUT OF SCOPE', change: 'added' }]); assert.match(ch.diff, /\+- \[ \] XLSX export/);
     assert.equal((await call(ro, 'get_spec_changes', { id: gid, from: 2, to: 2 })).isError, true); assert.equal((await call(ro, 'get_spec_changes', { id: 'NOPE-9' })).isError, true); ok('a newer release puts the spec back on the work list as changed, with the changed sections and a diff');
+    const short = await call(ag, 'report_implementation', { spec_id: gid, status: 'implemented', summary: 'All done', criteria: [{ id: 'AC1', status: 'met' }, { text: 'pdf export.', status: 'met' }] });
+    assert.equal(short.isError, true); assert.match(short.text, /leaves out 1: AC3 "XLSX export"/); ok('"implemented" is refused while a criterion of the spec is missing from the report');
+    assert.match((await call(ag, 'report_implementation', { spec_id: gid, status: 'partial', summary: 'x', criteria: [{ id: 'AC9', status: 'met' }] })).text, /no criterion "AC9"/);
+    assert.match((await call(ag, 'report_implementation', { spec_id: gid, status: 'partial', summary: 'x', criteria: [{ id: 'AC1', status: 'met' }, { text: 'CSV export', status: 'met' }] })).text, /both AC1/); ok('unknown ids and the same criterion twice are refused');
+    const r2 = JSON.parse((await call(ag, 'report_implementation', { spec_id: gid, status: 'partial', summary: 'CSV and PDF', criteria: [{ id: 'AC1', status: 'met' }, { text: 'PDF export', status: 'met' }, { text: 'Faster than before', status: 'met' }] })).text);
+    assert.deepEqual(r2.not_reported, ['AC3']); assert.equal(r2.not_in_spec, 1);
+    const lr2 = (await gView.c.get(`/api/teams/${T1}/reports?spec=${gid}`)).data.reports[0];
+    assert.deepEqual(lr2.criteria.map((c) => [c.id ?? null, c.status]), [['AC1', 'met'], ['AC2', 'met'], ['AC3', 'open'], [null, 'met']]); assert.equal(lr2.criteria[2].missing, true); assert.equal(lr2.criteria[0].text, 'CSV export');
+    ok('criteria left out are stored as open in the spec\'s order; extra lines of the agent are kept');
 
     // webhook: tells an agent runner about releases and answers
     const hookOf = async (c = admin) => (await c.get(`/api/teams/${T1}`)).data.team.hook;
@@ -905,10 +917,13 @@ try {
     r = await admin.push([{ id: sid, kind: 'spec', baseRev: cur.rev, fields: { body: cur.body + '\n- [ ] Third criterion\n' } }]);
     r = await admin.push([{ id: sid, kind: 'spec', baseRev: r[0].item.rev, approve: true, fields: {} }]); assert.equal(r[0].item.version, 2);
     w = await wl(); assert.equal(w.state, 'changed');
-    await call(ag, 'report_implementation', { spec_id: sid, version: 2, status: 'implemented', summary: 'v2', criteria: [{ text: 'Rotation works', status: 'met', checks: ['unit: rotation'] }] });
+    const v2rep = await call(ag, 'report_implementation', { spec_id: sid, version: 2, status: 'implemented', summary: 'v2', criteria: [{ text: 'Rotation works', status: 'met', checks: ['unit: rotation'] }, { id: 'AC2', status: 'met' }, { id: 'AC3', status: 'deviating', note: 'only for v2 keys' }] });
+    assert.ok(!v2rep.isError, v2rep.text);
     w = await wl(); assert.equal(w.state, 'recheck'); assert.equal(w.checks_to_run[0].state, 'stale'); ok('a passing result for an older spec version is stale after a new release');
     assert.equal(JSON.parse((await call(ag, 'retire_check', { spec_id: sid, name: 'unit: rotation' })).text).retired, 'unit: rotation');
     assert.equal((await call(ro, 'list_checks', { spec_id: sid })).text, '[]'); ok('a retired check no longer counts');
+    const rv = (await kEd.c.get(`/api/teams/${T1}/reports?spec=${sid}`)).data.reports[0];
+    assert.equal(rv.criteria[0].checkStates[0].state, 'retired'); assert.deepEqual(rv.verification, { met: 2, verified: 0, claimed: 1, failing: 0, stale: 1 }); ok('a criterion whose check was retired counts as stale: every met criterion is in exactly one bucket');
     await ag.close(); await ro.close();
 
     // guardrails: a foundation document every agent receives; agents cannot edit it
@@ -922,6 +937,33 @@ try {
     const ctx = (await call(agent2, 'get_team_context')).text;
     assert.match(ctx, /GUARDRAILS below are binding/); assert.match(ctx, /G1: Verify webhook signatures/); assert.ok(ctx.indexOf('guardrails.md') < ctx.indexOf('## Glossary') || !ctx.includes('## Glossary')); ok('released guardrails reach agents with the team context, with a note that they are binding');
     await agent2.close();
+  }
+
+  // a blocked spec comes back to the top of the work list when a person answers or dismisses the question
+  {
+    const bEd = await mk('editor', 'bl');
+    const ag = await mcp((await bEd.c.post('/api/me/tokens', { name: 'Blocked agent', scopes: ['mcp:read', 'mcp:drafts', 'mcp:write'], teamId: T1 })).data.token);
+    const sid = 'SPEC-871';
+    let r = await admin.push([{ id: sid, kind: 'spec', baseRev: 0, fields: { title: 'Blocked spec', body: '## REQUIREMENTS\nR1 Do the thing\n\n## ACCEPTANCE CRITERIA\n- [ ] It works\n' } }]);
+    await admin.push([{ id: sid, kind: 'spec', baseRev: r[0].item.rev, approve: true, fields: {} }]);
+    const wl = async () => JSON.parse((await call(ag, 'get_work_list')).text).work.find((x) => x.spec_id === sid);
+    const q1 = JSON.parse((await call(ag, 'request_decision', { spec_id: sid, question: 'Which thing?', options: ['A', 'B'] })).text);
+    const blocked = JSON.parse((await call(ag, 'report_implementation', { spec_id: sid, status: 'blocked', summary: 'Waiting for the choice', criteria: [{ id: 'R1', status: 'open' }] })).text);
+    assert.deepEqual(blocked.not_reported, ['AC1']);
+    let w = await wl(); assert.equal(w.state, 'blocked');
+    await new Promise((res) => setTimeout(res, 5));
+    await bEd.c.req('PATCH', `/api/teams/${T1}/feedback/${q1.id}`, { answer: 1 });
+    w = await wl(); assert.equal(w.state, 'decision_answered'); assert.equal(w.decisions_answered[0].outcome, 'answered'); assert.equal(w.decisions_answered[0].answer, 'B'); assert.equal(w.last_report.status, 'blocked');
+    ok('an answer moves a blocked spec to "decision_answered" at the top of the work list');
+    await call(ag, 'report_implementation', { spec_id: sid, status: 'blocked', summary: 'Still stuck on something else', criteria: [{ id: 'R1', status: 'open' }] });
+    const q2 = JSON.parse((await call(ag, 'request_decision', { spec_id: sid, question: 'Which colour?', options: ['Red', 'Blue'] })).text);
+    await new Promise((res) => setTimeout(res, 5));
+    await bEd.c.req('PATCH', `/api/teams/${T1}/feedback/${q2.id}`, { status: 'dismissed', reply: 'Not a product question – pick one.' });
+    w = await wl(); assert.equal(w.state, 'decision_answered'); assert.deepEqual([w.decisions_answered[0].outcome, w.decisions_answered[0].answer, w.decisions_answered[0].note], ['dismissed', null, 'Not a product question – pick one.']);
+    ok('a dismissed question reaches the agent too, with the note, and unblocks the spec');
+    for (let i = 0; i < 65; i++) assert.ok(!(await call(ag, 'list_feedback', { spec_id: sid })).isError);
+    assert.ok(!(await call(ag, 'add_feedback', { spec_id: sid, kind: 'gap', text: 'Colour is not specified' })).isError); ok('reading feedback does not use up the hourly write budget');
+    await ag.close();
   }
 
   // glossary lookup: input is validated before any third party is asked; sign-in is required

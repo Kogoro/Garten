@@ -244,7 +244,7 @@ try {
     return JSON.parse(res.content[0].text);
   };
   const dec = await tool('request_decision', { spec_id: 'SPEC-012', question: 'How long do old signing keys stay valid after a rotation?', options: [{ label: '24 hours', detail: 'Matches the retry window of the queue' }, { label: '7 days', detail: 'Safer for slow consumers' }], recommended: 0, blocking: true, context: 'src/webhooks/keys.ts has no overlap at all' });
-  await tool('report_implementation', { spec_id: 'SPEC-012', status: 'partial', summary: 'Rotation endpoint is built. The overlap of old and new keys waits for a decision.', criteria: [{ text: 'A new key can be issued', status: 'met' }, { text: 'Old keys keep working during the overlap', status: 'open', note: 'waits for the decision' }], evidence: [{ kind: 'pr', ref: 'https://git.example.test/acme/api/pull/7', note: 'draft' }, { kind: 'test', ref: 'keys.rotate.test.ts' }], deviations: 'The audit log entry is written asynchronously.' });
+  await tool('report_implementation', { spec_id: 'SPEC-012', status: 'partial', summary: 'Rotation endpoint is built. The overlap of old and new keys waits for a decision.', criteria: [{ id: 'R1', status: 'met' }, { id: 'AC1', status: 'open', note: 'waits for the decision' }], evidence: [{ kind: 'pr', ref: 'https://git.example.test/acme/api/pull/7', note: 'draft' }, { kind: 'test', ref: 'keys.rotate.test.ts' }], deviations: 'The audit log entry is written asynchronously.' });
   await page.click('a[aria-label=Back]').catch(() => {});
   await page.evaluate(() => dispatchEvent(new Event('online')));
   await page.locator('.tabbar a[href="#/garden"] .badge', { hasText: '1' }).waitFor({ timeout: 10000 }); ok('garden: a question from an agent shows up as a badge in the tab bar');
@@ -254,7 +254,7 @@ try {
   assert.equal(await page.locator('#gd-needs').innerText(), '1');
   assert.ok(await card.getByText('Blocks the agent').isVisible());
   assert.ok(await card.locator('.dc-opt', { hasText: '24 hours' }).locator('.dc-rec').isVisible()); ok('garden: the decision shows the spec, the options and the recommendation of the agent');
-  await page.locator('#gd-impl .gd-row[data-spec="SPEC-012"] [data-impl=partial]', { hasText: '1/2 criteria' }).waitFor(); ok('garden: every released spec shows how far the agent is');
+  await page.locator('#gd-impl .gd-row[data-spec="SPEC-012"] [data-impl=partial]', { hasText: '1/4 criteria' }).waitFor(); ok('garden: every released spec shows how far the agent is');
   await shot(page, '05a-garden');
   await ctx.setOffline(true);
   await page.evaluate(() => dispatchEvent(new Event('offline')));
@@ -279,8 +279,10 @@ try {
   assert.match(JSON.stringify(await tool('get_work_list')), /decisions_answered/); ok('garden: the answer reaches the server on reconnect and the agent finds it in its work list');
   await page.click('#gd-impl .gd-row[data-spec="SPEC-012"]');
   await page.locator('.sheet .rp-sum', { hasText: 'Rotation endpoint is built' }).waitFor();
-  assert.equal(await page.locator('.sheet .rp-crit li').count(), 2);
-  assert.equal(await page.locator('.sheet .rp-crit li[data-status=open]').count(), 1);
+  assert.equal(await page.locator('.sheet .rp-crit li').count(), 4); // the spec's own checklist: R1, R2, AC1, AC2
+  assert.equal(await page.locator('.sheet .rp-crit li[data-status=open]').count(), 3);
+  assert.equal(await page.locator('.sheet .rp-crit li', { hasText: 'Not in the report.' }).count(), 2);
+  assert.equal(await page.locator('.sheet .rp-crit li').first().locator('.rp-cid').innerText(), 'R1');
   assert.equal(await page.locator('.sheet .rp-ev a').getAttribute('href'), 'https://git.example.test/acme/api/pull/7');
   assert.ok(await page.locator('.sheet .rp-dev', { hasText: 'audit log' }).isVisible()); ok('garden: the report of the agent lists criteria, evidence and deviations');
   await shot(page, '05c-report');
@@ -288,7 +290,7 @@ try {
   // checks: re-runnable evidence next to the report, and "make it a rule" for a deviation
   await tool('register_check', { spec_id: 'SPEC-012', name: 'unit: key rotation', kind: 'test', how: 'npm test -- rotation', expect: 'exit 0', criterion: 'A new key can be issued' });
   await tool('report_check_result', { spec_id: 'SPEC-012', name: 'unit: key rotation', status: 'pass', value: '12 passed', ref: 'https://ci.example.test/run/9' });
-  await tool('report_implementation', { spec_id: 'SPEC-012', status: 'partial', summary: 'Rotation endpoint is built. The overlap of old and new keys waits for a decision.', criteria: [{ text: 'A new key can be issued', status: 'met', checks: ['unit: key rotation'] }, { text: 'Old keys keep working during the overlap', status: 'open' }], deviations: 'Key changes are written to the audit log, which the spec does not mention.' });
+  await tool('report_implementation', { spec_id: 'SPEC-012', status: 'partial', summary: 'Rotation endpoint is built. The overlap of old and new keys waits for a decision.', criteria: [{ id: 'R1', status: 'met', checks: ['unit: key rotation'] }, { id: 'AC1', status: 'open' }], deviations: 'Key changes are written to the audit log, which the spec does not mention.' });
   await page.evaluate(() => dispatchEvent(new Event('online')));
   await page.locator('#gd-impl .gd-row[data-spec="SPEC-012"] [data-impl=partial]', { hasText: '1 verified' }).waitFor({ timeout: 10000 });
   await page.click('#gd-impl .gd-row[data-spec="SPEC-012"]');
