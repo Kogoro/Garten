@@ -24,6 +24,8 @@ Type roles: page title 24 px / 600 (18 px in the one-row phone bar) · section 1
 
 Status chips (`.chip`) render as a dot plus words: grey dot = neutral, check = fine, amber = waiting, red = problem; type and id chips are plain text. The sidebar has two quiet groups (Garden, Specs, Documents, Glossary, Release · Members & Git, Admin); on phones the tab bar starts with Garden.
 
+A spec opens with four tabs, as in the prototype: **Content** (the editor), **Report** (what the agent built, with checks), **Feedback** (open and answered) and **History** (draft and released version; older versions are in the team repository). The Garden lists Decisions, Feedback, Ready to approve and Implementation as separate sections; rows that open an item sit in one card with a right-pointing chevron. Toasts rise from the bottom left.
+
 Components (class names): `.btn` (`.primary`, `.danger`, `.small`), `.chip` (`.ok`, `.warn`, `.bad`), `.pill`, `.card` (`.warn`, `.bad`), `.row` (list item), `.field`, `.filter`, `.sheet` (dialog with title, close button and focus trap), `.hint-card` (one-time tip), `.onb` (checklist), `kbd`. New screens use these; a new component gets a token-based style next to them.
 
 Rules the audit enforces (`npm run ux-audit`): contrast and structure by axe-core (WCAG 2.2 AA), one `h1`, a `main` landmark, a skip link and a distinct title per page, visible focus, touch targets and input text size on phones, no horizontal overflow, long words wrap, first-screen budget on a slow phone (LCP < 2.5 s, CLS < 0.1, 300 KB), security headers.

@@ -396,8 +396,8 @@ try {
   assert.ok(await d.locator('.fb-item .fb-evidence', { hasText: 'ADR-007.md' }).isVisible()); ok('the feedback sheet shows kind, section, text and evidence');
   await d.fill('.fb-item input', 'Good catch – extending the window in ADR-007.'); await d.click('[data-act=fb-accept]');
   await d.getByText('No open feedback.').waitFor();
-  await d.locator('.sheet').getByRole('button', { name: /^All/ }).click(); await d.locator('.fb-item .fb-reply', { hasText: 'Good catch' }).waitFor(); ok('a person accepts feedback with a reply; it leaves the open list');
-  await d.keyboard.press('Escape');
+  await d.locator('#tabpanel').getByRole('button', { name: /^All/ }).click(); await d.locator('.fb-item .fb-reply', { hasText: 'Good catch' }).waitFor(); ok('a person accepts feedback with a reply; it leaves the open list');
+  await d.click('#tab-content'); // feedback is a tab of the spec now
   await d.waitForFunction(() => !document.querySelector('.fbbtn.has'), null, { timeout: 10000 }); ok('the badge disappears once nothing is open');
   // accept a finding and take it into the spec as a review note (checklist item)
   const fb2 = await admin.post(`/api/teams/${admin.tid}/feedback`, { specId: 'SPEC-014', kind: 'question', section: '## ACCEPTANCE CRITERIA', text: 'What happens when the key store is unavailable?' });
@@ -405,7 +405,7 @@ try {
   await d.evaluate(() => dispatchEvent(new Event('online')));
   await d.locator('.fbbtn.has').waitFor({ timeout: 10000 });
   await d.click('[data-act=feedback]'); await d.locator('.fb-item', { hasText: 'key store is unavailable' }).waitFor();
-  await d.click('[data-act=fb-accept-note]'); await d.getByText('No open feedback.').waitFor(); await d.keyboard.press('Escape');
+  await d.click('[data-act=fb-accept-note]'); await d.getByText('No open feedback.').waitFor(); await d.click('#tab-content');
   await setMode(d, 'markdown');
   assert.match(await d.inputValue('#body'), /## REVIEW NOTES\n\n- \[ \] question \(ACCEPTANCE CRITERIA\): What happens when the key store is unavailable\?/); ok('"Accept & add to spec" turns a finding into a checklist item under REVIEW NOTES (an unreleased edit)');
   await setMode(d, 'blocks');

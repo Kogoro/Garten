@@ -12,8 +12,9 @@ import { TermSheet } from './Glossary';
 import { newDefinitions, termPrefill } from '../derive';
 import { openMenu, useUi } from '../state';
 import type { Item } from '../store/types';
-import { FeedbackSheet } from '../feedback';
-import { ImplChip, ReportSheet, implState } from '../reports';
+import { FeedbackBody } from '../feedback';
+import { ImplChip, ReportBody, implState } from '../reports';
+import { Tabs } from '../Tabs';
 import { Icon, ago, toast, touched, useStore } from '../ui';
 
 // The editor (BlockNote, Mermaid …) is the bulk of the code: it loads when a spec or document is opened, not with the first screen.
@@ -23,6 +24,21 @@ const SpecForm = lazy(() => import('../form/SpecForm').then((m) => ({ default: m
 const EditorFallback = () => <div className="editor-skeleton" role="status" aria-label="Loading the editor"><i /><i /><i /></div>;
 
 type Store = ReturnType<typeof useStore>;
+
+/** Versions of a spec: the draft being written and the released one. Every release is one commit and one tag in the team repository. */
+function HistoryPanel({ item }: { item: Item }) {
+  const S = useStore();
+  const released = item.status === 'approved';
+  const rows: { title: string; meta: string }[] = [];
+  if (!released || S.hasUnreleased(item)) rows.push({ title: `v${item.version + 1} · Draft`, meta: `Edited ${ago(touched(item))}${item.updatedBy ? ` by ${item.updatedBy}` : ''} · only you and your team see it` });
+  if (released) rows.push({ title: `v${item.version} · Released`, meta: `${item.releasedAt ? ago(Date.parse(item.releasedAt)) : ''}${item.releasedBy ? ` by ${item.releasedBy}` : ''} · commit and tag v${item.version} in the team repository` });
+  return (
+    <section className="list-card" aria-label="Versions">
+      {rows.map((r) => <div className="row" key={r.title}><div className="row-top"><span className="row-title mono">{r.title}</span></div><div className="row-meta">{r.meta}</div></div>)}
+      <p className="note" style={{ padding: '12px 16px' }}>Older versions live in the team repository. <Link to="/release">Release</Link> shows what reaches agents.</p>
+    </section>
+  );
+}
 
 export const TypeChip = ({ s, S }: { s: Item; S: Store }) => { const t = S.specType(s.specType); return <span className="chip type" title={t.label}>{t.short ?? t.label}</span>; };
 export const AgentChip = ({ s, S }: { s: Item; S: Store }) => (s.updatedVia && S.hasUnreleased(s) ? <span className="chip agent" title={s.updatedVia}>Agent draft</span> : null);
@@ -112,7 +128,7 @@ export function ItemEditor({ item }: { item: Item }) {
   const S = useStore(); const nav = useNavigate(); const ui = useUi();
   const api = useRef<EditorApi | null>(null);
   const [derive, setDerive] = useState<null | { kind: 'spec' | 'term'; text: string; whole: boolean }>(null);
-  const [sheet, setSheet] = useState<null | 'link' | 'ref' | 'newdoc' | 'move' | 'conflict' | 'feedback' | 'report'>(null);
+  const [sheet, setSheet] = useState<null | 'link' | 'ref' | 'newdoc' | 'move' | 'conflict'>(null);
   const isSpec = item.kind === 'spec';
   const ro = !S.can('write');
   const raw = rawMode(item);
@@ -153,9 +169,9 @@ export function ItemEditor({ item }: { item: Item }) {
     const key = await openMenu(item.id, [...info, ...phoneItems, ...impl, ...deriveItems, ...modeItems, ...typeItem, ...actions]);
     if (key === 'derive:spec' || key === 'derive:term') return setDerive({ kind: key === 'derive:spec' ? 'spec' : 'term', text: src, whole: !sel });
     if (key === 'derive:defs') { S.upsertGlossaryTerms(defs.map((d) => ({ term: d.term, definition: d.definition, aliases: d.aliases, see: d.see }))); return toast(`${defs.length} term${defs.length === 1 ? '' : 's'} added to the glossary`); }
-    if (key === 'feedback') return setSheet('feedback');
+    if (key === 'feedback') return setTab('feedback');
     if (key === 'docs') return setSheet('link');
-    if (key === 'report') return setSheet('report');
+    if (key === 'report') return setTab('report');
     if (key === 'type') {
       const k = await openMenu('Spec type', S.specTypes().map((t) => ({ key: t.key, label: t.label, current: t.key === item.specType })));
       if (k && k !== item.specType) { S.edit(item.id, { specType: k }); toast('Type changed – the content stays as it is'); }
@@ -178,6 +194,7 @@ export function ItemEditor({ item }: { item: Item }) {
   // A brand-new, empty item opens ready to type.
   const [editing, setEditing] = useState(() => !phone || (!item.title.trim() && !hasContent(item.body)));
   const locked = ro || (phone && !editing);
+  const [tab, setTab] = useState<'content' | 'report' | 'feedback' | 'history'>('content'); // specs: the prototype's four tabs
   const metaLine = [isSpec ? S.specType(item.specType).label : item.core ? 'Foundation document' : 'Document',
     item.approve ? 'Approval queued' : item.status === 'approved' ? `Approved v${item.version}${S.hasUnreleased(item) ? ' · edited since' : ''}` : 'Draft',
     ...(saveState(item, S) === 'synced' || saveState(item, S) === 'ro' ? [] : [saveState(item, S) === 'dirty' ? 'Saved on device, not synced' : saveState(item, S) === 'conflict' ? 'Conflict with server' : 'Sync problem'])].join(' · ');
@@ -198,9 +215,9 @@ export function ItemEditor({ item }: { item: Item }) {
         {phone ? <div className="ed-titlebox">{titleEl}<div className="ed-meta" id="edMeta">{metaLine}</div></div> : titleEl}
         {!phone && <>
         <span className="ed-break" aria-hidden="true" />
-        <span id="chips" className="barchips">{isSpec && <TypeChip s={item} S={S} />}<StatusChip i={item} S={S} /><AgentChip s={item} S={S} />{isSpec && item.status === 'approved' && <button type="button" className="chipbtn" data-act="report" onClick={() => setSheet('report')}><ImplChip spec={item} always /></button>}</span>
+        <span id="chips" className="barchips">{isSpec && <TypeChip s={item} S={S} />}<StatusChip i={item} S={S} /><AgentChip s={item} S={S} />{isSpec && item.status === 'approved' && <button type="button" className="chipbtn" data-act="report" onClick={() => setTab('report')}><ImplChip spec={item} always /></button>}</span>
         <span id="docsSlot"><DocsDd i={item} S={S} onNew={() => setSheet('newdoc')} /></span>
-        {isSpec && <button type="button" className={`fbbtn${S.feedbackCount(item.id) ? ' has' : ''}`} data-act="feedback" aria-label={`Feedback: ${S.feedbackCount(item.id)} open`} title="Feedback from agents and colleagues" onClick={() => setSheet('feedback')}><Icon name="warn" size={14} /><span className="lbl">Feedback</span>{S.feedbackCount(item.id) > 0 && <span className="cnt">{S.feedbackCount(item.id)}</span>}</button>}
+        {isSpec && <button type="button" className={`fbbtn${S.feedbackCount(item.id) ? ' has' : ''}`} data-act="feedback" aria-label={`Feedback: ${S.feedbackCount(item.id)} open`} title="Feedback from agents and colleagues" onClick={() => setTab('feedback')}><Icon name="warn" size={14} /><span className="lbl">Feedback</span>{S.feedbackCount(item.id) > 0 && <span className="cnt">{S.feedbackCount(item.id)}</span>}</button>}
         <SaveInd i={item} S={S} />
         </>}
         {!phone && <span id="approveSlot"><ApproveButton i={item} S={S} /></span>}
@@ -209,8 +226,8 @@ export function ItemEditor({ item }: { item: Item }) {
       </header>
       {phone && locked && isSpec && (
         <section className="sumstrip" aria-label="Overview">
-          {item.status === 'approved' && <button type="button" className="sumcell" data-act="report" onClick={() => setSheet('report')}><small>Agent</small><span>{implState(item, S.latestReport(item.id)).text.replace(/ · built.*$/, '')}</span></button>}
-          <button type="button" className="sumcell" data-act="feedback" aria-label={`Feedback: ${S.feedbackCount(item.id)} open`} onClick={() => setSheet('feedback')}><small>Feedback</small><span className={S.feedbackCount(item.id) ? 'hot' : ''}>{S.feedbackCount(item.id) ? `${S.feedbackCount(item.id)} open` : 'None open'}</span></button>
+          {item.status === 'approved' && <button type="button" className="sumcell" data-act="report" onClick={() => setTab('report')}><small>Agent</small><span>{implState(item, S.latestReport(item.id)).text.replace(/ · built.*$/, '')}</span></button>}
+          <button type="button" className="sumcell" data-act="feedback" aria-label={`Feedback: ${S.feedbackCount(item.id)} open`} onClick={() => setTab('feedback')}><small>Feedback</small><span className={S.feedbackCount(item.id) ? 'hot' : ''}>{S.feedbackCount(item.id) ? `${S.feedbackCount(item.id)} open` : 'None open'}</span></button>
           <button type="button" className="sumcell" data-act="link-docs" onClick={() => setSheet('link')}><small>Documents</small><span>{item.links.length} linked</span></button>
         </section>
       )}
@@ -221,7 +238,15 @@ export function ItemEditor({ item }: { item: Item }) {
         </section>
       )}
       {item.conflict && <div id="banner"><div className="card bad banner"><div className="grow"><b>Changed on the server</b><span>Your edits and the server version differ.</span></div><button className="btn danger" data-act="conflict" onClick={() => setSheet('conflict')}>Review</button></div></div>}
-      <div id="editorBody" className="ed-scroll">
+      {isSpec && <Tabs label="Spec sections" value={tab} onChange={(t) => setTab(t as typeof tab)} tabs={[{ id: 'content', label: 'Content' }, { id: 'report', label: 'Report' }, { id: 'feedback', label: 'Feedback', badge: S.feedbackCount(item.id) || undefined }, { id: 'history', label: 'History' }]} />}
+      {isSpec && tab !== 'content' && (
+        <div className="ed-scroll"><div className="page" id="tabpanel" role="tabpanel" aria-labelledby={`tab-${tab}`}>
+          {tab === 'report' && <ReportBody specId={item.id} />}
+          {tab === 'feedback' && <FeedbackBody specId={item.id} version={item.version} />}
+          {tab === 'history' && <HistoryPanel item={item} />}
+        </div></div>
+      )}
+      <div id={isSpec && tab === 'content' ? 'tabpanel' : 'editorBody'} className="ed-scroll" role={isSpec ? 'tabpanel' : undefined} aria-labelledby={isSpec ? 'tab-content' : undefined} hidden={isSpec && tab !== 'content'}>
         {!asForm && !locked && <Hint id="editor-links">Type <kbd>/</kbd> for blocks, <kbd>@</kbd> to link a document and <kbd>#</kbd> to link a glossary term.</Hint>}
         {asForm
           ? <div className="blocks" id="form"><Suspense fallback={<EditorFallback />}><SpecForm docKey={`${item.team}|${item.id}|${item.specType}`} schema={form!} value={item.body} readOnly={locked} onChange={(md) => S.edit(item.id, { body: md })} /></Suspense></div>
@@ -229,7 +254,7 @@ export function ItemEditor({ item }: { item: Item }) {
           ? <div className="blocks" id="blocks"><Suspense fallback={<EditorFallback />}><SpecEditor terms={item.id === 'glossary.md' ? undefined : glossaryTerms(S).map((t) => t.term)} docKey={`${item.team}|${item.id}`} value={item.body} readOnly={locked} onChange={(md) => S.edit(item.id, { body: md })} onReady={(a) => (api.current = a)} refs={isSpec ? S.all('doc').filter((d) => !d.pinned).map((d) => d.id) : undefined} onRef={(id) => !item.links.includes(id) && S.toggleLink(item.id, id)} /></Suspense></div>
           : <><label className="sr" htmlFor="body">Content</label><textarea id="body" className="ed-body" spellCheck={false} placeholder="Write Markdown…" readOnly={locked} value={item.body} onChange={(e) => S.edit(item.id, { body: e.target.value })} /></>}
       </div>
-      {!locked && !asForm && (
+      {!locked && !asForm && (!isSpec || tab === 'content') && (
         <div className="toolbar"><div className="tools" id="tools" onPointerDown={(e) => (e.target as HTMLElement).closest('button') && e.preventDefault()}>
           {blocks ? <>
             <button type="button" data-act="t-add" aria-label="Add block" title="Add block at cursor" onClick={addBlock}><Icon name="plus" size={20} /></button>
@@ -256,8 +281,6 @@ export function ItemEditor({ item }: { item: Item }) {
       {sheet === 'link' && <LinkSheet specId={item.id} onClose={() => setSheet(null)} />}
       {sheet === 'newdoc' && <PathSheet kind="newdoc" linkTo={item.id} onClose={() => setSheet(null)} />}
       {sheet === 'move' && <PathSheet kind="move" from={item.id} value={item.id} onClose={() => setSheet(null)} />}
-      {sheet === 'feedback' && <FeedbackSheet specId={item.id} version={item.version} onClose={() => setSheet(null)} />}
-      {sheet === 'report' && <ReportSheet specId={item.id} onClose={() => setSheet(null)} />}
       {sheet === 'conflict' && <ConflictSheet id={item.id} onClose={() => setSheet(null)} />}
     </div>
   );

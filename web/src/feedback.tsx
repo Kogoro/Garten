@@ -152,7 +152,7 @@ export function DecisionCard({ f, showSpec, act }: { f: any; showSpec?: boolean;
 }
 
 /** Feedback on one spec: what agents (or people) found, what they ask, and what the team decided about it. */
-export function FeedbackSheet({ specId, version, onClose }: { specId: string; version: number; onClose: () => void }) {
+export function FeedbackBody({ specId, version }: { specId: string; version: number }) {
   const S = useStore();
   const [remote, setRemote] = useState<any[] | null>(null); // the full history, when the server is reachable
   const [filter, setFilter] = useState<'open' | 'all'>('open');
@@ -171,9 +171,8 @@ export function FeedbackSheet({ specId, version, onClose }: { specId: string; ve
   const shown = list.filter((f) => filter === 'all' || f.status === 'open');
   const nOpen = list.filter((f) => f.status === 'open').length;
   return (
-    <Sheet onClose={onClose}>
-      <h2>Feedback on {specId}</h2>
-      <p>Findings and questions from agents and colleagues. They never change the spec – people read them, decide and reply.</p>
+    <>
+      <p className="note">Findings and questions from agents and colleagues. They never change the spec – people read them, decide and reply.</p>
       <div className="filters" role="group" aria-label="Feedback filter">
         <button className="filter" type="button" aria-pressed={filter === 'open'} onClick={() => setFilter('open')}>Open {nOpen}</button>
         <button className="filter" type="button" aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>All {list.length}</button>
@@ -190,6 +189,16 @@ export function FeedbackSheet({ specId, version, onClose }: { specId: string; ve
       <div className="fb-list">
         {shown.map((f) => (f.kind === 'decision' ? <DecisionCard key={f.id} f={f} act={act} /> : <FbItem key={f.id} f={f} version={version} act={act} />))}
       </div>
+    </>
+  );
+}
+
+/** The same list in a dialog. */
+export function FeedbackSheet({ specId, version, onClose }: { specId: string; version: number; onClose: () => void }) {
+  return (
+    <Sheet onClose={onClose}>
+      <h2>Feedback on {specId}</h2>
+      <FeedbackBody specId={specId} version={version} />
     </Sheet>
   );
 }

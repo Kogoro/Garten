@@ -67,33 +67,37 @@ export function GardenPage() {
 
         {working.length > 0 && <section id="gd-working">
           <div className="sect-title"><span>Agents at work</span><small>{working.length}</small></div>
-          {working.map(({ s, r }) => <button type="button" className="gd-row" key={s.id} data-spec={s.id} onClick={() => setReport(s.id)}><span className="grow"><b><span className="mono">{s.id}</span> {s.title}</b><span>{r ? `${r.via ?? r.author} · started ${ago(Date.parse(r.createdAt))} · ${String(r.summary).split('\n')[0].slice(0, 140)}` : ''}</span></span><ImplChip spec={s} always /></button>)}
+          <div className="list-card">{working.map(({ s, r }) => <button type="button" className="gd-row" key={s.id} data-spec={s.id} onClick={() => setReport(s.id)}><span className="grow"><b><span className="mono">{s.id}</span> {s.title}</b><span>{r ? `${r.via ?? r.author} · started ${ago(Date.parse(r.createdAt))} · ${String(r.summary).split('\n')[0].slice(0, 140)}` : ''}</span></span><ImplChip spec={s} always /><Icon name="chevron" size={14} /></button>)}</div>
         </section>}
+
+        <div id="gd-needs-list" className="garden">
+          <section id="gd-decisions">
+            <div className="sect-title"><span>Decisions</span><small style={{ color: decisions.length ? 'var(--amber)' : undefined }}>{decisions.length}</small></div>
+            {!decisions.length && <div className="gd-empty"><Icon name="check" size={18} /><span>No open decisions. Agents ask here when a spec leaves a choice open.</span></div>}
+            <div className="fb-list">{decisions.map((d) => <DecisionCard key={d.id} f={d} showSpec act={act} />)}</div>
+          </section>
+          <section id="gd-feedback">
+            <div className="sect-title"><span>Feedback</span><small style={{ color: feedback.length ? 'var(--amber)' : undefined }}>{feedback.length}</small></div>
+            {!feedback.length && <div className="gd-empty"><Icon name="check" size={18} /><span>No open feedback.</span></div>}
+            <div className="fb-list">{feedback.map((f) => <FbItem key={f.id} f={f} showSpec act={act} />)}</div>
+          </section>
+        </div>
 
         {toApprove.length > 0 && <section id="gd-approve">
           <div className="sect-title"><span>Ready to approve</span><small>{toApprove.length}</small></div>
-          {toApprove.slice(0, 8).map((x) => <Link key={x.id} className="gd-row" to={`/spec/${encodeURIComponent(x.id)}`} data-spec={x.id}><span className="grow"><b><span className="mono">{x.id}</span> {x.title}</b><span>{x.status === 'approved' ? `Edited since v${x.version}` : 'Draft'} · {ago(touched(x))}</span></span><span className="chip">{x.status === 'approved' ? `v${x.version + 1}` : 'new'}</span></Link>)}
+          <div className="list-card">{toApprove.slice(0, 8).map((x) => <Link key={x.id} className="gd-row" to={`/spec/${encodeURIComponent(x.id)}`} data-spec={x.id}><span className="grow"><b><span className="mono">{x.id}</span> {x.title}</b><span>{x.status === 'approved' ? `Edited since v${x.version}` : 'Draft'} · {ago(touched(x))}</span></span><span className="chip">{x.status === 'approved' ? `v${x.version + 1}` : 'new'}</span><Icon name="chevron" size={14} /></Link>)}</div>
           {toApprove.length > 8 && <Link className="btn" to="/" onClick={() => { try { localStorage.setItem("specs-pref-specs-filter", "pending"); } catch { /* private mode */ } }}>Show all {toApprove.length} in Specs</Link>}
         </section>}
-
-        <section id="gd-needs-list">
-          <div className="sect-title"><span>Needs you</span><small style={{ color: needs ? 'var(--amber)' : undefined }}>{decisions.length} decision{decisions.length === 1 ? '' : 's'} · {feedback.length} feedback</small></div>
-          {!needs && <div className="gd-empty"><Icon name="check" size={18} /><span>Nothing waits for you. Agents ask here when a spec leaves a choice open.</span></div>}
-          <div className="fb-list">
-            {decisions.map((d) => <DecisionCard key={d.id} f={d} showSpec act={act} />)}
-            {feedback.map((f) => <FbItem key={f.id} f={f} showSpec act={act} />)}
-          </div>
-        </section>
 
         <section id="gd-impl">
           <div className="sect-title"><span>Implementation</span><small>{done} of {rows.length} released specs implemented</small></div>
           {!rows.length && <div className="gd-empty"><span>No released specs yet. Agents start when you approve a spec under <Link to="/release">Release</Link>.</span></div>}
-          {rows.map(({ s, r }) => (
+          <div className="list-card">{rows.map(({ s, r }) => (
             <button type="button" className="gd-row" key={s.id} data-spec={s.id} onClick={() => setReport(s.id)}>
               <span className="grow"><b><span className="mono">{s.id}</span> {s.title}</b><span>{r ? `${r.via ?? r.author} · ${ago(Date.parse(r.createdAt))} · ${String(r.summary).split('\n')[0].slice(0, 140)}` : `v${s.version} released${s.releasedAt ? ` ${ago(Date.parse(s.releasedAt))}` : ''} – no report yet`}</span></span>
-              <ImplChip spec={s} always />
+              <ImplChip spec={s} always /><Icon name="chevron" size={14} />
             </button>
-          ))}
+          ))}</div>
         </section>
 
         {answered.length > 0 && <section id="gd-answered">
