@@ -299,6 +299,13 @@ export function apiRouter() {
   // implementation reports: agents write them through MCP, everyone in the team reads them
   team.get('/reports', requireTeam('read'), (req, res) => res.json({ reports: listReports(req.team.id, { specId: req.query.spec ? String(req.query.spec) : undefined }) }));
 
+  // released versions of one spec (Git tags), for the History tab
+  team.get('/versions', requireTeam('read'), wrap(async (req, res) => {
+    const id = String(req.query.spec ?? '');
+    if (!/^[\w.-]+(\/[\w.-]+)*$/.test(id)) return res.status(400).json({ error: 'spec is required' });
+    res.json({ versions: await store.specVersions(req.team, id) });
+  }));
+
   team.get('/metrics', requireTeam('read'), (req, res) => res.json({ metrics: teamMetrics(req.team) }));
   team.get('/checks', requireTeam('read'), (req, res) => {
     const specId = req.query.spec ? String(req.query.spec) : undefined;

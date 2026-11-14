@@ -76,7 +76,7 @@ function Report({ r, latest }: { r: any; latest: boolean }) {
 }
 
 /** What an agent reported about building a spec: status, every acceptance criterion, evidence and deviations. Read-only for people. */
-export function ReportSheet({ specId, onClose, link }: { specId: string; onClose: () => void; link?: boolean }) {
+export function ReportBody({ specId }: { specId: string }) {
   const S = useStore();
   const spec = S.get(specId);
   const latest = S.latestReport(specId);
@@ -86,21 +86,31 @@ export function ReportSheet({ specId, onClose, link }: { specId: string; onClose
   const all: any[] = history ?? (latest ? [latest] : []);
   const r = all.find((x) => x.id === sel) ?? latest ?? all[0] ?? null;
   const st = spec ? implState(spec, latest) : null;
+  if (!r) return <p className="muted rp-empty">No agent has reported on this spec yet. {spec?.status === 'approved' ? `v${spec.version} is released – it is on the agent's work list as “new”.` : 'Agents only build released specs.'}</p>;
+  return (
+    <>
+      <div className="rp-head">
+        <span className={`chip ${r.id === latest?.id && st ? st.cls : ''}`}>{r.id === latest?.id && st ? st.text : `${STATUS[r.status] ?? r.status} v${r.specVersion}`}</span>
+        <span className="muted">{r.via ?? r.author} · {ago(Date.parse(r.createdAt))}</span>
+      </div>
+      {r.id === latest?.id && st?.key === 'outdated' && <p className="note rp-warn">This report is about v{r.specVersion}. v{spec!.version} was released since – the agent sees the spec as “changed” in its work list.</p>}
+      <Report r={r} latest={r.id === latest?.id} />
+      {all.length > 1 && <><div className="sect-title"><span>History</span><small>{all.length} reports</small></div>
+        <div className="rp-hist">{all.map((x) => <button type="button" key={x.id} className="filter" aria-pressed={x.id === r.id} onClick={() => setSel(x.id)}>v{x.specVersion} · {STATUS[x.status] ?? x.status} · {ago(Date.parse(x.createdAt))}</button>)}</div></>}
+      {history === null && !S.state.online && <p className="muted fb-offline">Offline – the newest report is stored on this device; older ones load when you are online.</p>}
+    </>
+  );
+}
+
+/** The same report in a dialog (Garden). */
+export function ReportSheet({ specId, onClose, link }: { specId: string; onClose: () => void; link?: boolean }) {
+  const S = useStore();
+  const spec = S.get(specId);
   return (
     <Sheet onClose={onClose}>
       <h2>Implementation of {specId}</h2>
       {spec?.title && <p>{spec.title}</p>}
-      {!r ? <p className="muted rp-empty">No agent has reported on this spec yet. {spec?.status === 'approved' ? `v${spec.version} is released – it is on the agent's work list as “new”.` : 'Agents only build released specs.'}</p> : <>
-        <div className="rp-head">
-          <span className={`chip ${r.id === latest?.id && st ? st.cls : ''}`}>{r.id === latest?.id && st ? st.text : `${STATUS[r.status] ?? r.status} v${r.specVersion}`}</span>
-          <span className="muted">{r.via ?? r.author} · {ago(Date.parse(r.createdAt))}</span>
-        </div>
-        {r.id === latest?.id && st?.key === 'outdated' && <p className="note rp-warn">This report is about v{r.specVersion}. v{spec!.version} was released since – the agent sees the spec as “changed” in its work list.</p>}
-        <Report r={r} latest={r.id === latest?.id} />
-        {all.length > 1 && <><div className="sect-title"><span>History</span><small>{all.length} reports</small></div>
-          <div className="rp-hist">{all.map((x) => <button type="button" key={x.id} className="filter" aria-pressed={x.id === r.id} onClick={() => setSel(x.id)}>v{x.specVersion} · {STATUS[x.status] ?? x.status} · {ago(Date.parse(x.createdAt))}</button>)}</div></>}
-        {history === null && !S.state.online && <p className="muted fb-offline">Offline – the newest report is stored on this device; older ones load when you are online.</p>}
-      </>}
+      <ReportBody specId={specId} />
       {link && <div className="btns" style={{ marginTop: 12 }}><Link className="btn small" to={`/spec/${encodeURIComponent(specId)}`} onClick={onClose}>Open spec</Link></div>}
     </Sheet>
   );

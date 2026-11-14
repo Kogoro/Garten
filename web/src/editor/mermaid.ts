@@ -1,8 +1,8 @@
 import { effectiveTheme } from '../ui';
 
 const THEMES = {
-  dark: { background: '#171B1F', primaryColor: '#12261E', primaryTextColor: '#E8ECEF', primaryBorderColor: '#5FD4A0', lineColor: '#9AA4AE', secondaryColor: '#14223A', tertiaryColor: '#171B1F', fontFamily: 'Inter, system-ui, sans-serif' },
-  light: { background: '#FFFFFF', primaryColor: '#E3F4EC', primaryTextColor: '#14181C', primaryBorderColor: '#0B7A52', lineColor: '#5A6672', secondaryColor: '#E7EFFC', tertiaryColor: '#FFFFFF', fontFamily: 'Inter, system-ui, sans-serif' },
+  dark: { background: '#141614', primaryColor: '#1D211F', primaryTextColor: '#F2F5F3', primaryBorderColor: '#3B423E', lineColor: '#9CA8A2', secondaryColor: '#1D211F', tertiaryColor: '#141614', fontFamily: 'Inter, system-ui, sans-serif' },
+  light: { background: '#FFFFFF', primaryColor: '#F1F4F2', primaryTextColor: '#111815', primaryBorderColor: '#C3CAC6', lineColor: '#59635E', secondaryColor: '#F1F4F2', tertiaryColor: '#FFFFFF', fontFamily: 'Inter, system-ui, sans-serif' },
 };
 let mm: Promise<typeof import('mermaid').default> | undefined;
 let n = 0;

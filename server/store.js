@@ -282,6 +282,17 @@ export async function deleteTeamData(team) {
 
 export const hasReleases = (t) => db.prepare("SELECT 1 FROM items WHERE team_id=? AND (status='approved' OR version>0) LIMIT 1").get(t) !== undefined;
 export const listTags = (team, id) => repoFor(team).tags(`${id}/v`);
+/** Released versions of a spec, newest first: the Git tag, the commit, who released it and when. */
+export async function specVersions(team, id) {
+  const repo = repoFor(team), prefix = `${id}/v`;
+  const out = [];
+  for (const tag of await repo.tags(prefix)) {
+    const [commit, at, by] = (await repo.git('log', '-1', '--format=%h%x09%aI%x09%an', tag)).trim().split('\t');
+    const version = Number(tag.slice(prefix.length));
+    if (Number.isInteger(version)) out.push({ version, tag, commit, at, by });
+  }
+  return out.sort((x, y) => y.version - x.version);
+}
 export const readReleasedSpec = (team, id, version) => repoFor(team).readFile(specPath(team, id), version ? tagFor(id, version) : undefined);
 /** Unified diff of a spec between two released versions (both are Git tags). */
 export const diffReleasedSpec = (team, id, from, to) => repoFor(team).git('diff', '--no-color', '-U2', tagFor(id, from), tagFor(id, to), '--', specPath(team, id));

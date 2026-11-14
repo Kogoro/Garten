@@ -134,14 +134,16 @@ export function revokeConnection(userId, id) {
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const page = (title, body) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title><style>
-:root{color-scheme:dark}body{margin:0;min-height:100dvh;display:grid;place-items:center;background:#0F1214;color:#E8ECEF;font:15px/1.5 Inter,ui-sans-serif,system-ui,sans-serif;padding:20px}
-.c{width:100%;max-width:420px;background:#171B1F;border:1px solid #262C32;border-radius:16px;padding:24px;display:flex;flex-direction:column;gap:14px}
-h1{margin:0;font:600 22px "Space Grotesk",system-ui,sans-serif}p{margin:0;color:#9AA4AE;font-size:14px}.m{font-family:ui-monospace,monospace;font-size:13px;color:#C3CBD3;word-break:break-all}
-input[type=email],input[type=password]{height:48px;padding:0 14px;border:1px solid #262C32;border-radius:12px;background:#0F1214;color:inherit;font:inherit}
-.b{height:48px;border-radius:12px;border:1px solid #3A424A;background:none;color:inherit;font-weight:600;font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center;text-decoration:none}
-.p{background:#5FD4A0;color:#0F1214;border:0}.row{display:flex;gap:8px}.row .b{flex:1}label.s{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid #262C32;border-radius:12px}
-.e{color:#FF9B8A;font-size:13px}b{color:#E8ECEF}
-@media (prefers-color-scheme:light){:root{color-scheme:light}body{background:#F4F5F7;color:#14181C}.c{background:#fff;border-color:#E1E5EA}p,.m{color:#58636F}b{color:#14181C}.p{background:#0B7A52;color:#fff}input[type=email],input[type=password],select{background:#fff!important;border-color:#C5CCD4!important;color:#14181C!important}label.s{border-color:#E1E5EA}.e{color:#B3261E}.b{border-color:#C5CCD4}}
+:root{color-scheme:light;--bg:#F9FAF9;--panel:#fff;--tint:#F1F4F2;--line:rgba(0,0,0,.08);--line2:#C3CAC6;--text:#111815;--muted:#59635E;--soft:#3F4A45;--accent:#2B7A57;--on-accent:#fff;--red:#B3261E}
+@media (prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#0B0D0C;--panel:#141614;--tint:#1D211F;--line:rgba(255,255,255,.08);--line2:#3B423E;--text:#F2F5F3;--muted:#9CA8A2;--soft:#C9D1CD;--accent:#4DB38A;--on-accent:#07140D;--red:#F28B82}}
+body{margin:0;min-height:100dvh;display:grid;place-items:center;background:var(--bg);color:var(--text);font:14px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;padding:16px}
+.c{width:100%;max-width:420px;background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:0 1px 2px rgba(0,0,0,.04),0 4px 12px rgba(0,0,0,.03);padding:24px;display:flex;flex-direction:column;gap:16px}
+h1{margin:0;font:600 24px/1.2 Inter,ui-sans-serif,system-ui,sans-serif;letter-spacing:-.02em}p{margin:0;color:var(--muted);font-size:14px}.m{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;color:var(--soft);word-break:break-all}
+input[type=email],input[type=password],select{height:48px;padding:0 12px;border:1px solid var(--line2);border-radius:8px;background:var(--panel);color:var(--text);font:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.b{height:48px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--text);font-weight:500;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;text-decoration:none}
+.b:hover{background:var(--tint)}.p{background:var(--accent);color:var(--on-accent);border:0;font-weight:600}.p:hover{background:var(--accent);filter:brightness(.92)}.row{display:flex;gap:8px}.row .b{flex:1}label.s{display:flex;gap:12px;align-items:flex-start;padding:12px;border:1px solid var(--line);border-radius:8px}
+.e{color:var(--red);font-size:13px}b{color:var(--text)}
 </style></head><body><div class="c">${body}</div></body></html>`;
 
 const loadRequest = (id) => {
@@ -184,7 +186,7 @@ export function consentRouter() {
       <p><b>${clientName}</b> wants to connect to Specs as <b>${esc(user.name)}</b>. It gets the same rights you have in the team you choose.</p>
       <form method="post" action="/oauth/consent" style="display:contents"><input type="hidden" name="request" value="${esc(reqd.id)}">
       <label for="team" class="m">Team</label>
-      <select id="team" name="team" style="height:48px;border-radius:12px;background:#0F1214;color:inherit;border:1px solid #262C32;padding:0 10px;font:inherit">${teams.map(({ team, role }) => `<option value="${esc(team.id)}">${esc(team.name)} (${esc(role)})</option>`).join('')}</select>
+      <select id="team" name="team" >${teams.map(({ team, role }) => `<option value="${esc(team.id)}">${esc(team.name)} (${esc(role)})</option>`).join('')}</select>
       ${wanted.map((s) => `<label class="s"><input type="checkbox" name="scope" value="${s}" ${s === 'mcp:read' ? 'checked disabled' : s === 'mcp:write' ? '' : 'checked'}><span>${esc(label[s])}<br><span class="m">${s}</span></span></label>`).join('')}
       <p class="m">Redirects to ${esc(new URL(reqd.redirectUri).origin)}</p>
       <div class="row"><button class="b" name="decision" value="deny">Deny</button><button class="b p" name="decision" value="allow">Allow</button></div></form>`));

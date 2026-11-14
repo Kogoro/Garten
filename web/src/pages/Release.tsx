@@ -28,10 +28,10 @@ export function ReleasePage() {
       <Bar title="Release" />
       <div className="scroll"><div className="page">
         <section className="card">
-          <div className="card-head"><h2>Agent endpoint</h2><span className="st" style={{ color: online ? 'var(--green)' : 'var(--amber)', fontWeight: 600 }}>● {online ? 'Server online' : 'Server unreachable'}</span></div>
+          <div className="card-head"><h2>Agent endpoint</h2><span className="st" style={{ color: online ? 'var(--text)' : 'var(--amber)', fontWeight: 600 }}>● {online ? 'Server online' : 'Server unreachable'}</span></div>
           <div className="mono" style={{ fontSize: 13, color: 'var(--soft)', wordBreak: 'break-all' }}>{url}</div>
           <div className="code">claude mcp add --transport http specs-{(S.team()?.key ?? 'team').toLowerCase()} {url}</div>
-          <p className="note">Claude opens a browser to sign in; choose <b style={{ color: 'var(--text)' }}>{teamName}</b> on the consent screen. Without OAuth: <Link to="/account" style={{ color: 'var(--green)' }}>create a token</Link>. Agents act with the rights of the person who connected them.</p>
+          <p className="note">Claude opens a browser to sign in; choose <b style={{ color: 'var(--text)' }}>{teamName}</b> on the consent screen. Without OAuth: <Link to="/account" style={{ color: 'var(--text)' }}>create a token</Link>. Agents act with the rights of the person who connected them.</p>
           <div className="btns"><button className="btn small" onClick={() => copy(url)}>Copy URL</button><Link className="btn small" to="/account">Manage tokens</Link></div>
         </section>
         <section className="card"><div className="card-head"><h2>Always available to agents</h2></div>

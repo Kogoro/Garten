@@ -331,7 +331,7 @@ try {
   await page.locator('.sumstrip').waitFor();
   assert.equal(await page.locator('.toolbar').count(), 0); assert.equal(await page.locator('[data-act=edit-done]').count(), 0);
   assert.match(await page.locator('#edMeta').innerText(), /Approved v\d/);
-  assert.ok(await page.locator('.sumcell', { hasText: 'Feedback' }).isVisible() && await page.locator('.sumcell', { hasText: 'Documents' }).isVisible()); ok('phone: a spec opens read-only with status, feedback and documents at a glance');
+  assert.ok(await page.locator('#tab-feedback').isVisible() && await page.locator('.sumcell', { hasText: 'Documents' }).isVisible()); ok('phone: a spec opens read-only with status, the four tabs and its documents at a glance');
   await page.click('[data-act=edit]'); await page.locator('[data-act=edit-done]').waitFor(); assert.equal(await page.locator('.sumstrip').count(), 0); await page.click('[data-act=edit-done]'); await page.locator('.sumstrip').waitFor(); ok('phone: Edit switches to editing, Done returns to reading');
   // an address that leads nowhere offers the way back
   await page.evaluate(() => { location.hash = '#/spec/NOPE-999'; });
@@ -363,15 +363,20 @@ try {
   assert.ok(await d.locator('#list').isVisible() && await d.locator('.editor').isVisible()); ok('desktop: list and editor side by side');
   await d.locator('.bn-inline-content', { hasText: 'idempotency key' }).first().waitFor();
 
-  // --- editor bar: title, status, linked documents, save state, approve and overflow menu in ONE row
+  // --- editor header: one row of actions (sync, documents, Approve, menu), the title on its own row, status and type below
   const bar = await d.locator('.ed-bar').boundingBox();
-  assert.ok(bar.height < 70, `bar height ${bar.height}`);
+  assert.ok(bar.height < 160, `bar height ${bar.height}`);
+  const act = await d.locator('.ed-bar #approveSlot [data-act=approve]').boundingBox();
+  assert.ok(act.height <= 32, `the Approve button is compact (${act.height} px) inside the bar`);
+  const ttl = await d.locator('.ed-bar .ed-title').first().boundingBox();
+  assert.ok(ttl.y > act.y + act.height - 1, 'the title sits below the action row');
+  assert.equal(await d.locator('.master > .bar .btn.primary').evaluate((e) => getComputedStyle(e).backgroundColor !== getComputedStyle(document.querySelector('.ed-bar .approve')).backgroundColor), true); // one primary: the list button steps back while a spec is open
   for (const sel of ['.ed-title', '#chips', '#docsDd', '#saveInd', '#approveSlot [data-act=approve]', '[data-act=item-menu]']) {
     const b = await d.locator(`.ed-bar ${sel}`).boundingBox();
     assert.ok(b && b.y >= bar.y - 1 && b.y + b.height <= bar.y + bar.height + 1, `${sel} sits in the bar`);
   }
   assert.equal(await d.locator('.ed-bar [data-act=mode]').count(), 0); assert.equal(await d.locator('.editor .ed-meta, .editor .links').count(), 0);
-  ok('editor: title, status, documents, save state and Approve share one compact bar; no extra meta/link rows');
+  ok('editor: actions row, title row and status row in one header; compact Approve is the only primary; no extra meta/link rows');
   await d.click('#docsDd [data-act=dd-toggle]');
   await d.locator('#docsDd .dd-menu').waitFor();
   const labelBefore = await d.locator('#docsDd .docsbtn').innerText();
@@ -379,7 +384,7 @@ try {
   await d.locator('#docsDd .dd-menu').waitFor(); // stays open while toggling
   await d.waitForFunction((l) => document.querySelector('#docsDd .docsbtn')?.innerText !== l, labelBefore);
   await d.locator('#docsDd [data-act=dd-link][aria-checked=true]').first().click();
-  await d.keyboard.press('Escape'); assert.equal(await d.locator('#docsDd .dd-menu').isVisible(), false);
+  await d.keyboard.press('Escape'); await d.locator('#docsDd .dd-menu').waitFor({ state: 'hidden', timeout: 1000 }); // menus fade out in 130 ms
   ok('linked documents dropdown: toggle links (stays open), Escape closes');
   await d.click('[data-act=item-menu]');
   await d.getByRole('button', { name: 'Editor: Blocks' }).waitFor(); await d.getByRole('button', { name: 'Editor: Markdown' }).waitFor(); await d.keyboard.press('Escape');
@@ -389,23 +394,23 @@ try {
   const fbRes = await admin.post(`/api/teams/${admin.tid}/feedback`, { specId: 'SPEC-014', kind: 'concern', section: '## REQUIREMENTS', text: 'R3 (keys expire) conflicts with the retry window in ADR-007.', evidence: 'docs/adr/ADR-007.md' });
   assert.equal(fbRes.status, 200);
   await d.evaluate(() => dispatchEvent(new Event('online')));
-  await d.locator('.fbbtn.has .cnt', { hasText: '1' }).waitFor({ timeout: 10000 });
+  await d.locator('#tab-feedback .tab-badge', { hasText: '1' }).waitFor({ timeout: 10000 });
   await d.locator('#list .row', { hasText: 'SPEC-014' }).locator('.chip', { hasText: '1 feedback' }).waitFor(); ok('open feedback shows up as a badge in the editor bar and in the spec list');
-  await d.click('[data-act=feedback]');
+  await d.click('#tab-feedback');
   await d.locator('.fb-item', { hasText: 'conflicts with the retry window' }).waitFor();
-  assert.ok(await d.locator('.fb-item .fb-evidence', { hasText: 'ADR-007.md' }).isVisible()); ok('the feedback sheet shows kind, section, text and evidence');
+  assert.ok(await d.locator('.fb-item .fb-evidence', { hasText: 'ADR-007.md' }).isVisible()); ok('the feedback tab shows kind, section, text and evidence');
   await d.fill('.fb-item input', 'Good catch – extending the window in ADR-007.'); await d.click('[data-act=fb-accept]');
   await d.getByText('No open feedback.').waitFor();
-  await d.locator('.sheet').getByRole('button', { name: /^All/ }).click(); await d.locator('.fb-item .fb-reply', { hasText: 'Good catch' }).waitFor(); ok('a person accepts feedback with a reply; it leaves the open list');
-  await d.keyboard.press('Escape');
-  await d.waitForFunction(() => !document.querySelector('.fbbtn.has'), null, { timeout: 10000 }); ok('the badge disappears once nothing is open');
+  await d.locator('#tabpanel').getByRole('button', { name: /^All/ }).click(); await d.locator('.fb-item .fb-reply', { hasText: 'Good catch' }).waitFor(); ok('a person accepts feedback with a reply; it leaves the open list');
+  await d.click('#tab-content'); // feedback is a tab of the spec now
+  await d.waitForFunction(() => !document.querySelector('#tab-feedback .tab-badge'), null, { timeout: 10000 }); ok('the badge disappears once nothing is open');
   // accept a finding and take it into the spec as a review note (checklist item)
   const fb2 = await admin.post(`/api/teams/${admin.tid}/feedback`, { specId: 'SPEC-014', kind: 'question', section: '## ACCEPTANCE CRITERIA', text: 'What happens when the key store is unavailable?' });
   assert.equal(fb2.status, 200);
   await d.evaluate(() => dispatchEvent(new Event('online')));
-  await d.locator('.fbbtn.has').waitFor({ timeout: 10000 });
-  await d.click('[data-act=feedback]'); await d.locator('.fb-item', { hasText: 'key store is unavailable' }).waitFor();
-  await d.click('[data-act=fb-accept-note]'); await d.getByText('No open feedback.').waitFor(); await d.keyboard.press('Escape');
+  await d.locator('#tab-feedback .tab-badge').waitFor({ timeout: 10000 });
+  await d.click('#tab-feedback'); await d.locator('.fb-item', { hasText: 'key store is unavailable' }).waitFor();
+  await d.click('[data-act=fb-accept-note]'); await d.getByText('No open feedback.').waitFor(); await d.click('#tab-content');
   await setMode(d, 'markdown');
   assert.match(await d.inputValue('#body'), /## REVIEW NOTES\n\n- \[ \] question \(ACCEPTANCE CRITERIA\): What happens when the key store is unavailable\?/); ok('"Accept & add to spec" turns a finding into a checklist item under REVIEW NOTES (an unreleased edit)');
   await setMode(d, 'blocks');
@@ -534,8 +539,8 @@ try {
   const ddMenu = await d.locator('.dd-menu').boundingBox();
   assert.ok(Math.abs((ddMenu.x + ddMenu.width) - (ddBtn.x + ddBtn.width)) <= 2); ok('documents: New is a dropdown aligned to the right edge');
   assert.ok(await d.getByRole('menuitem', { name: 'Document' }).isVisible() && await d.getByRole('menuitem', { name: /Folder/ }).isVisible());
-  await d.keyboard.press('Escape'); assert.equal(await d.locator('.dd-menu').isVisible(), false);
-  await d.click('.bar [data-act=dd-toggle]'); await d.locator('#list').click({ position: { x: 5, y: 5 } }); assert.equal(await d.locator('.dd-menu').isVisible(), false); ok('the dropdown closes with Escape and on outside click');
+  await d.keyboard.press('Escape'); await d.locator('.dd-menu').waitFor({ state: 'hidden', timeout: 1000 });
+  await d.click('.bar [data-act=dd-toggle]'); await d.locator('#list').click({ position: { x: 5, y: 5 } }); await d.locator('.dd-menu').waitFor({ state: 'hidden', timeout: 1000 }); ok('the dropdown closes with Escape and on outside click');
   await d.click('.bar [data-act=dd-toggle]'); await d.getByRole('menuitem', { name: 'Document' }).click();
   await d.fill('#docname', 'notes/ideas/retry.md'); await d.click('[data-act=create-doc]');
   await d.locator('.ed-title', { hasText: 'notes/ideas/retry.md' }).waitFor();
@@ -645,13 +650,13 @@ try {
   await d.getByRole('button', { name: 'Add endpoint' }).click(); await d.getByRole('button', { name: 'Add endpoint' }).click();
   await d.locator('[aria-label="HTTP method 1"]').selectOption('POST'); await d.locator('[aria-label="Path 1"]').fill('/orders');
   await d.locator('[aria-label="Endpoint 1 description"]').fill('Creates an order. Idempotent via Idempotency-Key.');
-  await d.locator('[data-content-type=endpoint]').first().getByRole('tab', { name: 'Responses' }).click(); await d.locator('[aria-label="Endpoint 1 responses"]').fill('201 Created');
+  await d.locator('[aria-label="Endpoint 1 responses"]').fill('201 Created'); // description, request and responses are stacked: no third tab level
   await d.locator('[aria-label="Path 2"]').fill('/orders/{id}'); await d.locator('[aria-label="Endpoint 2 description"]').fill('Returns one order.');
   await d.getByRole('tab', { name: 'Quality', exact: true }).click();
   await d.locator('[data-field=requirements] .btn', { hasText: 'Add' }).click();
   const reqs = d.locator('[aria-label="REQUIREMENTS 1"]'); await reqs.fill('Orders are never duplicated'); await reqs.press('Enter'); await d.keyboard.type('Creating an order takes under 300 ms');
   await d.locator('[data-field=acceptance] .btn', { hasText: 'Add' }).click(); await d.keyboard.type('Retry with the same key returns the first order'); await d.locator('[aria-label="Done 1"]').check();
-  ok('form: fields, select, repeatable endpoint cards with tabs, requirement and checklist rows (Enter adds a row)');
+  ok('form: fields, select, repeatable endpoint cards with stacked sections, requirement and checklist rows (Enter adds a row)');
   await setMode(d, 'markdown');
   const formMd = await d.inputValue('#body');
   assert.match(formMd, /## OVERVIEW\n\nOrders for the checkout\.\n\n## AUTHENTICATION\n\nOAuth 2\n\n## ENDPOINTS\n\n```endpoint POST \/orders\nCreates an order\. Idempotent via Idempotency-Key\.\n\nResponses:\n201 Created\n```\n\n```endpoint GET \/orders\/\{id\}\nReturns one order\.\n```/);
@@ -796,11 +801,11 @@ try {
   await d.click('[data-tab=settings]');
   await d.locator('[data-act=set-theme][data-v=light]').click();
   assert.equal(await d.evaluate(() => document.documentElement.dataset.theme), 'light');
-  assert.equal(await d.evaluate(() => getComputedStyle(document.body).backgroundColor), 'rgb(244, 245, 247)'); ok('appearance: light mode');
+  assert.equal(await d.evaluate(() => getComputedStyle(document.body).backgroundColor), 'rgb(249, 250, 249)'); ok('appearance: light mode');
   await shot(d, '08b-desktop-light-account');
   await d.reload(); assert.equal(await d.evaluate(() => document.documentElement.dataset.theme), 'light'); ok('appearance: choice is remembered');
   await d.locator('[data-act=set-theme][data-v=dark]').click();
-  assert.equal(await d.evaluate(() => getComputedStyle(document.body).backgroundColor), 'rgb(15, 18, 20)'); ok('appearance: dark mode');
+  assert.equal(await d.evaluate(() => getComputedStyle(document.body).backgroundColor), 'rgb(11, 13, 12)'); ok('appearance: dark mode');
 
   // any user can create a team from the workspace menu
   await d.locator('.sidebar .ws').click();

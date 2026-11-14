@@ -1,0 +1,123 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Garden Kommandozentrale</title>
+<style>
+/* Mockup: Garden as a command centre. Same tokens as the app (docs/DESIGN-SYSTEM.md): one accent, one primary action, quiet empty states. */
+:root{--accent:#2B7A57;--accent-hover:#236649;--on-accent:#fff;--bg:#F9FAF9;--panel:#fff;--tint:#F1F4F2;--line:rgba(0,0,0,.08);--line2:#C3CAC6;--text:#111815;--soft:#3F4A45;--muted:#59635E;--ph:#66706B;--amber:#8A5A00;--red:#B3261E;
+--shadow:0 1px 2px rgba(0,0,0,.04),0 4px 12px rgba(0,0,0,.03);--font:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;--mono:"JetBrains Mono",ui-monospace,Menlo,monospace}
+*{box-sizing:border-box}body{margin:0;background:#E9ECEA;font:14px/1.5 var(--font);color:var(--text);padding:48px}
+.title{margin:0 0 8px;font:600 28px/1.2 var(--font);letter-spacing:-.02em}.sub{margin:0 0 32px;color:var(--muted);max-width:90ch}
+.boards{display:flex;gap:48px;align-items:flex-start}.lab{display:flex;gap:8px;align-items:center;font:600 14px var(--font);margin-bottom:16px}.lab i{width:8px;height:8px;border-radius:50%;background:var(--accent)}
+.frame{border-radius:12px;overflow:hidden;border:1px solid var(--line);box-shadow:var(--shadow);background:var(--bg);position:relative}
+.d{width:1100px;height:870px}.d .art{width:1467px;height:1160px;transform:scale(.75);transform-origin:0 0}
+.m{width:390px;height:844px}.art{display:flex;background:var(--bg)}
+svg.i{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex:none}svg.s{width:14px;height:14px}
+.side{width:244px;flex:none;background:var(--panel);border-right:1px solid var(--line);padding:16px;display:flex;flex-direction:column;gap:24px}
+.ws{display:flex;align-items:center;gap:8px;padding:4px 8px;font-weight:600}.av{width:32px;height:32px;border-radius:8px;background:var(--accent);color:#fff;display:grid;place-items:center;font-weight:600}
+.nav{display:flex;flex-direction:column;gap:4px}.ni{display:flex;align-items:center;gap:12px;padding:8px 12px;border-radius:8px;color:var(--muted);font-weight:500;min-height:40px}.ni.on{background:var(--tint);color:var(--accent);font-weight:600}.ni b{margin-left:auto;font:500 12px var(--font)}
+.sf{margin-top:auto;color:var(--muted);font:500 12px var(--font);padding:4px 12px}
+.main{flex:1;min-width:0;padding:32px 48px 48px;display:flex;flex-direction:column;gap:32px}
+.head{display:flex;justify-content:space-between;align-items:flex-start;gap:24px}.head h1{margin:0;font:600 28px/1.2 var(--font);letter-spacing:-.02em}.meta{color:var(--muted);font-size:13px;line-height:1.4}
+.agents{display:flex;align-items:center;gap:16px;color:var(--muted);font-size:13px}.agents b{color:var(--text);font-weight:600}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted);display:inline-block;flex:none}.dot.w{background:var(--amber)}.dot.b{background:var(--red)}.dot.ok{background:var(--accent)}
+.st{display:inline-flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);white-space:nowrap}.st.w{color:var(--amber);font-weight:600}.st.b{color:var(--red);font-weight:600}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:32px;padding:0 12px;border-radius:8px;font-weight:500;border:1px solid var(--line);background:var(--panel);color:var(--text);white-space:nowrap}
+.pri{background:var(--accent);color:#fff;border:0;font-weight:600;padding:0 16px}.ghost{border-color:transparent;background:none;color:var(--muted)}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:32px;align-items:start}
+.sec{display:flex;flex-direction:column;gap:12px;min-width:0}.sh{display:flex;justify-content:space-between;align-items:baseline;font:500 12px/1.3 var(--font);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}.sh small{font:600 12px var(--font);color:var(--amber);letter-spacing:0}.sh small.q{color:var(--muted)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);overflow:hidden}
+.row{padding:12px 16px;border-top:1px solid var(--line);display:flex;gap:16px;align-items:center;min-width:0}.row:first-child{border-top:0}.row.hover{background:var(--tint)}
+.stack{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1}.t{font-weight:600;letter-spacing:-.01em}.mono{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.cap{font:500 12px var(--font);color:var(--muted)}
+.q1{padding:16px;display:flex;flex-direction:column;gap:12px;border-top:0}
+.q1 h3{margin:0;font:600 15px/1.4 var(--font);letter-spacing:-.01em}
+.opts{display:flex;flex-direction:column;gap:8px}.opt{display:flex;gap:12px;align-items:flex-start;padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:var(--panel)}.opt i{width:16px;height:16px;border:1.5px solid var(--line2);border-radius:50%;margin-top:3px;flex:none}.opt.on{border-color:var(--text)}.opt.on i{border-color:var(--text);box-shadow:inset 0 0 0 4px var(--panel);background:var(--text)}.opt small{display:block;color:var(--muted);font-size:12px}
+.acts{display:flex;gap:8px;align-items:center}
+.pipe{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;align-items:start}.col{display:flex;flex-direction:column;gap:8px}.col .sh{padding:0 4px}
+.pc{padding:12px 16px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:4px}.pc:first-child{border-top:0}.pc .t{font-size:14px}
+.two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:32px}
+.ev{display:flex;gap:16px;padding:8px 16px;border-top:1px solid var(--line);color:var(--soft);font-size:13px}.ev:first-child{border-top:0}.ev time{width:44px;flex:none;color:var(--ph);font:500 12px var(--mono);padding-top:1px}
+.quiet{color:var(--ph);font-size:13px;margin:0}
+.health{color:var(--muted);font-size:13px}.health b{color:var(--soft);font-weight:600}
+/* phone */
+.phone{width:390px;display:flex;flex-direction:column;height:844px}
+.pbar{height:56px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;background:var(--panel);border-bottom:1px solid var(--line);font:600 18px var(--font);letter-spacing:-.01em}
+.pbody{flex:1;overflow:hidden;padding:16px;display:flex;flex-direction:column;gap:24px}
+.tabbar{height:64px;display:flex;background:var(--panel);border-top:1px solid var(--line)}.tabbar div{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font:500 11px var(--font);color:var(--muted)}.tabbar .on{color:var(--accent)}
+.seg{display:flex;gap:4px;padding:4px;background:var(--tint);border-radius:12px}.seg span{flex:1;text-align:center;padding:4px 4px;border-radius:8px;color:var(--muted);font-weight:500;font-size:12px;white-space:nowrap}.seg span.on{background:var(--panel);color:var(--text);box-shadow:var(--shadow);font-weight:600}
+.notes{margin-top:32px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px;max-width:1540px}.notes div{background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:24px}.notes h2{margin:0 0 8px;font:600 16px var(--font)}.notes p{margin:0;color:var(--soft);max-width:48ch}
+</style></head><body>
+<svg width="0" height="0" style="position:absolute"><defs>
+<symbol id="leaf" viewBox="0 0 24 24"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/></symbol>
+<symbol id="file" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></symbol>
+<symbol id="folder" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
+<symbol id="book" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></symbol>
+<symbol id="shield" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></symbol>
+<symbol id="users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+<symbol id="more" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></symbol>
+<symbol id="chev" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+<symbol id="check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+<symbol id="pause" viewBox="0 0 24 24"><rect x="14" y="4" width="4" height="16"/><rect x="6" y="4" width="4" height="16"/></symbol>
+</defs></svg>
+<h1 class="title">Garden als Kommandozentrale</h1>
+<p class="sub">Eine Seite, drei Fragen in dieser Reihenfolge: Was braucht mich jetzt? Was tun die Agenten? Wo hakt es? Genau eine Primäraktion (die erste Entscheidung), alles andere ist Hairline, Ghost oder Text. Leere Bereiche verschwinden.</p>
+<div class="boards">
+<div><div class="lab"><i></i>Desktop</div><div class="frame d"><div class="art">
+ <div class="side"><div class="ws"><span class="av">P</span>Plattform-Team</div>
+  <div class="nav"><div class="ni on"><svg class="i"><use href="#leaf"/></svg>Garden<b>4</b></div><div class="ni"><svg class="i"><use href="#file"/></svg>Specs<b>6</b></div><div class="ni"><svg class="i"><use href="#folder"/></svg>Documents</div><div class="ni"><svg class="i"><use href="#book"/></svg>Glossary</div><div class="ni"><svg class="i"><use href="#shield"/></svg>Release</div></div>
+  <div class="nav"><div class="ni"><svg class="i"><use href="#users"/></svg>Members &amp; Git</div></div><div class="sf">● Synced</div></div>
+ <div class="main">
+  <div class="head"><div><h1>Garden</h1><div class="meta" style="margin-top:8px">Saturday, 14 November 2026 · 2 of 4 released specs implemented</div></div>
+   <div class="agents"><span class="st"><span class="dot ok"></span><b>2 agents running</b></span><span>last report 09:14</span><span class="btn"><svg class="i s"><use href="#pause"/></svg>Pause agents</span></div></div>
+  <div class="grid">
+   <div class="sec"><div class="sh"><span>Needs you</span><small>4</small></div>
+    <div class="card">
+     <div class="q1"><span class="st w"><span class="dot w"></span>Blocks an agent · RV-014 · Claude Code · 38 min ago</span>
+      <h3>Soll bei SMTP-5xx nach dem ersten Fehlschlag sofort abgebrochen oder genau einmal wiederholt werden?</h3>
+      <div class="opts"><div class="opt on"><i></i><div>Sofort abbrechen<small>Empfehlung des Agenten: vermeidet doppelte Zustellung</small></div></div><div class="opt"><i></i><div>Einmal wiederholen</div></div></div>
+      <div class="acts"><span class="btn pri">Send answer</span><span class="btn ghost">Open spec</span></div></div>
+     <div class="row"><div class="stack"><span class="t">Welches Format hat Vorrang, wenn ein Mandant CSV und JSON anfordert?</span><span class="cap">Decision · EX-007 · Claude Code · 3 h ago</span></div><span class="btn">Answer</span></div>
+     <div class="row"><div class="stack"><span class="t">Zeitstempel-Toleranz von ±5 Minuten als eigenes Kriterium aufnehmen?</span><span class="cap">Suggestion · WH-003 · Claude Code · yesterday</span></div><span class="btn ghost">Decline</span><span class="btn">Accept &amp; add to spec</span></div>
+     <div class="row"><div class="stack"><span class="t">RV-014 Rechnungsversand: Fehlerbehandlung</span><span class="cap">Ready to approve · v1.4 · edited 22:41 by Lena Hartmann</span></div><span class="btn">Open</span></div>
+    </div></div>
+   <div class="sec"><div class="sh"><span>Agents</span><small class="q">2</small></div>
+    <div class="card"><div class="row"><div class="stack"><span class="t">Claude Code · Routine</span><span class="cap">Building EX-007 since 08:52 · 3 of 4 criteria met</span></div><span class="st"><span class="dot ok"></span>Running</span></div>
+     <div class="row"><div class="stack"><span class="t">Claude Code · CI</span><span class="cap">Waiting for decision on RV-014</span></div><span class="st w"><span class="dot w"></span>Blocked</span></div>
+     <div class="row"><div class="stack"><span class="t">Agent trigger</span><span class="cap">Last call 09:02 · HTTP 202 · every release and answer</span></div><span class="st"><svg class="i s"><use href="#check"/></svg>OK</span></div></div></div>
+  </div>
+  <div class="sec"><div class="sh"><span>Pipeline</span><small class="q">4 released specs</small></div>
+   <div class="pipe">
+    <div class="col"><div class="sh"><span>New</span><small class="q">1</small></div><div class="card"><div class="pc"><span class="t">Reporting-Datenbank auf PostgreSQL 17</span><span class="cap"><span class="mono">ADR-004</span> · v1.0 · released 12 Oct</span></div></div></div>
+    <div class="col"><div class="sh"><span>In progress</span><small class="q">2</small></div><div class="card"><div class="pc"><span class="t">Mandantenfähige Exporte</span><span class="cap"><span class="mono">EX-007</span> · v2.0 · 3 of 4 criteria</span></div><div class="pc"><span class="t">Webhook-Signaturprüfung</span><span class="cap"><span class="mono">WH-003</span> · v1.1 · 1 of 2 criteria</span></div></div></div>
+    <div class="col"><div class="sh"><span>Needs attention</span><small>1</small></div><div class="card"><div class="pc"><span class="t">Mandantenfähige Exporte</span><span class="st b"><span class="dot b"></span>Check failing: export.p95 = 112 s</span></div></div></div>
+    <div class="col"><div class="sh"><span>Implemented</span><small class="q">1</small></div><div class="card"><div class="pc"><span class="t">Rollenmodell Admin-Bereich</span><span class="cap"><span class="mono">RM-002</span> · v1.2 · <svg class="i s" style="vertical-align:-2px"><use href="#check"/></svg> 2 of 2 verified</span></div></div></div>
+   </div></div>
+  <div class="two">
+   <div class="sec"><div class="sh"><span>Checks</span><small class="q">11 passing</small></div>
+    <div class="card"><div class="row"><div class="stack"><span class="t">export.p95 &lt; 90 s</span><span class="cap">EX-007 · metric · 08:57</span></div><span class="st b"><span class="dot b"></span>Failing</span></div>
+     <div class="row"><div class="stack"><span class="t">audit-log-export</span><span class="cap">EX-007 · ci · last run 9 days ago</span></div><span class="st w"><span class="dot w"></span>Stale</span></div></div></div>
+   <div class="sec"><div class="sh"><span>Activity</span><small class="q">today</small></div>
+    <div class="card"><div class="ev"><time>09:14</time>Agent reported on EX-007: partial, 3 of 4 criteria met</div><div class="ev"><time>09:02</time>Anna Brandt released EX-007 v2.0 · pushed to origin/main</div><div class="ev"><time>08:52</time>Agent started building EX-007</div><div class="ev"><time>22:41</time>Lena Hartmann edited RV-014 (draft v1.4)</div></div></div>
+  </div>
+  <p class="health">Last 30 days: <b>3</b> released · draft to release <b>2 d</b> median · agents answered in <b>38 min</b> median · <b>11 of 14</b> claims proven by checks</p>
+ </div></div></div></div>
+<div><div class="lab"><i></i>Phone</div><div class="frame m"><div class="art phone">
+ <div class="pbar"><span>Garden</span><span style="display:flex;gap:12px;align-items:center"><span class="dot"></span><span class="av" style="width:32px;height:32px;border-radius:50%;background:none;border:1px solid var(--line2);color:var(--soft);font-size:13px">P</span></span></div>
+ <div class="pbody">
+  <div style="display:flex;justify-content:space-between;align-items:center"><span class="st"><span class="dot ok"></span><b style="color:var(--text)">2 agents running</b></span><span class="btn"><svg class="i s"><use href="#pause"/></svg>Pause</span></div>
+  <div class="sec"><div class="sh"><span>Needs you</span><small>4</small></div>
+   <div class="card"><div class="q1"><span class="st w"><span class="dot w"></span>Blocks an agent · RV-014</span><h3>Soll bei SMTP-5xx sofort abgebrochen oder genau einmal wiederholt werden?</h3>
+    <div class="opts"><div class="opt on"><i></i><div>Sofort abbrechen</div></div><div class="opt"><i></i><div>Einmal wiederholen</div></div></div>
+    <div class="acts"><span class="btn pri" style="height:40px;flex:1">Send answer</span></div></div>
+    <div class="row"><div class="stack"><span class="t">Format bei CSV und JSON?</span><span class="cap">Decision · EX-007</span></div><svg class="i s" style="color:var(--muted)"><use href="#chev"/></svg></div>
+    <div class="row"><div class="stack"><span class="t">Zeitstempel-Toleranz ±5 Minuten</span><span class="cap">Suggestion · WH-003</span></div><svg class="i s" style="color:var(--muted)"><use href="#chev"/></svg></div>
+    <div class="row"><div class="stack"><span class="t">RV-014 v1.4</span><span class="cap">Ready to approve</span></div><svg class="i s" style="color:var(--muted)"><use href="#chev"/></svg></div></div></div>
+  <div class="sec"><div class="sh"><span>Pipeline</span></div>
+   <div class="seg"><span>New 1</span><span class="on">Progress 2</span><span>Attention 1</span><span>Done 1</span></div>
+   <div class="card"><div class="pc"><span class="t">Mandantenfähige Exporte</span><span class="cap"><span class="mono">EX-007</span> · v2.0 · 3 of 4 criteria</span></div><div class="pc"><span class="t">Webhook-Signaturprüfung</span><span class="cap"><span class="mono">WH-003</span> · v1.1 · 1 of 2 criteria</span></div></div></div>
+ </div>
+ <div class="tabbar"><div class="on"><svg class="i"><use href="#leaf"/></svg>Garden</div><div><svg class="i"><use href="#file"/></svg>Specs</div><div><svg class="i"><use href="#folder"/></svg>Docs</div><div><svg class="i"><use href="#shield"/></svg>Release</div><div><svg class="i"><use href="#more"/></svg>More</div></div>
+</div></div></div>
+</div>
+<div class="notes"><div><h2>1 · Was braucht mich?</h2><p>Entscheidungen, Feedback und Freigaben stehen in einer Warteschlange, blockierende zuerst. Die oberste Entscheidung ist inline beantwortbar und trägt die einzige Primäraktion der Seite.</p></div>
+<div><h2>2 · Was tun die Agenten?</h2><p>Eine Zeile pro Agent mit Status, aktueller Spec und Fortschritt, dazu der Zustand des Agent-Triggers. „Pause agents“ sitzt im Kopf, nicht in der Seitenmitte.</p></div>
+<div><h2>3 · Wo hakt es?</h2><p>Die Pipeline zeigt freigegebene Specs von neu bis umgesetzt, fehlgeschlagene und veraltete Checks stehen direkt darunter. Aktivität und Team-Zahlen sind ruhiger Text am Ende.</p></div></div>
+</body></html>
