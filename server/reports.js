@@ -4,6 +4,7 @@ import * as store from './store.js';
 import { ApiError } from './store.js';
 import { bumpGarden, DECISION } from './feedback.js';
 import { listChecks, summarize, checksBySpec } from './checks.js';
+import { specCriteria, findCriterion } from '../shared/criteria.js';
 
 export const REPORT_STATUSES = ['implemented', 'partial', 'blocked', 'in_progress'];
 export const CRITERION_STATUSES = ['met', 'deviating', 'open'];
@@ -19,8 +20,13 @@ function enrich(criteria, checks) {
     const states = c.checks.map((n) => ({ name: n, state: byName.get(n)?.state ?? 'retired' }));
     return { ...c, checkStates: states, verified: c.status === 'met' && states.every((x) => x.state === 'passing') };
   });
-  const metN = out.filter((c) => c.status === 'met').length;
-  return { criteria: out, verification: { met: metN, verified: out.filter((c) => c.verified).length, claimed: out.filter((c) => c.status === 'met' && !c.checks?.length).length, failing: out.filter((c) => c.status === 'met' && c.checkStates?.some((x) => x.state === 'failing')).length, stale: out.filter((c) => c.status === 'met' && c.checkStates?.some((x) => x.state === 'stale' || x.state === 'unverified')).length } };
+  // every met criterion lands in exactly one bucket: verified + claimed + failing + stale = met
+  // (stale also covers checks that never ran and checks that were retired since the report)
+  const met = out.filter((c) => c.status === 'met');
+  const bucket = (c) => (c.verified ? 'verified' : !c.checks?.length ? 'claimed' : c.checkStates.some((x) => x.state === 'failing') ? 'failing' : 'stale');
+  const verification = { met: met.length, verified: 0, claimed: 0, failing: 0, stale: 0 };
+  for (const c of met) verification[bucket(c)] += 1;
+  return { criteria: out, verification };
 }
 const view = (r, checks) => {
   const e = enrich(json(r.criteria), checks);
@@ -31,8 +37,15 @@ const view = (r, checks) => {
 };
 const clip = (s, n) => String(s ?? '').trim().slice(0, n);
 
-/** An agent reports what it built for a released spec version: status, each acceptance criterion, evidence, deviations. Reports are append-only. */
-export function addReport(team, { specId, version, status, summary, criteria, evidence, deviations }, by) {
+/** The criteria of a released spec version (requirements and acceptance criteria), or null when the file cannot be read. */
+export async function releasedCriteria(team, specId, version) {
+  try { return specCriteria(await store.readReleasedSpec(team, specId, version)); } catch { return null; }
+}
+
+/** An agent reports what it built for a released spec version: status, each acceptance criterion, evidence, deviations. Reports are append-only.
+ * The spec's own criteria are the checklist: every one of them is in the report – the agent's entries are matched to them,
+ * criteria it left out are added as "open", and "implemented" needs every one of them met or deviating. */
+export async function addReport(team, { specId, version, status, summary, criteria, evidence, deviations }, by) {
   const spec = store.getItem(team.id, specId);
   if (!spec || spec.kind !== 'spec') throw new ApiError(`No spec "${specId}".`, 404);
   if (spec.status !== 'approved') throw new ApiError(`${specId} is not released – there is nothing to report against. Work only from released specs.`);
@@ -46,15 +59,24 @@ export function addReport(team, { specId, version, status, summary, criteria, ev
   if ((criteria ?? []).length > 60) throw new ApiError('At most 60 criteria per report.');
   if ((evidence ?? []).length > 30) throw new ApiError('At most 30 evidence entries per report.');
   const known = new Set(listChecks(team.id, { specId }).map((c) => c.name));
+  const own = (await releasedCriteria(team, specId, v)) ?? [];
+  const used = new Map();
   const crit = (criteria ?? []).map((c) => {
-    const text = clip(c?.text, 400); const st = c?.status ?? 'met';
-    if (!text) throw new ApiError('Every criterion needs its text (quote it from the spec).');
+    const st = c?.status ?? 'met';
+    const target = own.length ? findCriterion(own, c) : null;
+    if (c?.id && own.length && !target) throw new ApiError(`${specId} v${v} has no criterion "${clip(c.id, 20)}". Its criteria: ${own.map((x) => x.id).join(', ')} (get_criteria).`);
+    const text = clip(c?.text, 400) || target?.text || '';
+    if (!text) throw new ApiError('Every criterion needs its text (quote it from the spec) or its id (get_criteria).');
     if (!CRITERION_STATUSES.includes(st)) throw new ApiError(`criterion status must be one of: ${CRITERION_STATUSES.join(', ')}`);
+    if (target) {
+      if (used.has(target.id)) throw new ApiError(`"${text.slice(0, 60)}" and "${used.get(target.id).slice(0, 60)}" are both ${target.id} – report each criterion once.`);
+      used.set(target.id, text);
+    }
     const note = clip(c?.note, 600);
     if (c?.checks !== undefined && !Array.isArray(c.checks)) throw new ApiError('checks must be a list of check names.');
     const names = [...new Set((c?.checks ?? []).map((n) => clip(n, 80)).filter(Boolean))].slice(0, 8);
     for (const n of names) if (!known.has(n)) throw new ApiError(`Criterion "${text.slice(0, 60)}" names the check "${n}", which ${specId} does not have. Register it first (register_check)${known.size ? `; known: ${[...known].join(', ')}` : ''}.`);
-    return { text, status: st, ...(note ? { note } : {}), ...(names.length ? { checks: names } : {}) };
+    return { ...(target ? { id: target.id } : {}), text, status: st, ...(note ? { note } : {}), ...(names.length ? { checks: names } : {}) };
   });
   const evid = (evidence ?? []).map((e) => {
     const ref = clip(e?.ref, 400); const kind = e?.kind ?? 'other';
@@ -65,11 +87,21 @@ export function addReport(team, { specId, version, status, summary, criteria, ev
   });
   const dev = clip(deviations, 4000);
   if (status === 'implemented' && crit.some((c) => c.status === 'open')) throw new ApiError('A report with open criteria is "partial", not "implemented".');
+  const missing = own.filter((c) => !used.has(c.id));
+  if (status === 'implemented' && missing.length) {
+    throw new ApiError(`"implemented" covers every criterion of ${specId} v${v}, but the report leaves out ${missing.length}: ${missing.slice(0, 12).map((c) => `${c.id} "${c.text.slice(0, 80)}"`).join('; ')}${missing.length > 12 ? ' …' : ''}. Report each as met or deviating (quote it or pass its id), or report "partial".`);
+  }
+  // the spec's order, then whatever the agent added that the spec does not list
+  const byId = new Map(crit.filter((c) => c.id).map((c) => [c.id, c]));
+  const all = own.length
+    ? [...own.map((c) => byId.get(c.id) ?? { id: c.id, text: c.text, status: 'open', note: 'Not in the report.', missing: true }), ...crit.filter((c) => !c.id)]
+    : crit;
+  if (all.length > 80) all.length = 80;
   const id = randomUUID();
   db.prepare('INSERT INTO reports (id,team_id,spec_id,spec_version,status,summary,criteria,evidence,deviations,author,author_id,via,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
-    .run(id, team.id, specId, v, status, sum, JSON.stringify(crit), JSON.stringify(evid), dev, by?.name ?? null, by?.id ?? null, by?.via ?? null, new Date().toISOString());
+    .run(id, team.id, specId, v, status, sum, JSON.stringify(all), JSON.stringify(evid), dev, by?.name ?? null, by?.id ?? null, by?.via ?? null, new Date().toISOString());
   bumpGarden(team.id);
-  return view(db.prepare('SELECT * FROM reports WHERE id=?').get(id), checksOf(team.id, specId));
+  return { ...view(db.prepare('SELECT * FROM reports WHERE id=?').get(id), checksOf(team.id, specId)), notReported: missing.map((c) => c.id), extra: crit.filter((c) => !c.id).length, specCriteria: own.length };
 }
 
 export function listReports(teamId, { specId, limit = 50 } = {}) {
@@ -95,7 +127,7 @@ export function workList(team) {
     return { team: team.name, paused: true, work: [], note: 'A person has paused the agents of this team. Do not start new work; try again later. Answers to your questions and reports are still accepted.' };
   }
   const latest = latestReports(t);
-  const decisions = db.prepare("SELECT * FROM feedback WHERE team_id=? AND kind=? AND status IN ('open','answered') ORDER BY created_at").all(t, DECISION);
+  const decisions = db.prepare("SELECT * FROM feedback WHERE team_id=? AND kind=? AND status IN ('open','answered','dismissed') ORDER BY created_at").all(t, DECISION);
   const feedbackOpen = Object.fromEntries(db.prepare("SELECT spec_id, COUNT(*) AS n FROM feedback WHERE team_id=? AND status='open' AND kind<>? GROUP BY spec_id").all(t, DECISION).map((r) => [r.spec_id, r.n]));
   const allChecks = checksBySpec(t);
   const work = []; let done = 0;
@@ -103,12 +135,13 @@ export function workList(team) {
     const rep = latest[s.id];
     const mine = decisions.filter((d) => d.spec_id === s.id);
     const open = mine.filter((d) => d.status === 'open');
-    const answered = mine.filter((d) => d.status === 'answered' && (!rep || d.resolved_at > rep.createdAt));
+    // answers and dismissals the agent has not reported on since: they unblock a blocked or unfinished spec, too
+    const answered = mine.filter((d) => (d.status === 'answered' || d.status === 'dismissed') && (!rep || d.resolved_at > rep.createdAt));
     let state = null;
     if (!rep) state = 'new';
     else if (rep.specVersion < s.version) state = 'changed';
-    else if (rep.status !== 'implemented') state = rep.status;
     else if (answered.length) state = 'decision_answered';
+    else if (rep.status !== 'implemented') state = rep.status;
     const chk = summarize(allChecks[s.id] ?? []);
     if (!state && (chk.failing || chk.stale || chk.unverified)) state = 'recheck';
     if (!state) { done += 1; if (!open.length) continue; state = 'implemented'; }
@@ -118,7 +151,9 @@ export function workList(team) {
       ...(state === 'changed' ? { changed_from: rep.specVersion, hint: `Call get_spec_changes("${s.id}") to see what changed since v${rep.specVersion}.` } : {}),
       ...(rep ? { last_report: { version: rep.specVersion, status: rep.status, at: rep.createdAt, summary: rep.summary.slice(0, 300) } } : {}),
       ...(open.length ? { waiting_for_decision: open.map((d) => ({ id: d.id, question: d.text, blocking: !!d.blocking })) } : {}),
-      ...(answered.length ? { decisions_answered: answered.map((d) => ({ id: d.id, question: d.text, answer: d.answer >= 0 ? options(d)[d.answer]?.label ?? null : null, note: d.reply || undefined, answered_by: d.resolved_by })) } : {}),
+      ...(answered.length ? { decisions_answered: answered.map((d) => (d.status === 'dismissed'
+        ? { id: d.id, question: d.text, outcome: 'dismissed', answer: null, note: d.reply || undefined, dismissed_by: d.resolved_by }
+        : { id: d.id, question: d.text, outcome: 'answered', answer: d.answer >= 0 ? options(d)[d.answer]?.label ?? null : null, note: d.reply || undefined, answered_by: d.resolved_by })) } : {}),
       ...(feedbackOpen[s.id] ? { open_feedback: feedbackOpen[s.id] } : {}),
       ...(chk.total ? { checks: chk } : {}),
       ...(state === 'recheck' ? {
@@ -131,7 +166,7 @@ export function workList(team) {
   work.sort((a, b) => rank[a.state] - rank[b.state] || a.spec_id.localeCompare(b.spec_id));
   return {
     team: team.name, released_specs: store.approvedSpecs(t).length, up_to_date: done, work,
-    states: 'new = never reported · changed = a newer version was released since your last report · recheck = implemented, but a check fails, is stale (too old or from an older version) or never ran – run it again · decision_answered = a person answered your question · in_progress / partial / blocked = your last report · implemented = done, listed only because a question is still open',
+    states: 'new = never reported · changed = a newer version was released since your last report · recheck = implemented, but a check fails, is stale (too old or from an older version) or never ran – run it again · decision_answered = a person answered your question, or dismissed it (outcome "dismissed": do not ask it again – follow the note, or continue with your recommendation and say so in the report) · in_progress / partial / blocked = your last report · implemented = done, listed only because a question is still open',
     note: work.length ? 'Entries with a blocking waiting_for_decision must wait for a person; work on the others.' : 'Nothing to do: every released spec has an "implemented" report for its current version.',
   };
 }
