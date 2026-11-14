@@ -4,17 +4,25 @@ Everything visual comes from the tokens at the top of `web/src/styles.css`. Chan
 
 | Group | Tokens | Rule |
 |---|---|---|
-| Surfaces | `--bg` `--panel` `--nav` `--tint` `--scrim` | Page = `--bg`, cards and sheets = `--panel` |
-| Lines | `--line` (hairlines) `--line2` (controls) | Controls have `--line2` borders |
-| Text | `--text` `--soft` `--muted` `--ph` | Body `--text`; helper text `--muted` (≥ 4.5:1); placeholders `--ph` (≥ 4.5:1) |
-| Status | `--green*` ok · `--amber*` waiting · `--red*` problem · `--blue*` info | Colour is never the only signal: every status has text or an icon |
-| Type | `--sans` `--display` `--mono` | Two families plus a monospace for ids and code |
-| Size | `--ctl` 40 px (buttons, fields, tappable rows), `--ctl-s` 32 px (chips, small buttons), `--h` bars | Tap targets are at least 40 px, dense ones 32 px – above WCAG 2.2 AA (24 px) |
-| Shape | `--r` 10 px (buttons, fields, cards, rows), `--r-s` 6 px (chips), pills | One radius per kind of thing |
-| Colour roles | green = primary action and "fine"; amber = waiting for you; red = problem | **Quiet when fine, loud when not**: the sync indicator is a grey check until something needs attention |
-| Header | title left; sync status as a dot (green = on the server, amber = waiting, red = needs you); team button on phones | Same on every screen |
+| Surfaces | `--bg` (canvas) `--panel` (cards, sheets) `--nav` `--tint` (hover, quiet fills) `--scrim` | Light is the base; dark and "system" redefine the same names. Neutrals are tinted towards the brand green. |
+| Lines | `--line` (hairlines, 8 % black or white) `--line2` (control borders) | One 1 px solid border everywhere. Controls keep the stronger `--line2` |
+| Text | `--text` `--soft` `--muted` `--ph` | Body `--text`; helper text `--muted` (≥ 4.5:1); placeholders and timestamps `--ph` (≥ 4.5:1) |
+| Accent | `--accent` `--accent-hover` `--on-accent` | Moss green, **only** for the primary button, focus rings, interactive text links and the active navigation (sidebar item, tab bar, tabs). Never for fills, badges, headings or "fine" states |
+| Status | `--amber*` waiting · `--red*` problem | Colour is never the only signal: every status has text or an icon. "Fine" is neutral (quiet when fine, loud when not) |
+| Type | `--sans` `--mono` | One sans family (system stack, no web font) plus a monospace for ids and code. Weights 400 / 500 / 600 |
+| Spacing | `--space-1` 4 · `-2` 8 · `-3` 12 · `-4` 16 · `-6` 24 · `-8` 32 · `-12` 48 px | Gaps, padding and margins use these values only |
+| Size | `--ctl` 40 px (buttons, fields, tappable rows), `--ctl-s` 32 px, `--h` bars; 48 px icon buttons on phones | Tap targets are at least 40 px, 44 px where the audit measures phones |
+| Shape | `--radius-lg` 12 px (containers: cards, sheets, menus) · `--radius-md` 8 px (buttons, fields, rows, chips) | Concentric: inner radius = outer radius − padding |
+| Elevation | `--shadow-card` (two soft layers) · `--shadow-pop` (menus, dialogs, toast) | No hard dark shadows |
+| Motion | `--ease-out` `cubic-bezier(.16, 1, .3, 1)` · `--t-in` 200 ms · `--t-out` 130 ms | Menus scale 0.96 → 1 from their trigger, dialogs grow out of the button that opened them, toasts slide in. Menus and toasts leave in 130 ms, dialogs leave at once. No linear or ease-in-out |
+| Hierarchy | one primary action per view | Everything else is a hairline button, a ghost button or a text link; never two solid buttons side by side |
+| Header | title left; sync status as a dot (grey = on the server, amber = waiting, red = needs you); team button on phones | Same on every screen |
 | Add | **Phone:** floating button bottom right above the navigation (`Fab`). **Desktop:** labelled button in the header. | Never both: mobile patterns stay off the desktop and the other way round (the audit checks it) |
 | Tabs | Pages with several sections (Members & Git, Admin, Account) use tabs | Same on phone and desktop; arrow keys switch |
+
+Type roles: page title 24 px / 600 (18 px in the one-row phone bar) · section 16–18 px / 600 · card and row title 14 px / 600 · body 14 px (16 px on phones, iOS zooms into smaller fields) · meta 13 px · caption 12 px / 500.
+
+Status chips (`.chip`) render as a dot plus words: grey dot = neutral, check = fine, amber = waiting, red = problem; type and id chips are plain text. The sidebar has two quiet groups (Garden, Specs, Documents, Glossary, Release · Members & Git, Admin); on phones the tab bar starts with Garden.
 
 Components (class names): `.btn` (`.primary`, `.danger`, `.small`), `.chip` (`.ok`, `.warn`, `.bad`), `.pill`, `.card` (`.warn`, `.bad`), `.row` (list item), `.field`, `.filter`, `.sheet` (dialog with title, close button and focus trap), `.hint-card` (one-time tip), `.onb` (checklist), `kbd`. New screens use these; a new component gets a token-based style next to them.
 
@@ -23,3 +31,18 @@ Rules the audit enforces (`npm run ux-audit`): contrast and structure by axe-cor
 Words: see `UI-VOCABULARY.md`.
 
 **Platform patterns.** Phone only: floating add button, bottom navigation, read-first editor with *Edit/Done*, approval bar, overview strip, sort/filter sheet. Desktop only: sidebar, labelled header buttons, sync status with words, side-by-side list and editor. Shared: tokens, chips, cards, tabs, sheets, the command palette.
+
+## Where the app deviates from the UI Design Specification
+
+The design follows the specification (`docs/mockup.html`, `docs/prototype.html`). Where an existing rule of the app or the accessibility audit says otherwise, the app rule wins and is listed here.
+
+| Specification | In the app | Why |
+|---|---|---|
+| Body 14 px | 14 px on desktop, **16 px on phones** | The audit requires 16 px text and inputs on phones (iOS zooms into smaller fields) |
+| Page title 24–28 px | 24 px on desktop; the phone **bar** title is 18 px, the editor bar title 18 px | The bar is one row high and the title is ellipsised; 24 px does not fit next to the approve button |
+| Tertiary text `#8A948F` (light) / `#6B7280` (dark) | `--ph` `#66706B` / `#8A948F` | The specified values are 3.1:1 and 3.7:1; the app promises 4.5:1 for placeholders and meta text |
+| Borders 8 % black/white | hairlines and cards: 8 %; **controls** (`.field`, `.search`): `--line2` | Field boundaries need to be visible; 8 % is far below the 3:1 of WCAG 1.4.11 (`--line2` is still below it, as before) |
+| Fonts: Inter plus optional mono, loaded from a font service | Inter if installed, else the system stack; no web font | Self-hosted, offline-first, strict CSP: no third-party font host |
+| Dropdowns and dialogs animate out in 120–150 ms | menus and the toast: 130 ms; **dialogs close at once** | A delayed unmount re-opened the previous dialog's state in fast sequences (and breaks keyboard focus return) |
+| Heights from the spacing scale | controls are 40 / 32 / 48 px | Touch targets; all are multiples of 8 |
+| Large dividers via `<hr>` only when needed | rows keep their hairlines in lists | Lists are scanned; without lines rows run together |

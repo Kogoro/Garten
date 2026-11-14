@@ -11,7 +11,7 @@ const ro = (editor: any) => !editor.isEditable;
 /** R1, R2 … (the label is renumbered on every change) */
 export const requirement = createReactBlockSpec(
   { type: 'requirement', propSchema: { label: { default: 'R1' } }, content: 'inline' },
-  { render: ({ block, contentRef }) => <div className="blk-req" style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}><b className="req-label" contentEditable={false} style={{ color: 'var(--accent)', minWidth: 32 }}>{block.props.label}</b><div ref={contentRef} style={{ flex: 1 }} /></div> },
+  { render: ({ block, contentRef }) => <div className="blk-req" style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}><b className="req-label" contentEditable={false} style={{ color: 'var(--muted)', minWidth: 32 }}>{block.props.label}</b><div ref={contentRef} style={{ flex: 1 }} /></div> },
 );
 
 const ZOOM_MIN = 0.1, ZOOM_MAX = 6;

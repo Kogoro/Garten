@@ -1,0 +1,708 @@
+<title>Garten Klickprototyp</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: App-Shell. Desktop = feste Sidebar + Inhalt (max. 1040), Mobil = Top-Bar + Tab-Bar + FAB.
+   Spacing strikt 4/8/12/16/24/32/48. Marke Moosgrün: nur Primär-Button, Fokus-Ring, Links, aktive Navigation/Tabs. */
+:root {
+  --accent-primary: #2b7a57; --accent-hover: #236649; --accent-fg: #ffffff;
+  --bg-canvas: #f9faf9; --bg-surface: #ffffff; --bg-subtle: #f1f4f2;
+  --text-primary: #111815; --text-secondary: #59635e; --text-tertiary: #8a948f;
+  --border: rgba(0, 0, 0, 0.08);
+  --warn: #9a6700; --bad: #b42318; --scrim: rgba(17, 24, 21, 0.4);
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-6: 24px; --space-8: 32px; --space-12: 48px;
+  --radius-lg: 12px; --radius-md: 8px;
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.03);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --accent-primary: #4db38a; --accent-hover: #6cc4a1; --accent-fg: #07140d;
+    --bg-canvas: #0b0d0c; --bg-surface: #141614; --bg-subtle: #1d211f;
+    --text-primary: #f2f5f3; --text-secondary: #9ca8a2; --text-tertiary: #6b7670;
+    --border: rgba(255, 255, 255, 0.08); --warn: #e0b04a; --bad: #f28b82; --scrim: rgba(0, 0, 0, 0.6);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --accent-primary: #4db38a; --accent-hover: #6cc4a1; --accent-fg: #07140d;
+  --bg-canvas: #0b0d0c; --bg-surface: #141614; --bg-subtle: #1d211f;
+  --text-primary: #f2f5f3; --text-secondary: #9ca8a2; --text-tertiary: #6b7670;
+  --border: rgba(255, 255, 255, 0.08); --warn: #e0b04a; --bad: #f28b82; --scrim: rgba(0, 0, 0, 0.6);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg-canvas); color: var(--text-primary); font: 400 14px/1.5 var(--font-sans); }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); background: var(--bg-surface); z-index: 30; }
+h1, h2, h3, p, ul { margin: 0; padding: 0; }
+ul { list-style: none; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: inherit; }
+a { color: var(--accent-primary); text-decoration: none; cursor: pointer; }
+a:hover { text-decoration: underline; }
+:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+input[type=checkbox], input[type=radio] { accent-color: var(--text-primary); width: 16px; height: 16px; margin: 0; flex: none; }
+
+.h1 { font-size: 24px; font-weight: 600; line-height: 1.2; letter-spacing: -0.02em; text-wrap: balance; }
+.h2 { font-size: 16px; font-weight: 600; line-height: 1.3; letter-spacing: -0.01em; }
+.h3 { font-size: 14px; font-weight: 600; line-height: 1.4; letter-spacing: -0.01em; }
+.meta { font-size: 13px; line-height: 1.4; color: var(--text-secondary); }
+.caption { font-size: 12px; font-weight: 500; line-height: 1.3; letter-spacing: 0.01em; color: var(--text-tertiary); }
+.mono { font-family: var(--font-mono); font-size: 13px; }
+.icon { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.icon-lg { width: 20px; height: 20px; }
+.grow { flex: 1; min-width: 0; }
+.wrap-any { overflow-wrap: anywhere; }
+
+/* Buttons */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); min-height: 40px; padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); font-weight: 500; line-height: 1.5; white-space: nowrap; transition: background-color 120ms var(--ease-out), transform 120ms var(--ease-out); }
+.btn-ghost { color: var(--text-secondary); }
+.btn-ghost:hover { background: var(--bg-subtle); color: var(--text-primary); }
+.btn-line { border: 1px solid var(--border); color: var(--text-primary); background: var(--bg-surface); }
+.btn-line:hover { background: var(--bg-subtle); }
+.btn-primary { background: var(--accent-primary); color: var(--accent-fg); padding: var(--space-3) var(--space-4); font-weight: 600; }
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-primary:active { transform: scale(0.98); }
+.btn[disabled] { opacity: 0.4; pointer-events: none; }
+.btn-danger { color: var(--bad); }
+.icon-btn { display: inline-flex; align-items: center; justify-content: center; min-width: 40px; min-height: 40px; border-radius: var(--radius-md); color: var(--text-secondary); }
+.icon-btn:hover { background: var(--bg-subtle); color: var(--text-primary); }
+.link { color: var(--accent-primary); font-weight: 500; }
+
+/* Shell */
+.shell { display: grid; grid-template-columns: 264px minmax(0, 1fr); min-height: 100dvh; }
+.side { position: sticky; top: env(safe-area-inset-top, 0px); align-self: start; height: 100dvh; display: flex; flex-direction: column; gap: var(--space-6); padding-block: var(--space-4); padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: var(--space-4); background: var(--bg-surface); border-right: 1px solid var(--border); overflow-y: auto; }
+.brand { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-1); }
+.brand-mark { width: 32px; height: 32px; display: grid; place-items: center; border-radius: var(--radius-md); background: var(--accent-primary); color: var(--accent-fg); }
+.brand-name { font-weight: 600; letter-spacing: -0.01em; }
+.nav { display: flex; flex-direction: column; gap: var(--space-1); }
+.nav-item { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); color: var(--text-secondary); font-weight: 500; min-height: 40px; }
+.nav-item:hover { background: var(--bg-subtle); color: var(--text-primary); text-decoration: none; }
+.nav-item[aria-current="page"] { background: var(--bg-subtle); color: var(--accent-primary); }
+.nav-item .count { margin-left: auto; font-size: 12px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+.side-foot { margin-top: auto; display: flex; flex-direction: column; gap: var(--space-2); }
+.sync { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-1) var(--space-3); color: var(--text-tertiary); font-size: 12px; font-weight: 500; }
+
+.content { min-width: 0; padding-block: var(--space-8) var(--space-12); padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.inner { max-width: 1040px; margin-inline: auto; display: flex; flex-direction: column; gap: var(--space-8); }
+.page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); flex-wrap: wrap; }
+.page-head .titles { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; flex: 1; }
+.crumb { display: inline-flex; align-items: center; gap: var(--space-1); color: var(--text-secondary); font-size: 13px; }
+.actions { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+
+.topbar, .tabbar, .fab { display: none; }
+
+/* Sektionen, Karten, Listen */
+.section { display: flex; flex-direction: column; gap: var(--space-4); }
+.section-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); }
+.card { background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-card); padding: var(--space-6); display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
+.list { background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-card); overflow: hidden; }
+.row { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-3) var(--space-4); border-top: 1px solid var(--border); min-width: 0; }
+.row:first-child { border-top: 0; }
+button.row, a.row { width: 100%; color: inherit; }
+button.row:hover, a.row:hover { background: var(--bg-subtle); text-decoration: none; }
+.row .stack { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; flex: 1; }
+.row .end { display: flex; align-items: center; gap: var(--space-2); flex: none; }
+.row-lead { color: var(--text-tertiary); }
+.st { display: inline-flex; align-items: center; gap: var(--space-2); font-size: 13px; color: var(--text-secondary); white-space: nowrap; }
+.st i { width: 8px; height: 8px; border-radius: 50%; background: var(--text-tertiary); flex: none; }
+.st.warn i { background: var(--warn); } .st.bad i { background: var(--bad); }
+.st.bad { color: var(--bad); font-weight: 500; } .st.warn { color: var(--warn); font-weight: 500; }
+.st .icon { color: var(--text-tertiary); }
+.hint-empty { padding: var(--space-8) var(--space-4); text-align: center; display: flex; flex-direction: column; gap: var(--space-2); align-items: center; }
+
+/* Tabs, Segmente */
+.tabs { display: flex; gap: var(--space-6); border-bottom: 1px solid var(--border); overflow-x: auto; }
+.tab { padding: var(--space-3) 0; margin-bottom: -1px; border-bottom: 2px solid transparent; color: var(--text-secondary); font-weight: 500; white-space: nowrap; }
+.tab:hover { color: var(--text-primary); }
+.tab[aria-selected="true"] { color: var(--accent-primary); border-bottom-color: var(--accent-primary); }
+.seg { display: inline-flex; padding: var(--space-1); background: var(--bg-subtle); border-radius: var(--radius-lg); gap: var(--space-1); }
+.seg button { padding: var(--space-1) var(--space-3); border-radius: var(--radius-md); color: var(--text-secondary); font-weight: 500; }
+.seg button[aria-pressed="true"] { background: var(--bg-surface); color: var(--text-primary); box-shadow: var(--shadow-card); }
+
+/* Formulare */
+.form { display: flex; flex-direction: column; gap: var(--space-6); }
+.field { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.field label, .field .lbl { font-weight: 500; }
+.input, .select, .textarea { width: 100%; min-height: 40px; padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-surface); color: var(--text-primary); font: inherit; }
+.input::placeholder, .textarea::placeholder { color: var(--text-tertiary); }
+.textarea { resize: vertical; line-height: 1.5; max-width: 68ch; }
+.input:focus-visible, .select:focus-visible, .textarea:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+.input[readonly] { background: var(--bg-subtle); color: var(--text-secondary); }
+.md { font: 400 13px/1.5 var(--font-mono); min-height: 384px; max-width: none; }
+.switch { display: flex; align-items: center; gap: var(--space-3); }
+.checkrow { display: flex; align-items: flex-start; gap: var(--space-3); }
+.checkrow input { margin-top: var(--space-1); }
+.item-line { display: flex; align-items: center; gap: var(--space-3); }
+.item-line .id { width: 32px; flex: none; color: var(--text-tertiary); }
+.code { margin: 0; padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-subtle); font: 400 13px/1.5 var(--font-mono); overflow-x: auto; white-space: pre; }
+.prose { max-width: 62ch; display: flex; flex-direction: column; gap: var(--space-3); }
+.prose ul { display: flex; flex-direction: column; gap: var(--space-2); list-style: disc; padding-left: var(--space-6); }
+.block { display: flex; align-items: flex-start; gap: var(--space-3); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); }
+.block:hover { background: var(--bg-subtle); }
+.block .caption { width: 64px; flex: none; padding-top: var(--space-1); }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
+.tblwrap { overflow-x: auto; background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-card); }
+table { border-collapse: collapse; width: 100%; min-width: 560px; }
+th, td { text-align: left; padding: var(--space-3) var(--space-4); border-top: 1px solid var(--border); vertical-align: middle; }
+th { border-top: 0; font-size: 12px; font-weight: 500; letter-spacing: 0.01em; color: var(--text-tertiary); }
+
+/* Menüs / Popover */
+.menu-wrap { position: relative; }
+.popover { position: absolute; top: 100%; right: 0; margin-top: var(--space-2); z-index: 20; min-width: 256px; padding: var(--space-1); background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-card), 0 8px 24px rgba(0, 0, 0, 0.08); transform-origin: top right; opacity: 0; transform: scale(0.96); visibility: hidden; pointer-events: none; transition: opacity 130ms var(--ease-out), transform 130ms var(--ease-out), visibility 0s 130ms; }
+.popover.left { right: auto; left: 0; transform-origin: top left; }
+.popover.open { opacity: 1; transform: scale(1); visibility: visible; pointer-events: auto; transition: opacity 200ms var(--ease-out), transform 200ms var(--ease-out), visibility 0s; }
+.menu-item { display: flex; align-items: center; gap: var(--space-3); width: 100%; padding: var(--space-3); border-radius: var(--radius-md); }
+.menu-item:hover { background: var(--bg-subtle); }
+.menu-item .stack { display: flex; flex-direction: column; gap: var(--space-1); flex: 1; min-width: 0; }
+
+/* Dialoge, Sheets, Toasts */
+.scrim { position: fixed; inset: 0; z-index: 40; background: var(--scrim); display: grid; place-items: center; padding: var(--space-4); opacity: 0; transition: opacity 130ms var(--ease-out); }
+.scrim.in { opacity: 1; transition-duration: 200ms; }
+.dialog { width: 100%; max-width: 480px; max-height: calc(100dvh - 32px); overflow-y: auto; background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-card), 0 16px 48px rgba(0, 0, 0, 0.16); padding: var(--space-6); display: flex; flex-direction: column; gap: var(--space-6); transform: scale(0.96); opacity: 0; transition: transform 130ms var(--ease-out), opacity 130ms var(--ease-out); }
+.scrim.in .dialog { transform: none; opacity: 1; transition-duration: 200ms; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: var(--space-2); flex-wrap: wrap; }
+.toasts { position: fixed; z-index: 50; left: max(16px, env(safe-area-inset-left, 0px)); bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px)); display: flex; flex-direction: column; gap: var(--space-2); align-items: flex-start; pointer-events: none; max-width: calc(100% - 32px); }
+.toast { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); background: var(--text-primary); color: var(--bg-surface); border-radius: var(--radius-md); box-shadow: var(--shadow-card), 0 8px 24px rgba(0, 0, 0, 0.12); transform: translateY(16px); opacity: 0; transition: transform 200ms var(--ease-out), opacity 200ms var(--ease-out); }
+.toast.in { transform: none; opacity: 1; }
+.toast.out { transform: translateY(16px); opacity: 0; transition-duration: 130ms; }
+
+/* Login */
+.login { min-height: 100dvh; display: grid; place-items: center; padding-block: var(--space-6); padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.login-card { width: 100%; max-width: 400px; display: flex; flex-direction: column; gap: var(--space-8); }
+.login-card .card { gap: var(--space-6); }
+
+/* Mobil */
+@media (max-width: 959px) {
+  .shell { display: block; }
+  .side, .only-desktop { display: none !important; }
+  .topbar { display: flex; align-items: center; gap: var(--space-3); position: sticky; top: env(safe-area-inset-top, 0px); z-index: 25; padding: var(--space-2) var(--space-4); padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); background: var(--bg-surface); border-bottom: 1px solid var(--border); }
+  .topbar .brand-mark { width: 32px; height: 32px; }
+  .tabbar { display: flex; position: fixed; z-index: 25; left: 0; right: 0; bottom: 0; background: var(--bg-surface); border-top: 1px solid var(--border); padding: var(--space-1) max(8px, env(safe-area-inset-right, 0px)) calc(var(--space-1) + env(safe-area-inset-bottom, 0px)) max(8px, env(safe-area-inset-left, 0px)); }
+  .tabbar a, .tabbar button { flex: 1; display: flex; flex-direction: column; align-items: center; gap: var(--space-1); padding: var(--space-2) 0; border-radius: var(--radius-md); color: var(--text-secondary); font-size: 12px; font-weight: 500; text-align: center; }
+  .tabbar a:hover { text-decoration: none; }
+  .tabbar [aria-current="page"] { color: var(--accent-primary); }
+  .fab { display: grid; place-items: center; position: fixed; z-index: 24; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(80px + env(safe-area-inset-bottom, 0px)); width: 48px; height: 48px; border-radius: var(--radius-lg); background: var(--accent-primary); color: var(--accent-fg); box-shadow: var(--shadow-card), 0 8px 24px rgba(0, 0, 0, 0.16); }
+  .content { padding-block: var(--space-6) calc(var(--space-12) * 2); }
+  .toasts { bottom: calc(80px + env(safe-area-inset-bottom, 0px)); }
+  .scrim { place-items: end center; padding: 0; }
+  .dialog { max-width: none; border-radius: var(--radius-lg) var(--radius-lg) 0 0; transform: translateY(32px); max-height: 90dvh; padding-bottom: calc(var(--space-6) + env(safe-area-inset-bottom, 0px)); }
+  .two { grid-template-columns: 1fr; }
+  .card { padding: var(--space-4); }
+  .page-head .titles { flex: 1 1 100%; }
+}
+@media (min-width: 960px) { .only-mobile { display: none !important; } }
+@media (prefers-reduced-motion: reduce) {
+  .popover, .popover.open, .toast, .toast.out, .scrim, .dialog, .btn { transition-duration: 0.01ms !important; }
+}
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-leaf" viewBox="0 0 24 24"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/></symbol>
+  <symbol id="i-file-text" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></symbol>
+  <symbol id="i-book-open" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+  <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+  <symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></symbol>
+  <symbol id="i-history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></symbol>
+  <symbol id="i-git-branch" viewBox="0 0 24 24"><path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></symbol>
+  <symbol id="i-message" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+  <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="14" height="14" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></symbol>
+  <symbol id="i-mail" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></symbol>
+  <symbol id="i-log-out" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><rect x="14" y="4" width="4" height="16"/><rect x="6" y="4" width="4" height="16"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+  <symbol id="i-bot" viewBox="0 0 24 24"><path d="M12 8V4H8"/><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/><circle cx="7.5" cy="15.5" r="5.5"/></symbol>
+</svg>
+
+<div id="app"></div>
+<div id="layer"></div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script>
+(function () {
+  'use strict';
+  /* ---------- Hilfsfunktionen ---------- */
+  var esc = function (s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+  var ic = function (n, c) { return '<svg class="icon ' + (c || '') + '" aria-hidden="true"><use href="#i-' + n + '"/></svg>'; };
+  var $ = function (s, r) { return (r || document).querySelector(s); };
+  var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
+
+  /* ---------- Daten (realistisch, deutscher Fachkontext) ---------- */
+  var IMPL = { new: ['idle', 'New'], changed: ['warn', 'Changed'], inprogress: ['idle', 'In progress'], partial: ['warn', 'Partial'], blocked: ['bad', 'Blocked'], recheck: ['warn', 'Recheck'], done: ['ok', 'Done'] };
+  var D = {
+    specs: [
+      { id: 'RV-014', title: 'Rechnungsversand: Fehlerbehandlung', type: 'Feature', state: 'draft', ver: 'v1.4', rel: 'v1.3', by: 'Lena Hartmann', at: 'heute, 22:41' },
+      { id: 'EX-007', title: 'Mandantenfähige Exporte', type: 'Feature', state: 'approved', ver: 'v2.0', by: 'Anna Brandt', at: '4. Nov. 2026', impl: 'partial' },
+      { id: 'WH-003', title: 'Webhook-Signaturprüfung', type: 'API', state: 'approved', ver: 'v1.1', by: 'Anna Brandt', at: '30. Okt. 2026', impl: 'inprogress' },
+      { id: 'RM-002', title: 'Rollenmodell Admin-Bereich', type: 'Data model', state: 'approved', ver: 'v1.2', by: 'Anna Brandt', at: '21. Okt. 2026', impl: 'done' },
+      { id: 'MW-009', title: 'Mahnwesen: Eskalationsstufen', type: 'Feature', state: 'agent', ver: 'v0.1', by: 'Claude Code', at: 'gestern, 17:12' },
+      { id: 'ADR-004', title: 'Reporting-Datenbank auf PostgreSQL 17', type: 'ADR', state: 'approved', ver: 'v1.0', by: 'Anna Brandt', at: '12. Okt. 2026', impl: 'new' }
+    ],
+    content: {
+      'RV-014': { summary: 'Rechnungs-PDFs gehen bei temporären Zustellfehlern des Mailservers nicht verloren. Der Versand wird automatisch wiederholt, bis die Rechnung zugestellt oder als endgültig fehlgeschlagen markiert ist.', reqs: ['Bei SMTP-Statuscodes 4xx wiederholt der Dienst den Versand mit exponentiellem Backoff (500 ms bis 30 s, höchstens 5 Versuche).', 'Bei SMTP-Statuscodes 5xx bricht der Dienst sofort ab und benachrichtigt die Buchhaltung.', 'Jeder Versuch wird mit Zeitstempel und SMTP-Code im Rechnungsprotokoll festgehalten.'], ac: [['Nach dem fünften Fehlversuch steht die Rechnung mit Status „Zustellung fehlgeschlagen“ in der Übersicht.', false], ['Doppelte Zustellung ist ausgeschlossen: Die Versand-ID ist pro Rechnung idempotent.', false], ['Die Buchhaltung erhält bei 5xx innerhalb von 60 Sekunden eine Benachrichtigung.', false]], notes: [] },
+      'EX-007': { summary: 'Mandanten können ihre Daten als CSV oder JSON exportieren. Ein Export enthält ausschließlich Daten des anfragenden Mandanten.', reqs: ['Exporte laufen asynchron; der Mandant erhält einen Download-Link per E-Mail.', 'Der Export enthält nur Datensätze mit der Mandanten-ID des Anfragenden.', 'Jeder Export wird im Audit-Log protokolliert.'], ac: [['Export enthält nur Daten des anfragenden Mandanten.', true], ['Export großer Mandanten (über 1 Mio. Zeilen) bleibt unter 90 Sekunden.', true], ['Export wird im Audit-Log protokolliert.', true], ['CSV und JSON stehen zur Auswahl.', true]], notes: [] },
+      'WH-003': { summary: 'Eingehende Webhooks werden per HMAC-SHA256 geprüft. Anfragen mit ungültiger Signatur oder abgelaufenem Zeitstempel werden mit 401 abgewiesen.', reqs: ['Die Signatur wird über „Zeitstempel.Body“ mit dem Mandantengeheimnis berechnet.', 'Anfragen älter als 5 Minuten werden abgewiesen.'], ac: [['Gültige Signatur: 200, ungültige Signatur: 401.', true], ['Replay mit altem Zeitstempel: 401.', false]], notes: [] },
+      'RM-002': { summary: 'Der Admin-Bereich kennt vier Rollen: viewer, editor, approver und admin. Rechte gelten pro Team.', reqs: ['Rollen werden pro Team vergeben.', 'Der einzige Admin eines Teams kann nicht entfernt werden.'], ac: [['Ein viewer kann nichts ändern.', true], ['Der letzte Admin lässt sich nicht löschen.', true]], notes: [] },
+      'MW-009': { summary: 'Offene Rechnungen werden in drei Stufen gemahnt: Zahlungserinnerung, erste Mahnung, letzte Mahnung mit Fristsetzung.', reqs: ['Stufe 1 nach 7 Tagen Verzug, Stufe 2 nach 21 Tagen, Stufe 3 nach 35 Tagen.', 'Mahngebühren sind pro Mandant konfigurierbar.'], ac: [['Stufe wird nur einmal pro Rechnung ausgelöst.', false]], notes: [] },
+      'ADR-004': { summary: 'Das Reporting wird von SQLite-Exporten auf eine eigene PostgreSQL-17-Instanz umgestellt, um parallele Abfragen ohne Sperren zu ermöglichen.', reqs: ['Reporting liest ausschließlich von der Replik.', 'Schemaänderungen laufen über versionierte Migrationen.'], ac: [['Abfragen des Reportings blockieren keine Schreibvorgänge.', false]], notes: [] }
+    },
+    reports: {
+      'EX-007': { by: 'Claude Code', at: '8. Nov. 2026, 09:14', status: 'partial', crit: [['Export enthält nur Daten des anfragenden Mandanten.', 'met', ['ok', 'Verified', 'test · export.tenant-isolation · 4. Nov. 2026, 14:02']], ['Export großer Mandanten (über 1 Mio. Zeilen) bleibt unter 90 Sekunden.', 'deviating', ['bad', 'Check failing', 'metric · export.p95 = 112 s · 8. Nov. 2026, 08:57']], ['Export wird im Audit-Log protokolliert.', 'met', ['warn', 'Check stale', 'ci · audit-log-export · letzter Lauf vor 9 Tagen']], ['CSV und JSON stehen zur Auswahl.', 'met', ['idle', 'Claimed only', 'kein Check registriert']]], dev: 'Streaming-Export statt Seitenweise-Abruf, weil die Paginierung bei 1 Mio. Zeilen auf 112 s kommt. Die 90-Sekunden-Grenze ist noch nicht erreicht.' },
+      'RM-002': { by: 'Claude Code', at: '22. Okt. 2026, 16:40', status: 'done', crit: [['Ein viewer kann nichts ändern.', 'met', ['ok', 'Verified', 'test · rbac.viewer-readonly · 22. Okt. 2026, 16:31']], ['Der letzte Admin lässt sich nicht löschen.', 'met', ['ok', 'Verified', 'test · rbac.last-admin · 22. Okt. 2026, 16:31']]], dev: '' }
+    },
+    decisions: [
+      { id: 'd1', spec: 'RV-014', q: 'Soll bei SMTP-5xx nach dem ersten Fehlschlag sofort abgebrochen oder genau einmal wiederholt werden?', opts: ['Sofort abbrechen', 'Einmal wiederholen'], by: 'Claude Code', at: 'vor 38 Min.', blocking: true, answer: null },
+      { id: 'd2', spec: 'EX-007', q: 'Was soll passieren, wenn ein Mandant CSV und JSON gleichzeitig anfordert?', opts: ['Zwei getrennte Dateien', 'Ein ZIP mit beiden'], by: 'Claude Code', at: 'vor 3 Std.', blocking: false, answer: null }
+    ],
+    feedback: [
+      { id: 'f1', spec: 'RV-014', kind: 'concern', by: 'Claude Code', at: 'vor 2 Std.', text: 'Fünf Versuche mit höchstens 30 s Abstand ergeben rund 62 s Gesamtdauer. Das Ziel „Zustellung innerhalb von 24 Stunden“ ist damit nicht abgedeckt.', state: 'open' },
+      { id: 'f2', spec: 'RV-014', kind: 'question', by: 'Claude Code', at: 'vor 2 Std.', text: 'Gilt die Idempotenz der Versand-ID auch, wenn eine Rechnung korrigiert und erneut versendet wird?', state: 'open' },
+      { id: 'f3', spec: 'WH-003', kind: 'suggestion', by: 'Claude Code', at: 'gestern, 11:05', text: 'Toleranzfenster für den Zeitstempel (±5 Minuten) als eigenes Kriterium aufnehmen, sonst scheitern Replay-Tests nach Uhrzeitversatz.', state: 'open' },
+      { id: 'f4', spec: 'EX-007', kind: 'gap', by: 'Claude Code', at: '8. Nov. 2026', text: 'Es fehlt eine Aussage zu Mandanten ohne Daten: leere Datei oder Hinweis?', state: 'open' }
+    ],
+    docs: [
+      { id: 'vision', path: 'vision.md', name: 'Vision', at: '2. Nov. 2026', body: 'Wir bauen die Rechnungsplattform, der kleine Handwerksbetriebe vertrauen: Rechnungen werden korrekt erstellt, zuverlässig zugestellt und revisionssicher abgelegt.\n\nSpezifikationen sind die einzige Quelle für das, was gebaut wird. Menschen schreiben und geben frei, Agenten bauen und melden zurück.' },
+      { id: 'strategy', path: 'strategy.md', name: 'Strategie', at: '2. Nov. 2026', body: 'Das Jahr 2027 gehört der Zuverlässigkeit: Zustellung, Exporte und Mahnwesen kommen vor neuen Funktionen.\n\nJede Funktion beginnt als Spec, nicht als Ticket.' },
+      { id: 'glossary', path: 'glossary.md', name: 'Glossar', at: 'heute, 08:20', body: 'Wird aus den Begriffen der Seite „Glossary“ erzeugt.' },
+      { id: 'guardrails', path: 'guardrails.md', name: 'Leitplanken', at: '29. Okt. 2026', body: '' },
+      { id: 'arch', path: 'architektur/systemuebersicht.md', name: 'Systemübersicht', at: '21. Okt. 2026', body: 'Der Rechnungsdienst besteht aus API, Versand-Worker und Reporting. Der Versand-Worker liest Aufträge aus einer Warteschlange und spricht SMTP.' },
+      { id: 'data', path: 'architektur/datenhaltung.md', name: 'Datenhaltung', at: '12. Okt. 2026', body: 'Betriebsdaten liegen in PostgreSQL 16, das Reporting wechselt nach ADR-004 auf PostgreSQL 17.' },
+      { id: 'run', path: 'betrieb/runbook-mailversand.md', name: 'Runbook Mailversand', at: '6. Okt. 2026', body: 'Bei einem Rückstau in der Warteschlange: zuerst den SMTP-Relay prüfen, dann den Worker neu starten.' }
+    ],
+    guard: { always: ['G1: Jede Schnittstelle ist versioniert und rückwärtskompatibel.', 'G2: Geldbeträge werden als Ganzzahl in Cent gespeichert.'], never: ['G3: Keine personenbezogenen Daten in Logs.', 'G4: Keine Migration ohne Rollback-Skript.'] },
+    terms: [
+      { t: 'Mandant', def: 'Ein Kunde der Plattform mit eigenem, streng getrenntem Datenbestand.', alias: 'Tenant', see: 'Versand-ID' },
+      { t: 'Idempotenz', def: 'Eine Operation hat bei mehrfacher Ausführung dasselbe Ergebnis wie bei einmaliger.', alias: '', see: 'Versand-ID' },
+      { t: 'Backoff', def: 'Wachsender Abstand zwischen Wiederholungsversuchen nach einem Fehler.', alias: 'Retry-Abstand', see: '' },
+      { t: 'Versand-ID', def: 'Eindeutige Kennung eines Versandauftrags, damit eine Rechnung nicht doppelt zugestellt wird.', alias: '', see: 'Idempotenz' },
+      { t: 'Zustellstatus', def: 'Zustand einer Rechnung im Versand: offen, zugestellt oder fehlgeschlagen.', alias: '', see: '' }
+    ],
+    members: [
+      { n: 'Lena Hartmann', e: 'lena.hartmann@plattform.example.de', r: 'admin', you: true },
+      { n: 'Anna Brandt', e: 'anna.brandt@plattform.example.de', r: 'approver' },
+      { n: 'Jonas Weber', e: 'jonas.weber@plattform.example.de', r: 'editor' },
+      { n: 'Mira Çelik', e: 'mira.celik@plattform.example.de', r: 'viewer' }
+    ],
+    invites: [{ e: 'tobias.kraus@plattform.example.de', r: 'editor', exp: 'läuft in 5 Tagen ab' }],
+    types: [['Feature', 'Vorlage'], ['API', 'Vorlage'], ['UI', 'Vorlage'], ['Data model', 'Vorlage'], ['NFR', 'Vorlage'], ['Integration', 'Vorlage'], ['Architecture spec', 'Vorlage'], ['ADR', 'Vorlage'], ['Runbook', 'Eigener Typ · Formular mit 4 Feldern']],
+    tokens: [
+      { n: 'CI-Pipeline Rechnungsdienst', s: 'Read & write drafts', exp: '31. Jan. 2027', used: 'heute, 06:12' },
+      { n: 'Lenas Laptop', s: 'Read', exp: '12. Feb. 2027', used: 'vor 4 Tagen' }
+    ],
+    audit: [['heute, 22:41', 'Lena Hartmann', 'Entwurf RV-014 gespeichert'], ['heute, 09:02', 'Anna Brandt', 'EX-007 v2.0 freigegeben'], ['gestern, 17:12', 'Claude Code', 'Entwurf MW-009 angelegt (mcp:write)'], ['4. Nov. 2026, 11:20', 'Lena Hartmann', 'Push nach origin/main'], ['3. Nov. 2026, 08:44', 'Henrik Vogel', 'Konto mira.celik@plattform.example.de angelegt']]
+  };
+  var SPEC_TEMPLATE = { summary: '', reqs: [''], ac: [['', false]], notes: [] };
+  var HISTORY = { 'RV-014': [['v1.4', 'Entwurf · nur für dich sichtbar', ''], ['v1.3', 'Freigegeben von Anna Brandt · 29. Okt. 2026', 'a3f9c1e'], ['v1.2', 'Freigegeben von Anna Brandt · 8. Okt. 2026', '7be20d4']] };
+
+  /* ---------- Zustand ---------- */
+  var S = { auth: false, route: 'login', specId: 'RV-014', specTab: 'content', mode: 'form', teamTab: 'members', accTab: 'profile', adminTab: 'teams', docId: null, docEdit: false, q: '', fbFilter: 'open' };
+  var NAV = [['garden', 'Garden', 'leaf'], ['specs', 'Specs', 'file-text'], ['docs', 'Documents', 'folder'], ['glossary', 'Glossary', 'book-open']];
+  var NAV2 = [['team', 'Team', 'users'], ['account', 'Account', 'user'], ['admin', 'Admin', 'shield']];
+  var spec = function (id) { return D.specs.filter(function (s) { return s.id === (id || S.specId); })[0]; };
+  var openFb = function (id) { return D.feedback.filter(function (f) { return f.state === 'open' && (!id || f.spec === id); }); };
+  var openDec = function () { return D.decisions.filter(function (d) { return !d.answer; }); };
+  var st = function (kind, text) { return '<span class="st ' + kind + '">' + (kind === 'ok' ? ic('check') : '<i></i>') + esc(text) + '</span>'; };
+  var stateLabel = function (s) { return s.state === 'approved' ? st('ok', 'Approved ' + s.ver) : s.state === 'agent' ? st('warn', 'Agent draft') : st('idle', 'Draft ' + s.ver); };
+
+  /* ---------- Layout ---------- */
+  function shell(v) {
+    var active = S.route === 'spec' ? 'specs' : S.route;
+    var nav = function (list) { return list.map(function (n) {
+      var cnt = n[0] === 'garden' ? (openDec().length + openFb().length) : n[0] === 'specs' ? D.specs.length : '';
+      return '<a class="nav-item" href="#' + n[0] + '"' + (active === n[0] ? ' aria-current="page"' : '') + '>' + ic(n[2], 'icon-lg') + n[1] + (cnt ? '<span class="count">' + cnt + '</span>' : '') + '</a>'; }).join(''); };
+    var side = '<aside class="side"><div class="menu-wrap"><button class="brand btn-ghost" data-menu="teams" style="width:100%;border-radius:8px"><span class="brand-mark">' + ic('leaf', 'icon-lg') + '</span><span class="grow"><span class="brand-name">Plattform-Team</span><br><span class="meta">admin · 4 Mitglieder</span></span>' + ic('chevron-down') + '</button>' +
+      '<div class="popover left" id="m-teams" style="width:100%"><button class="menu-item" data-act="toast" data-m="Plattform-Team ist bereits aktiv."><span class="stack"><span class="h3">Plattform-Team</span><span class="meta">admin</span></span>' + ic('check') + '</button><button class="menu-item" data-act="toast" data-m="Team gewechselt: Eigene Notizen (Demo, keine weiteren Daten)."><span class="stack"><span class="h3">Eigene Notizen</span><span class="meta">admin · 1 Mitglied</span></span></button><button class="menu-item" data-act="newteam">' + ic('plus') + 'Neues Team</button></div></div>' +
+      '<nav class="nav" aria-label="Hauptnavigation">' + nav(NAV) + '</nav><nav class="nav" aria-label="Verwaltung">' + nav(NAV2) + '</nav>' +
+      '<div class="side-foot"><div class="sync">' + ic('check') + 'Synchronisiert · Offline bereit</div><button class="nav-item" data-act="logout">' + ic('log-out', 'icon-lg') + 'Sign out</button></div></aside>';
+    var top = '<header class="topbar"><span class="brand-mark">' + ic('leaf', 'icon-lg') + '</span><span class="grow h3">Plattform-Team</span><span class="sync">' + ic('check') + 'Synchronisiert</span></header>';
+    var tabs = NAV.map(function (n) { return '<a href="#' + n[0] + '"' + (active === n[0] ? ' aria-current="page"' : '') + '>' + ic(n[2], 'icon-lg') + n[1].replace('Documents', 'Docs') + '</a>'; }).join('') +
+      '<button data-act="more" aria-label="Mehr">' + ic('more', 'icon-lg') + 'Mehr</button>';
+    var fab = v.fab ? '<button class="fab" data-act="' + v.fab[0] + '" aria-label="' + v.fab[1] + '">' + ic('plus', 'icon-lg') + '</button>' : '';
+    return '<div class="shell">' + side + '<div>' + top + '<main class="content"><div class="inner">' + v.body + '</div></main></div></div><nav class="tabbar" aria-label="Navigation">' + tabs + '</nav>' + fab;
+  }
+  function head(title, o) {
+    o = o || {};
+    return '<div class="page-head"><div class="titles">' + (o.back ? '<a class="crumb" href="#' + o.back[0] + '">' + ic('arrow-left') + o.back[1] + '</a>' : '') + '<h1 class="h1">' + title + '</h1>' + (o.meta ? '<p class="meta">' + o.meta + '</p>' : '') + '</div>' + (o.actions ? '<div class="actions">' + o.actions + '</div>' : '') + '</div>';
+  }
+  var tabsHtml = function (key, list) { return '<div class="tabs" role="tablist">' + list.map(function (t) { return '<button class="tab" role="tab" data-act="tab" data-k="' + key + '" data-v="' + t[0] + '" aria-selected="' + (S[key] === t[0]) + '">' + t[1] + '</button>'; }).join('') + '</div>'; };
+  var menu = function (id, trigger, items, left) { return '<div class="menu-wrap">' + trigger.replace('<button', '<button data-menu="' + id + '" aria-haspopup="menu"') + '<div class="popover' + (left ? ' left' : '') + '" id="m-' + id + '" role="menu">' + items + '</div></div>'; };
+
+  /* ---------- Views ---------- */
+  var V = {};
+
+  V.login = function () {
+    return '<div class="login"><div class="login-card"><div class="brand"><span class="brand-mark">' + ic('leaf', 'icon-lg') + '</span><span class="brand-name">Garten</span></div>' +
+      '<div class="card"><div><h1 class="h1">Anmelden</h1><p class="meta" style="margin-top:8px">Specs für dein Team schreiben und für Agenten freigeben.</p></div>' +
+      '<form class="form" id="login-form"><div class="field"><label for="l-mail">E-Mail</label><input class="input" id="l-mail" type="email" value="lena.hartmann@plattform.example.de" autocomplete="username"></div>' +
+      '<div class="field"><label for="l-pw">Passwort</label><input class="input" id="l-pw" type="password" value="geheimes-passwort" autocomplete="current-password"></div>' +
+      '<div class="form"><button class="btn btn-primary" type="submit">Sign in</button><button class="btn btn-ghost" type="button" data-act="sso">Mit Plattform-SSO anmelden</button></div></form></div>' +
+      '<p class="meta" style="text-align:center">Self-hosted · Daten bleiben auf deinem Server</p></div></div>';
+  };
+
+  V.garden = function () {
+    var dec = openDec(), fb = openFb();
+    var decHtml = dec.length ? dec.map(function (d, i) { var s = spec(d.spec);
+      return '<div class="card" data-dec="' + d.id + '"><div style="display:flex;flex-direction:column;gap:4px"><span class="caption">' + (d.blocking ? 'Blockiert Agent · ' : '') + esc(d.spec) + ' · ' + esc(s.title) + '</span><h3 class="h3 wrap-any" style="font-size:15px">' + esc(d.q) + '</h3><span class="meta">' + ic('bot') + ' ' + d.by + ' · ' + d.at + '</span></div>' +
+        '<div class="form" style="gap:8px">' + d.opts.map(function (o, k) { return '<label class="checkrow"><input type="radio" name="' + d.id + '" value="' + esc(o) + '"' + (k === 0 && i === 0 ? ' checked' : '') + '><span>' + esc(o) + '</span></label>'; }).join('') + '</div>' +
+        '<div class="actions"><button class="btn ' + (i === 0 ? 'btn-primary' : 'btn-line') + '" data-act="answer" data-id="' + d.id + '">Send answer</button><a class="btn btn-ghost" href="#spec" data-act="openspec" data-id="' + d.spec + '">Spec öffnen</a></div></div>'; }).join('')
+      : '<div class="list"><div class="hint-empty"><h3 class="h3">Keine offenen Decisions</h3><p class="meta">Agenten melden sich hier, wenn sie eine Entscheidung brauchen.</p></div></div>';
+    var fbHtml = fb.length ? '<div class="list">' + fb.map(fbRow).join('') + '</div>' : '<div class="list"><div class="hint-empty"><h3 class="h3">Kein offenes Feedback</h3></div></div>';
+    var impl = D.specs.filter(function (s) { return s.state === 'approved'; });
+    var implHtml = '<div class="list">' + impl.map(function (s) { var i = IMPL[s.impl], r = D.reports[s.id];
+      return '<button class="row" data-act="openspec" data-id="' + s.id + '" data-tab="report"><span class="stack"><span class="h3">' + esc(s.title) + '</span><span class="meta">' + s.id + ' · ' + s.ver + (r ? ' · Report von ' + r.by + ', ' + r.at : ' · noch kein Report') + '</span></span><span class="end">' + st(i[0], i[1]) + ic('chevron-right', 'row-lead') + '</span></button>'; }).join('') + '</div>';
+    return head('Garden', { meta: 'Donnerstag, 12. November 2026 · Das wartet auf dich und deine Agenten.' }) +
+      '<section class="section"><h2 class="h2">Decisions (' + dec.length + ')</h2>' + decHtml + '</section>' +
+      '<section class="section"><h2 class="h2">Feedback (' + fb.length + ')</h2>' + fbHtml + '</section>' +
+      '<section class="section"><h2 class="h2">Umsetzung</h2>' + implHtml + '</section>' +
+      '<section class="section"><div class="section-head"><h2 class="h2">Team health</h2></div><div class="list">' +
+        '<div class="row"><span class="grow">Freigegebene Specs</span><span class="meta">4 von 6</span></div>' +
+        '<div class="row"><span class="grow">Checks</span><span class="meta">11 passing · 1 failing · 2 stale</span></div>' +
+        '<div class="row"><span class="grow">Agenten</span><span class="meta">aktiv · letzter Report heute, 09:14</span><button class="btn btn-ghost" data-act="toast" data-m="Agenten pausiert. Der Agent trigger löst nicht mehr aus.">' + ic('pause') + 'Pause agents</button></div></div></section>';
+  };
+  function fbRow(f) {
+    var kindIcon = { concern: 'alert', conflict: 'alert', question: 'help', suggestion: 'message', gap: 'message' }[f.kind];
+    return '<div class="row" style="align-items:flex-start;flex-wrap:wrap"><span class="row-lead" style="padding-top:2px">' + ic(kindIcon) + '</span><span class="stack"><span class="caption" style="text-transform:capitalize">' + f.kind + ' · ' + f.spec + ' · ' + f.by + ' · ' + f.at + '</span><span class="wrap-any" style="max-width:62ch">' + esc(f.text) + '</span></span>' +
+      (f.state === 'open' ? '<span class="end" style="flex-wrap:wrap"><button class="btn btn-ghost" data-act="fb" data-do="decline" data-id="' + f.id + '">Decline</button><button class="btn btn-line" data-act="fb" data-do="accept" data-id="' + f.id + '">Accept &amp; add to spec</button></span>' : '<span class="end">' + st(f.state === 'accepted' ? 'ok' : 'idle', f.state === 'accepted' ? 'Accepted' : 'Declined') + '</span>') + '</div>';
+  }
+
+  V.specs = function () {
+    var rows = D.specs.map(function (s) { return '<button class="row" data-act="openspec" data-id="' + s.id + '" data-s="' + esc((s.id + ' ' + s.title + ' ' + s.type).toLowerCase()) + '"><span class="stack"><span class="h3 wrap-any">' + esc(s.title) + '</span><span class="meta"><span class="mono">' + s.id + '</span> · ' + s.type + ' · ' + s.by + ' · ' + s.at + '</span></span><span class="end">' + stateLabel(s) + ic('chevron-right', 'row-lead') + '</span></button>'; }).join('');
+    return head('Specs', { meta: D.specs.length + ' Specs im Plattform-Team', actions: '<button class="btn btn-primary only-desktop" data-act="newspec">' + ic('plus') + 'New spec</button>' }) +
+      '<div class="field" style="max-width:420px"><label for="q" class="caption">Suchen</label><input class="input" id="q" data-filter="rows" type="search" placeholder="Titel, ID oder Typ"></div>' +
+      '<div class="list" id="rows">' + rows + '<div class="hint-empty" id="rows-empty" hidden><h3 class="h3">Keine Treffer</h3><p class="meta">Andere Suchbegriffe probieren.</p></div></div>';
+  };
+
+  V.spec = function () {
+    var s = spec(), c = D.content[s.id], fb = openFb(s.id), isDraft = s.state !== 'approved';
+    var verMenu = menu('ver', '<button class="btn btn-ghost"><span class="mono">' + s.ver + '</span>' + ic('chevron-down') + '</button>',
+      (HISTORY[s.id] || [[s.ver, 'Aktuelle Version', '']]).map(function (h, i) { return '<button class="menu-item" data-act="tab" data-k="specTab" data-v="history"><span class="stack"><span class="mono">' + h[0] + '</span><span class="meta">' + h[1] + '</span></span>' + (i === 0 ? ic('check') : '') + '</button>'; }).join(''));
+    var more = menu('more', '<button class="icon-btn" aria-label="Weitere Aktionen">' + ic('more', 'icon-lg') + '</button>',
+      '<button class="menu-item" data-act="toast" data-m="Derive: Typ und Titel wählen, der markierte Text wird kopiert."><span class="stack"><span class="h3">New spec from selection…</span><span class="meta">Ohne Markierung: ganzes Dokument</span></span></button>' +
+      '<button class="menu-item" data-act="toast" data-m="Glossary term from selection: Dialog vorbefüllt."><span class="stack"><span class="h3">Glossary term from selection…</span></span></button>' +
+      '<button class="menu-item btn-danger" data-act="toast" data-m="Entwurf gelöscht (Demo: nur Hinweis).">' + ic('trash') + 'Delete draft</button>');
+    var primary = isDraft ? '<button class="btn btn-primary" data-act="approve-open">Approve ' + s.ver + '</button>' : '<button class="btn btn-ghost" data-act="withdraw">Withdraw ' + s.ver + '</button>';
+    var body = head(esc(s.title), { back: ['specs', 'Specs'], meta: '<span class="mono">' + s.id + '</span> · ' + s.type + ' · ' + (isDraft ? 'Draft ' + s.ver + ' · nur für dich sichtbar' : 'Approved ' + s.ver + ' · released') + ' · ' + s.by + ', ' + s.at, actions: verMenu + more + primary }) +
+      tabsHtml('specTab', [['content', 'Content'], ['report', 'Report'], ['feedback', 'Feedback' + (fb.length ? ' (' + fb.length + ')' : '')], ['history', 'History']]);
+    if (S.specTab === 'content') body += specContent(s, c);
+    if (S.specTab === 'report') body += specReport(s);
+    if (S.specTab === 'feedback') body += specFeedback(s);
+    if (S.specTab === 'history') body += specHistory(s);
+    return body;
+  };
+  function specContent(s, c) {
+    var modeSel = '<div class="seg" role="group" aria-label="Ansicht">' + [['form', 'Form'], ['blocks', 'Blocks'], ['md', 'Markdown']].map(function (m) { return '<button data-act="mode" data-v="' + m[0] + '" aria-pressed="' + (S.mode === m[0]) + '">' + m[1] + '</button>'; }).join('') + '</div>';
+    var ed = '';
+    if (S.mode === 'form') {
+      ed = '<div class="card"><div class="form">' +
+        '<div class="field"><label for="f-sum">Summary</label><textarea class="textarea" id="f-sum" data-bind="summary" rows="4">' + esc(c.summary) + '</textarea></div>' +
+        '<div class="field"><span class="lbl">Requirements</span><div class="form" style="gap:8px">' + c.reqs.map(function (r, i) { return '<div class="item-line"><span class="id mono">R' + (i + 1) + '</span><input class="input" data-bind="reqs" data-i="' + i + '" value="' + esc(r) + '" aria-label="Requirement ' + (i + 1) + '"></div>'; }).join('') + '<div><button class="btn btn-ghost" data-act="add" data-what="reqs">' + ic('plus') + 'Add requirement</button></div></div></div>' +
+        '<div class="field"><span class="lbl">Acceptance criteria</span><div class="form" style="gap:8px">' + c.ac.map(function (a, i) { return '<div class="item-line"><input type="checkbox" data-bind="ac-done" data-i="' + i + '"' + (a[1] ? ' checked' : '') + ' aria-label="erfüllt"><input class="input" data-bind="ac" data-i="' + i + '" value="' + esc(a[0]) + '" aria-label="Kriterium ' + (i + 1) + '"></div>'; }).join('') + '<div><button class="btn btn-ghost" data-act="add" data-what="ac">' + ic('plus') + 'Add criterion</button></div></div></div>' +
+        (c.notes.length ? '<div class="field"><span class="lbl">Review notes</span><ul class="prose">' + c.notes.map(function (n) { return '<li>' + esc(n) + '</li>'; }).join('') + '</ul></div>' : '') + '</div></div>';
+    } else if (S.mode === 'blocks') {
+      ed = '<div class="card"><div class="form" style="gap:8px">' + '<div class="block"><span class="caption">Heading</span><h3 class="h2">Summary</h3></div><div class="block"><span class="caption">Text</span><span class="prose">' + esc(c.summary) + '</span></div><div class="block"><span class="caption">Heading</span><h3 class="h2">Requirements</h3></div>' +
+        c.reqs.map(function (r, i) { return '<div class="block"><span class="caption">Requirement</span><span class="wrap-any"><span class="mono">R' + (i + 1) + '</span> ' + esc(r) + '</span></div>'; }).join('') +
+        '<div class="block"><span class="caption">Heading</span><h3 class="h2">Acceptance criteria</h3></div>' + c.ac.map(function (a) { return '<div class="block"><span class="caption">Checkliste</span><label class="checkrow"><input type="checkbox"' + (a[1] ? ' checked' : '') + '><span>' + esc(a[0]) + '</span></label></div>'; }).join('') +
+        '<div class="block" style="color:var(--text-tertiary)"><span class="caption">Neu</span><span>Tippe <span class="mono">/</span> für Blöcke, <span class="mono">@</span> für Dokumente, <span class="mono">#</span> für Glossarbegriffe</span></div></div></div>';
+    } else {
+      ed = '<div class="field"><label class="caption" for="f-md">Markdown · wird so im Team-Repository gespeichert</label><textarea class="textarea md" id="f-md" spellcheck="false">' + esc(toMd(s, c)) + '</textarea></div>';
+    }
+    return '<div style="display:flex;flex-direction:column;gap:16px"><div>' + modeSel + '</div>' + ed + '</div>';
+  }
+  function toMd(s, c) {
+    return '---\nid: ' + s.id + '\ntype: ' + s.type.toLowerCase().replace(' ', '-') + '\nversion: ' + s.ver.slice(1) + '\n---\n\n# ' + s.title + '\n\n## SUMMARY\n' + c.summary + '\n\n## REQUIREMENTS\n' + c.reqs.map(function (r, i) { return '- R' + (i + 1) + ': ' + r; }).join('\n') + '\n\n## ACCEPTANCE CRITERIA\n' + c.ac.map(function (a) { return '- [' + (a[1] ? 'x' : ' ') + '] ' + a[0]; }).join('\n') + (c.notes.length ? '\n\n## REVIEW NOTES\n' + c.notes.map(function (n) { return '- ' + n; }).join('\n') : '') + '\n';
+  }
+  function specReport(s) {
+    var r = D.reports[s.id];
+    if (!r) return '<div class="list"><div class="hint-empty"><h3 class="h3">Noch kein Report</h3><p class="meta" style="max-width:48ch">' + (s.state === 'approved' ? 'Sobald ein Agent diese Spec umgesetzt hat, erscheint hier sein Report mit Belegen für jedes Kriterium.' : 'Reports gibt es erst für freigegebene Specs. Approve ' + s.ver + ', damit Agenten die Umsetzung starten.') + '</p></div></div>';
+    var i = IMPL[r.status], map = { met: 'met', deviating: 'deviating', open: 'open' };
+    return '<div class="section"><p class="meta">' + ic('bot') + ' Report von ' + r.by + ' · ' + r.at + ' · ' + st(i[0], i[1]) + '</p><div class="list">' + r.crit.map(function (k) { var ck = k[2];
+      return '<div class="row" style="align-items:flex-start;flex-wrap:wrap"><span class="stack"><span class="wrap-any">' + esc(k[0]) + '</span><span class="meta">' + esc(ck[2]) + '</span></span><span class="end">' + st(k[1] === 'deviating' ? 'bad' : 'idle', map[k[1]]) + st(ck[0], ck[1]) + '</span></div>'; }).join('') + '</div>' +
+      (r.dev ? '<div class="card"><h3 class="h3">Abweichung</h3><p class="prose">' + esc(r.dev) + '</p><div class="actions"><button class="btn btn-ghost" data-act="toast" data-m="Als Guardrail-Vorschlag in guardrails.md übernommen (Make it a rule).">Make it a rule</button></div></div>' : '') + '</div>';
+  }
+  function specFeedback(s) {
+    var list = D.feedback.filter(function (f) { return f.spec === s.id; });
+    if (!list.length) return '<div class="list"><div class="hint-empty"><h3 class="h3">Kein Feedback</h3><p class="meta">Agenten widersprechen oder fragen hier nach, ohne die Spec zu ändern.</p></div></div>';
+    return '<div class="list">' + list.map(fbRow).join('') + '</div>';
+  }
+  function specHistory(s) {
+    var h = HISTORY[s.id] || [[s.ver, s.state === 'approved' ? 'Freigegeben von ' + s.by + ' · ' + s.at : 'Entwurf', s.state === 'approved' ? 'c41d8a0' : '']];
+    return '<div class="list">' + h.map(function (x) { return '<div class="row"><span class="stack"><span class="h3 mono">' + x[0] + '</span><span class="meta">' + x[1] + (x[2] ? ' · Commit <span class="mono">' + x[2] + '</span>' : '') + '</span></span>' + (x[2] ? '<button class="btn btn-ghost" data-act="toast" data-m="Vergleich öffnen (Demo).">Compare</button>' : '') + '</div>'; }).join('') + '</div>';
+  }
+
+  V.docs = function () {
+    if (S.docId) return docView();
+    var rows = D.docs.map(function (d) { return '<button class="row" data-act="opendoc" data-id="' + d.id + '"><span class="row-lead">' + ic('file-text') + '</span><span class="stack"><span class="h3">' + esc(d.name) + '</span><span class="meta"><span class="mono">' + esc(d.path) + '</span> · Released ' + d.at + '</span></span>' + ic('chevron-right', 'row-lead') + '</button>'; }).join('');
+    return head('Documents', { meta: 'Foundation-Dokumente gehen nach der letzten Änderung automatisch live.', actions: '<button class="btn btn-primary only-desktop" data-act="newdoc">' + ic('plus') + 'New document</button>' }) +
+      '<div class="list">' + rows + '</div>';
+  };
+  function docView() {
+    var d = D.docs.filter(function (x) { return x.id === S.docId; })[0], body;
+    if (d.id === 'guardrails') {
+      body = '<div class="card"><div class="field"><h3 class="h2">Always</h3><ul class="prose">' + D.guard.always.map(function (g) { return '<li>' + esc(g) + '</li>'; }).join('') + '</ul></div><div class="field"><h3 class="h2">Never</h3><ul class="prose">' + D.guard.never.map(function (g) { return '<li>' + esc(g) + '</li>'; }).join('') + '</ul></div><p class="meta">Agenten halten sich an diese Regeln. Würde eine Aufgabe eine Regel brechen, fragen sie per Decision nach.</p></div>';
+    } else if (S.docEdit) {
+      body = '<div class="field"><label class="caption" for="d-body">Markdown</label><textarea class="textarea md" id="d-body" data-bind="doc">' + esc(d.body) + '</textarea></div>';
+    } else {
+      body = '<div class="card"><div class="prose">' + d.body.split('\n\n').map(function (p) { return '<p>' + esc(p) + '</p>'; }).join('') + '</div></div>';
+    }
+    return head(esc(d.name), { back: ['docs', 'Documents'], meta: '<span class="mono">' + esc(d.path) + '</span> · Released ' + d.at + ' · geht nach der letzten Änderung automatisch live', actions: d.id === 'guardrails' ? '' : '<button class="btn ' + (S.docEdit ? 'btn-primary' : 'btn-line') + '" data-act="docedit">' + (S.docEdit ? 'Done' : 'Edit') + '</button>' }) + body;
+  }
+
+  V.glossary = function () {
+    var rows = D.terms.map(function (t) { return '<button class="row" data-act="term" data-t="' + esc(t.t) + '" data-s="' + esc((t.t + ' ' + t.def + ' ' + t.alias).toLowerCase()) + '"><span class="stack"><span class="h3">' + esc(t.t) + '</span><span class="meta wrap-any">' + esc(t.def) + '</span></span>' + ic('chevron-right', 'row-lead') + '</button>'; }).join('');
+    return head('Glossary', { meta: D.terms.length + ' Begriffe aus freigegebenen Specs und Dokumenten', actions: '<button class="btn btn-primary only-desktop" data-act="newterm">' + ic('plus') + 'New term</button>' }) +
+      '<div class="field" style="max-width:420px"><label for="q" class="caption">Suchen</label><input class="input" id="q" data-filter="rows" type="search" placeholder="Begriff oder Alias"></div>' +
+      '<div class="list" id="rows">' + rows + '<div class="hint-empty" id="rows-empty" hidden><h3 class="h3">Keine Treffer</h3><p class="meta">Lege den Begriff mit „New term“ an.</p></div></div>';
+  };
+
+  V.team = function () {
+    var body = head('Members & Git', { meta: 'Plattform-Team · du bist admin' }) + tabsHtml('teamTab', [['members', 'Members'], ['git', 'Git connection'], ['types', 'Spec types'], ['trigger', 'Agent trigger'], ['setup', 'Agent setup']]);
+    var T = S.teamTab;
+    if (T === 'members') {
+      body += '<div class="section"><div class="section-head"><h2 class="h2">Members</h2><button class="btn btn-primary only-desktop" data-act="invite">' + ic('plus') + 'Invite people</button></div><div class="list">' +
+        D.members.map(function (m, i) { return '<div class="row" style="flex-wrap:wrap"><span class="stack"><span class="h3">' + m.n + (m.you ? ' <span class="meta">(du)</span>' : '') + '</span><span class="meta wrap-any">' + m.e + '</span></span><select class="select" style="width:auto" data-act="role" data-i="' + i + '" aria-label="Rolle von ' + esc(m.n) + '"' + (m.you ? ' disabled' : '') + '>' + ['viewer', 'editor', 'approver', 'admin'].map(function (r) { return '<option' + (m.r === r ? ' selected' : '') + '>' + r + '</option>'; }).join('') + '</select></div>'; }).join('') + '</div></div>' +
+        '<div class="section"><h2 class="h2">Pending invitations</h2><div class="list">' + (D.invites.length ? D.invites.map(function (v, i) { return '<div class="row" style="flex-wrap:wrap"><span class="stack"><span class="h3 wrap-any">' + esc(v.e) + '</span><span class="meta">' + v.r + ' · ' + v.exp + '</span></span><span class="end"><button class="btn btn-ghost" data-act="resend" data-i="' + i + '">Resend</button><button class="btn btn-ghost btn-danger" data-act="revoke" data-i="' + i + '">Revoke</button></span></div>'; }).join('') : '<div class="hint-empty"><p class="meta">Keine offenen Einladungen.</p></div>') + '</div></div>' +
+        '<div class="card"><h3 class="h3">Rechte</h3><div class="tblwrap" style="box-shadow:none"><table><thead><tr><th>Recht</th><th>viewer</th><th>editor</th><th>approver</th><th>admin</th></tr></thead><tbody>' +
+        [['Lesen', 1, 1, 1, 1], ['Entwürfe schreiben', 0, 1, 1, 1], ['Freigeben und nach Git pushen', 0, 0, 1, 1], ['Mitglieder, Git, Team-Einstellungen', 0, 0, 0, 1]].map(function (r) { return '<tr><td>' + r[0] + '</td>' + r.slice(1).map(function (x) { return '<td>' + (x ? ic('check') : '<span class="meta">–</span>') + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table></div></div>';
+    }
+    if (T === 'git') {
+      body += '<div class="card"><form class="form" id="git-form"><div class="field"><label for="g-url">URL</label><input class="input mono" id="g-url" value="https://git.plattform.example.de/billing/rechnungsdienst.git"></div>' +
+        '<div class="two"><div class="field"><label for="g-br">Branch</label><input class="input mono" id="g-br" value="main"></div><div class="field"><label for="g-dir">Ordner</label><input class="input mono" id="g-dir" value="specs/" readonly><span class="meta">' + ic('lock') + ' Nach der ersten Freigabe gesperrt.</span></div></div>' +
+        '<div class="field"><label for="g-auth">Authentifizierung</label><select class="select" id="g-auth"><option>HTTPS-Token (gespeichert, wird nie angezeigt)</option><option>SSH-Deploy-Key (ed25519)</option></select></div>' +
+        '<label class="switch"><input type="checkbox" checked><span>Auto-Push nach jeder Freigabe und Rücknahme (inkl. Version-Tags)</span></label>' +
+        '<p class="meta">Letzter Push: 4. Nov. 2026, 11:20 · origin/main · Tag v2.0</p>' +
+        '<div class="actions"><button class="btn btn-primary" type="submit">Save</button><button class="btn btn-line" type="button" data-act="toast" data-m="Verbindung erfolgreich: origin/main erreichbar, Schreibrecht vorhanden." >Test connection</button><button class="btn btn-ghost" type="button" data-act="toast" data-m="Push abgeschlossen: 2 Commits, Tag v1.3 nach origin/main.">' + ic('git-branch') + 'Push now</button></div></form></div>';
+    }
+    if (T === 'types') {
+      body += '<div class="section"><div class="section-head"><h2 class="h2">Spec types</h2><button class="btn btn-line" data-act="toast" data-m="Typ-Editor öffnet sich (Demo).">' + ic('plus') + 'New type</button></div><div class="list">' + D.types.map(function (t) { return '<div class="row"><span class="stack"><span class="h3">' + t[0] + '</span><span class="meta">' + t[1] + '</span></span></div>'; }).join('') + '</div></div>';
+    }
+    if (T === 'trigger') {
+      body += '<div class="card"><form class="form" id="trig-form"><p class="meta" style="max-width:62ch">Nach einer Freigabe oder einer Antwort auf eine Decision wird dieser Webhook aufgerufen und startet den Agenten.</p><div class="field"><label for="t-url">Adresse</label><input class="input mono" id="t-url" value="https://ci.plattform.example.de/hooks/agenten"></div>' +
+        '<div class="field"><label for="t-tok">Token</label><input class="input mono" id="t-tok" type="password" value="••••••••••••••••"><span class="meta">Signiert Aufrufe mit X-Specs-Signature (HMAC-SHA256).</span></div>' +
+        '<div class="field"><span class="lbl">Ereignisse</span><label class="checkrow"><input type="checkbox" checked><span>Freigabe</span></label><label class="checkrow"><input type="checkbox" checked><span>Antwort auf Decision</span></label></div>' +
+        '<div class="field"><label for="t-fmt">Format</label><select class="select" id="t-fmt"><option>full</option><option>text</option></select></div>' +
+        '<div class="actions"><button class="btn btn-primary" type="submit">Save</button><button class="btn btn-line" type="button" data-act="toast" data-m="Testaufruf gesendet: HTTP 202 nach 340 ms.">Send test</button></div></form></div>';
+    }
+    if (T === 'setup') {
+      body += '<div class="section"><h2 class="h2">Claude Code anbinden</h2><p class="meta" style="max-width:62ch">Lege die Datei <span class="mono">.mcp.json</span> im Ziel-Repository ab und setze <span class="mono">SPECS_TOKEN</span> in der Routine-Umgebung.</p><pre class="code">{ "mcpServers": { "specs": {\n    "type": "http",\n    "url": "https://specs.plattform.example.de/mcp",\n    "headers": { "Authorization": "Bearer ${SPECS_TOKEN}" }\n} } }</pre><div class="actions"><button class="btn btn-line" data-act="copy" data-m="Datei .mcp.json kopiert.">' + ic('copy') + 'Copy .mcp.json</button><button class="btn btn-ghost" data-act="copy" data-m="Anweisung für die Routine kopiert.">Copy prompt</button></div></div>';
+    }
+    return body;
+  };
+
+  V.account = function () {
+    var body = head('Account', { meta: 'Lena Hartmann · lena.hartmann@plattform.example.de' }) + tabsHtml('accTab', [['profile', 'Profile'], ['agent', 'Agent access']]);
+    if (S.accTab === 'profile') {
+      body += '<div class="card"><form class="form" id="prof-form"><div class="field"><label for="p-name">Name</label><input class="input" id="p-name" value="Lena Hartmann"></div><div class="field"><label for="p-mail">E-Mail</label><input class="input" id="p-mail" type="email" value="lena.hartmann@plattform.example.de"></div>' +
+        '<div class="field"><label for="p-pw">Neues Passwort</label><input class="input" id="p-pw" type="password" placeholder="Mindestens 10 Zeichen" autocomplete="new-password"></div><div class="field"><label for="p-theme">Darstellung</label><select class="select" id="p-theme"><option>System</option><option>Hell</option><option>Dunkel</option></select></div><div><button class="btn btn-primary" type="submit">Save</button></div></form></div>';
+    } else {
+      body += '<div class="section"><div class="section-head"><h2 class="h2">Persönliche Tokens</h2><button class="btn btn-primary only-desktop" data-act="newtoken">' + ic('plus') + 'New token</button></div><div class="list">' +
+        D.tokens.map(function (t, i) { return '<div class="row" style="flex-wrap:wrap"><span class="row-lead">' + ic('key') + '</span><span class="stack"><span class="h3">' + esc(t.n) + '</span><span class="meta">' + t.s + ' · läuft ab ' + t.exp + ' · zuletzt genutzt ' + t.used + '</span></span><button class="btn btn-ghost btn-danger" data-act="deltoken" data-i="' + i + '">Revoke</button></div>'; }).join('') + '</div></div>' +
+        '<div class="card"><h3 class="h3">Oder per OAuth anmelden</h3><p class="meta">Empfohlen für lokale Agenten. Du wählst Team und Rechte bei der Anmeldung.</p><pre class="code">claude mcp add --transport http specs https://specs.plattform.example.de/mcp</pre><div><button class="btn btn-line" data-act="copy" data-m="Befehl kopiert.">' + ic('copy') + 'Copy command</button></div></div>';
+    }
+    return body;
+  };
+
+  V.admin = function () {
+    var body = head('Admin', { meta: 'Instanz-Verwaltung · Teams und Konten' }) + tabsHtml('adminTab', [['teams', 'Teams'], ['accounts', 'Accounts'], ['email', 'Email'], ['audit', 'Audit log']]);
+    var tbl = function (h, rows) { return '<div class="tblwrap"><table><thead><tr>' + h.map(function (x) { return '<th>' + x + '</th>'; }).join('') + '</tr></thead><tbody>' + rows.map(function (r) { return '<tr>' + r.map(function (x) { return '<td>' + x + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table></div>'; };
+    if (S.adminTab === 'teams') body += tbl(['Team', 'Mitglieder', 'Specs', 'Letzte Aktivität'], [['<span class="h3">Plattform-Team</span>', '4', '6', 'heute, 22:41'], ['<span class="h3">Eigene Notizen</span>', '1', '0', '3. Nov. 2026']]);
+    if (S.adminTab === 'accounts') body += tbl(['Name', 'E-Mail', 'Letzte Anmeldung'], [['Henrik Vogel (Instanz-Admin)', 'henrik.vogel@plattform.example.de', 'heute, 07:55'], ['Lena Hartmann', 'lena.hartmann@plattform.example.de', 'heute, 22:30'], ['Anna Brandt', 'anna.brandt@plattform.example.de', 'heute, 08:41'], ['Jonas Weber', 'jonas.weber@plattform.example.de', 'gestern, 16:10'], ['Mira Çelik', 'mira.celik@plattform.example.de', '10. Nov. 2026']]);
+    if (S.adminTab === 'email') body += '<div class="card"><p class="meta" style="max-width:62ch">E-Mail wird nur für Einladungen und den Feedback-Digest genutzt.</p><div class="list" style="box-shadow:none"><div class="row"><span class="grow">SMTP</span><span class="mono">mail.plattform.example.de:587 · STARTTLS</span></div><div class="row"><span class="grow">Absender</span><span class="mono">specs@plattform.example.de</span></div></div><div><button class="btn btn-line" data-act="toast" data-m="Testmail an lena.hartmann@plattform.example.de gesendet.">' + ic('mail') + 'Send test mail</button></div></div>';
+    if (S.adminTab === 'audit') body += tbl(['Zeitpunkt', 'Wer', 'Ereignis'], D.audit);
+    return body;
+  };
+
+  /* ---------- Dialoge ---------- */
+  var layer = $('#layer'), lastTrigger = null;
+  function dialog(title, bodyHtml, actionsHtml, opt) {
+    closeDialog(true);
+    var scr = document.createElement('div');
+    scr.className = 'scrim';
+    scr.innerHTML = '<div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dlg-t"><h2 class="h1" id="dlg-t" style="font-size:18px">' + title + '</h2>' + bodyHtml + '<div class="dialog-actions">' + actionsHtml + '</div></div>';
+    layer.appendChild(scr);
+    var dlg = $('.dialog', scr);
+    if (lastTrigger && window.innerWidth >= 960) { /* Ursprung: Auslöser */
+      var t = lastTrigger.getBoundingClientRect(), d = dlg.getBoundingClientRect();
+      dlg.style.transformOrigin = Math.max(0, t.left + t.width / 2 - d.left) + 'px ' + Math.max(0, t.top + t.height / 2 - d.top) + 'px';
+    } else if (window.innerWidth < 960) { dlg.style.transformOrigin = 'bottom center'; }
+    requestAnimationFrame(function () { requestAnimationFrame(function () { scr.classList.add('in'); var f = $('input,select,textarea,button.btn-primary', dlg); if (f) f.focus(); }); });
+    scr.addEventListener('mousedown', function (e) { if (e.target === scr) closeDialog(); });
+    return dlg;
+  }
+  function closeDialog(now) {
+    var scr = $('.scrim', layer); if (!scr) return;
+    if (now) { scr.remove(); return; }
+    scr.classList.remove('in'); setTimeout(function () { scr.remove(); }, 150);
+    if (lastTrigger && document.body.contains(lastTrigger)) lastTrigger.focus();
+  }
+  var X = '<button class="btn btn-ghost" data-act="close">Cancel</button>';
+  function toast(msg) {
+    var t = document.createElement('div'); t.className = 'toast'; t.innerHTML = ic('check') + '<span>' + esc(msg) + '</span>';
+    $('#toasts').appendChild(t);
+    requestAnimationFrame(function () { requestAnimationFrame(function () { t.classList.add('in'); }); });
+    setTimeout(function () { t.classList.remove('in'); t.classList.add('out'); setTimeout(function () { t.remove(); }, 150); }, 4200);
+  }
+
+  /* ---------- Rendering ---------- */
+  function render() {
+    var r = S.auth ? S.route : 'login';
+    var v = V[r] ? V[r]() : V.garden();
+    if (r === 'login') { $('#app').innerHTML = v; return; }
+    var fab = { specs: ['newspec', 'New spec'], docs: ['newdoc', 'New document'], glossary: ['newterm', 'New term'] }[r];
+    if (r === 'team' && S.teamTab === 'members') fab = ['invite', 'Invite people'];
+    if (r === 'account' && S.accTab === 'agent') fab = ['newtoken', 'New token'];
+    $('#app').innerHTML = shell({ body: v, fab: fab });
+    window.scrollTo(0, 0);
+  }
+  function go(r) { S.route = r; if (r !== 'docs') { S.docId = null; S.docEdit = false; } if (location.hash !== '#' + r) location.hash = r; render(); }
+  window.addEventListener('hashchange', function () { var r = location.hash.slice(1); if (V[r] && r !== S.route) { S.route = r; if (r !== 'docs') { S.docId = null; S.docEdit = false; } render(); } });
+
+  /* ---------- Aktionen ---------- */
+  var ACT = {
+    close: function () { closeDialog(); },
+    toast: function (el) { toast(el.dataset.m); },
+    copy: function (el) { toast(el.dataset.m); },
+    sso: function () { S.auth = true; go('garden'); },
+    logout: function () { S.auth = false; S.route = 'login'; location.hash = 'login'; render(); },
+    tab: function (el) { S[el.dataset.k] = el.dataset.v; render(); },
+    mode: function (el) { S.mode = el.dataset.v; render(); },
+    more: function (el) {
+      lastTrigger = el;
+      dialog('Mehr', '<nav class="nav">' + NAV2.map(function (n) { return '<a class="nav-item" href="#' + n[0] + '" data-act="close">' + ic(n[2], 'icon-lg') + n[1] + '</a>'; }).join('') + '<button class="nav-item" data-act="logout">' + ic('log-out', 'icon-lg') + 'Sign out</button></nav>', X);
+    },
+    openspec: function (el, e) { e.preventDefault(); S.specId = el.dataset.id; S.specTab = el.dataset.tab || 'content'; S.mode = 'form'; go('spec'); },
+    newspec: function (el) {
+      lastTrigger = el;
+      dialog('New spec', '<div class="form"><div class="field"><label for="ns-type">Typ</label><select class="select" id="ns-type">' + D.types.map(function (t) { return '<option>' + t[0] + '</option>'; }).join('') + '</select><span class="meta">Jeder Typ bringt eine Vorlage mit.</span></div><div class="field"><label for="ns-title">Titel</label><input class="input" id="ns-title" placeholder="z. B. Abrechnung: Teilzahlungen"></div></div>', X + '<button class="btn btn-primary" data-act="createspec">Create draft</button>');
+    },
+    createspec: function () {
+      var title = $('#ns-title').value.trim(), type = $('#ns-type').value;
+      if (!title) { $('#ns-title').focus(); toast('Bitte einen Titel eingeben.'); return; }
+      var id = (type.replace(/[^A-Za-z]/g, '').slice(0, 2).toUpperCase() || 'SP') + '-' + String(10 + D.specs.length).padStart(3, '0');
+      D.specs.unshift({ id: id, title: title, type: type, state: 'draft', ver: 'v0.1', by: 'Lena Hartmann', at: 'gerade eben' });
+      D.content[id] = JSON.parse(JSON.stringify(SPEC_TEMPLATE));
+      closeDialog(true); S.specId = id; S.specTab = 'content'; S.mode = 'form'; go('spec'); toast('Draft ' + id + ' angelegt. Nur für dich sichtbar.');
+    },
+    add: function (el) { var c = D.content[S.specId]; if (el.dataset.what === 'reqs') c.reqs.push(''); else c.ac.push(['', false]); render(); var ins = $$('[data-bind="' + (el.dataset.what === 'reqs' ? 'reqs' : 'ac') + '"]'); if (ins.length) ins[ins.length - 1].focus(); },
+    'approve-open': function (el) {
+      lastTrigger = el; var s = spec(), n = openFb(s.id).length;
+      dialog('Approve ' + s.ver, '<div class="form" style="gap:16px"><p>Die Freigabe schreibt <span class="mono">specs/' + s.id + '.md</span> ins Team-Repository (Commit und Tag ' + s.ver + ', Autor: Lena Hartmann) und macht die Version für Agenten sichtbar.</p><p class="meta">Änderungen seit ' + (s.rel || 'dem Entwurf') + ': 2 Requirements geändert, 1 Kriterium neu.</p>' + (n ? '<p class="st warn" style="white-space:normal"><i></i>' + n + ' offene Feedback-Einträge von Agenten. <a data-act="gofb">Feedback ansehen</a></p>' : '') + '<label class="switch"><input type="checkbox" id="ap-push" checked><span>Danach nach origin/main pushen</span></label></div>', X + '<button class="btn btn-primary" data-act="approve">Approve ' + s.ver + '</button>');
+    },
+    gofb: function () { closeDialog(true); S.specTab = 'feedback'; render(); },
+    approve: function () {
+      var s = spec(), push = $('#ap-push') && $('#ap-push').checked; s.state = 'approved'; s.impl = 'new'; s.by = 'Lena Hartmann'; s.at = 'gerade eben';
+      closeDialog(true); render(); toast('Approved ' + s.ver + ' · Release nach specs/' + s.id + '.md' + (push ? ' · gepusht nach origin/main' : '')); setTimeout(function () { toast('Agent trigger ausgelöst: HTTP 202.'); }, 500);
+    },
+    withdraw: function () { var s = spec(); s.state = 'draft'; s.at = 'gerade eben'; render(); toast(s.ver + ' zurückgezogen. Die Spec ist wieder ein Entwurf.'); },
+    answer: function (el) {
+      var d = D.decisions.filter(function (x) { return x.id === el.dataset.id; })[0], sel = $('input[name="' + d.id + '"]:checked');
+      if (!sel) { toast('Bitte eine Antwort wählen.'); return; }
+      d.answer = sel.value; render(); toast('Antwort gesendet: ' + sel.value + '. Der Agent trigger läuft erneut.');
+    },
+    fb: function (el) {
+      var f = D.feedback.filter(function (x) { return x.id === el.dataset.id; })[0];
+      if (el.dataset.do === 'accept') { f.state = 'accepted'; D.content[f.spec].notes.push(f.text); toast('Übernommen als Punkt unter REVIEW NOTES in ' + f.spec + '.'); }
+      else { f.state = 'declined'; toast('Feedback abgelehnt. Der Agent wird informiert.'); }
+      render();
+    },
+    opendoc: function (el) { S.docId = el.dataset.id; S.docEdit = false; render(); },
+    newdoc: function (el) {
+      lastTrigger = el;
+      dialog('New document', '<div class="field"><label for="nd-path">Pfad</label><input class="input mono" id="nd-path" placeholder="betrieb/runbook-backup.md"><span class="meta">Ordner bis 5 Ebenen. Das Dokument landet unter specs/docs/.</span></div>', X + '<button class="btn btn-primary" data-act="createdoc">Create document</button>');
+    },
+    createdoc: function () {
+      var p = $('#nd-path').value.trim(); if (!p) { $('#nd-path').focus(); return; }
+      if (!/\.md$/.test(p)) p += '.md';
+      var id = 'n' + D.docs.length; D.docs.push({ id: id, path: p, name: p.split('/').pop().replace(/\.md$/, ''), at: 'gerade eben', body: '' });
+      closeDialog(true); S.docId = id; S.docEdit = true; render(); toast('Dokument angelegt.');
+    },
+    docedit: function () { S.docEdit = !S.docEdit; render(); if (!S.docEdit) toast('Gespeichert. Release automatisch in 5 Sekunden.'); },
+    term: function (el) {
+      lastTrigger = el; var t = D.terms.filter(function (x) { return x.t === el.dataset.t; })[0];
+      dialog(esc(t.t), '<div class="form" style="gap:12px"><p>' + esc(t.def) + '</p>' + (t.alias ? '<p class="meta">Alias: ' + esc(t.alias) + '</p>' : '') + (t.see ? '<p class="meta">Siehe auch: <a data-act="term" data-t="' + esc(t.see) + '">' + esc(t.see) + '</a></p>' : '') + '</div>', '<button class="btn btn-ghost" data-act="close">Close</button>');
+    },
+    newterm: function (el) {
+      lastTrigger = el;
+      dialog('New term', '<div class="form"><div class="field"><label for="nt-t">Begriff</label><input class="input" id="nt-t" placeholder="z. B. Gutschrift"></div><div class="field"><label for="nt-d">Definition</label><textarea class="textarea" id="nt-d" rows="3"></textarea></div><button class="btn btn-ghost" style="align-self:flex-start" data-act="toast" data-m="Suche nach Definitionen online: nur der Suchbegriff wird gesendet.">' + ic('search') + 'Search definitions online</button></div>', X + '<button class="btn btn-primary" data-act="createterm">Add term</button>');
+    },
+    createterm: function () {
+      var t = $('#nt-t').value.trim(); if (!t) { $('#nt-t').focus(); return; }
+      D.terms.unshift({ t: t, def: $('#nt-d').value.trim() || 'Noch keine Definition.', alias: '', see: '' }); closeDialog(true); render(); toast('Begriff „' + t + '“ angelegt.');
+    },
+    newteam: function (el) { lastTrigger = el; dialog('Neues Team', '<div class="field"><label for="tm-n">Name</label><input class="input" id="tm-n" placeholder="z. B. Vertrieb"></div>', X + '<button class="btn btn-primary" data-act="close">Create team</button>'); },
+    invite: function (el) {
+      lastTrigger = el;
+      dialog('Invite people', '<div class="form"><div class="field"><label for="iv-m">E-Mail</label><input class="input" id="iv-m" type="email" placeholder="name@firma.de"></div><div class="field"><label for="iv-r">Rolle</label><select class="select" id="iv-r"><option>editor</option><option>viewer</option><option>approver</option><option>admin</option></select></div><p class="meta">Der Link ist 7 Tage gültig und wird per Mail verschickt.</p></div>', X + '<button class="btn btn-primary" data-act="sendinvite">Send invitation</button>');
+    },
+    sendinvite: function () {
+      var m = $('#iv-m').value.trim(); if (!/.+@.+\..+/.test(m)) { $('#iv-m').focus(); toast('Bitte eine gültige E-Mail eingeben.'); return; }
+      D.invites.push({ e: m, r: $('#iv-r').value, exp: 'läuft in 7 Tagen ab' }); closeDialog(true); render(); toast('Einladung an ' + m + ' gesendet.');
+    },
+    resend: function (el) { D.invites[+el.dataset.i].exp = 'läuft in 7 Tagen ab'; render(); toast('Einladung erneut gesendet. Der alte Link ist ungültig.'); },
+    revoke: function (el) { D.invites.splice(+el.dataset.i, 1); render(); toast('Einladung widerrufen.'); },
+    role: function () {},
+    newtoken: function (el) {
+      lastTrigger = el;
+      dialog('New token', '<div class="form"><div class="field"><label for="tk-n">Name</label><input class="input" id="tk-n" placeholder="z. B. Nightly-Agent"></div><div class="field"><label for="tk-s">Scope</label><select class="select" id="tk-s"><option>Read</option><option selected>Read &amp; write drafts</option><option>Read &amp; write</option></select></div><div class="field"><label for="tk-e">Ablauf</label><select class="select" id="tk-e"><option>30 Tage</option><option selected>90 Tage</option><option>1 Jahr</option><option>Nie</option></select></div></div>', X + '<button class="btn btn-primary" data-act="createtoken">Create token</button>');
+    },
+    createtoken: function () {
+      var n = $('#tk-n').value.trim(); if (!n) { $('#tk-n').focus(); return; }
+      var tok = 'spc_' + Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 14), s = $('#tk-s').value, e = $('#tk-e').value;
+      D.tokens.unshift({ n: n, s: s, exp: e === 'Nie' ? 'nie' : '10. Feb. 2027', used: 'noch nie' });
+      var d = dialog('Token erstellt', '<div class="form"><p class="meta">Kopiere das Token jetzt. Danach wird es nie wieder angezeigt.</p><pre class="code wrap-any" style="white-space:pre-wrap">' + tok + '</pre></div>', '<button class="btn btn-ghost" data-act="copy" data-m="Token kopiert.">' + ic('copy') + 'Copy</button><button class="btn btn-primary" data-act="done-token">Done</button>');
+    },
+    'done-token': function () { closeDialog(true); render(); },
+    deltoken: function (el) { D.tokens.splice(+el.dataset.i, 1); render(); toast('Token widerrufen.'); }
+  };
+
+  document.addEventListener('click', function (e) {
+    var m = e.target.closest('[data-menu]');
+    if (m) {
+      e.stopPropagation(); var pop = $('#m-' + m.dataset.menu), open = pop.classList.contains('open');
+      $$('.popover.open').forEach(function (p) { p.classList.remove('open'); }); if (!open) pop.classList.add('open'); return;
+    }
+    var a = e.target.closest('[data-act]');
+    if (!a) { $$('.popover.open').forEach(function (p) { p.classList.remove('open'); }); return; }
+    $$('.popover.open').forEach(function (p) { p.classList.remove('open'); });
+    var fn = ACT[a.dataset.act]; if (fn) { if (!['createspec', 'approve', 'createdoc', 'createterm', 'sendinvite', 'createtoken', 'done-token', 'close', 'gofb', 'answer', 'fb'].some(function (k) { return k === a.dataset.act; }) && !$('.scrim', layer)) lastTrigger = a; fn(a, e); }
+  });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { if ($('.scrim', layer)) closeDialog(); $$('.popover.open').forEach(function (p) { p.classList.remove('open'); }); } });
+  document.addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (e.target.id === 'login-form') { S.auth = true; go('garden'); toast('Angemeldet als Lena Hartmann.'); }
+    else toast('Gespeichert.');
+  });
+  document.addEventListener('input', function (e) {
+    var t = e.target;
+    if (t.dataset.filter) { var q = t.value.trim().toLowerCase(), n = 0; $$('#rows [data-s]').forEach(function (r) { var hit = !q || r.dataset.s.indexOf(q) > -1; r.hidden = !hit; if (hit) n++; }); $('#rows-empty').hidden = n > 0; return; }
+    var b = t.dataset.bind; if (!b) return; var c = D.content[S.specId], i = +t.dataset.i;
+    if (b === 'summary') c.summary = t.value; else if (b === 'reqs') c.reqs[i] = t.value; else if (b === 'ac') c.ac[i][0] = t.value; else if (b === 'ac-done') c.ac[i][1] = t.checked;
+    else if (b === 'doc') D.docs.filter(function (x) { return x.id === S.docId; })[0].body = t.value;
+  });
+  document.addEventListener('change', function (e) {
+    var t = e.target;
+    if (t.dataset.bind === 'ac-done') { var c = D.content[S.specId]; c.ac[+t.dataset.i][1] = t.checked; }
+    if (t.dataset.act === 'role') { D.members[+t.dataset.i].r = t.value; toast('Rolle von ' + D.members[+t.dataset.i].n + ' ist jetzt ' + t.value + '.'); }
+  });
+
+  var h = location.hash.slice(1);
+  S.route = V[h] && h !== 'login' ? h : 'login';
+  render();
+})();
+</script>

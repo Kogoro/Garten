@@ -379,7 +379,7 @@ try {
   await d.locator('#docsDd .dd-menu').waitFor(); // stays open while toggling
   await d.waitForFunction((l) => document.querySelector('#docsDd .docsbtn')?.innerText !== l, labelBefore);
   await d.locator('#docsDd [data-act=dd-link][aria-checked=true]').first().click();
-  await d.keyboard.press('Escape'); assert.equal(await d.locator('#docsDd .dd-menu').isVisible(), false);
+  await d.keyboard.press('Escape'); await d.locator('#docsDd .dd-menu').waitFor({ state: 'hidden', timeout: 1000 }); // menus fade out in 130 ms
   ok('linked documents dropdown: toggle links (stays open), Escape closes');
   await d.click('[data-act=item-menu]');
   await d.getByRole('button', { name: 'Editor: Blocks' }).waitFor(); await d.getByRole('button', { name: 'Editor: Markdown' }).waitFor(); await d.keyboard.press('Escape');
@@ -534,8 +534,8 @@ try {
   const ddMenu = await d.locator('.dd-menu').boundingBox();
   assert.ok(Math.abs((ddMenu.x + ddMenu.width) - (ddBtn.x + ddBtn.width)) <= 2); ok('documents: New is a dropdown aligned to the right edge');
   assert.ok(await d.getByRole('menuitem', { name: 'Document' }).isVisible() && await d.getByRole('menuitem', { name: /Folder/ }).isVisible());
-  await d.keyboard.press('Escape'); assert.equal(await d.locator('.dd-menu').isVisible(), false);
-  await d.click('.bar [data-act=dd-toggle]'); await d.locator('#list').click({ position: { x: 5, y: 5 } }); assert.equal(await d.locator('.dd-menu').isVisible(), false); ok('the dropdown closes with Escape and on outside click');
+  await d.keyboard.press('Escape'); await d.locator('.dd-menu').waitFor({ state: 'hidden', timeout: 1000 });
+  await d.click('.bar [data-act=dd-toggle]'); await d.locator('#list').click({ position: { x: 5, y: 5 } }); await d.locator('.dd-menu').waitFor({ state: 'hidden', timeout: 1000 }); ok('the dropdown closes with Escape and on outside click');
   await d.click('.bar [data-act=dd-toggle]'); await d.getByRole('menuitem', { name: 'Document' }).click();
   await d.fill('#docname', 'notes/ideas/retry.md'); await d.click('[data-act=create-doc]');
   await d.locator('.ed-title', { hasText: 'notes/ideas/retry.md' }).waitFor();
@@ -796,11 +796,11 @@ try {
   await d.click('[data-tab=settings]');
   await d.locator('[data-act=set-theme][data-v=light]').click();
   assert.equal(await d.evaluate(() => document.documentElement.dataset.theme), 'light');
-  assert.equal(await d.evaluate(() => getComputedStyle(document.body).backgroundColor), 'rgb(244, 245, 247)'); ok('appearance: light mode');
+  assert.equal(await d.evaluate(() => getComputedStyle(document.body).backgroundColor), 'rgb(249, 250, 249)'); ok('appearance: light mode');
   await shot(d, '08b-desktop-light-account');
   await d.reload(); assert.equal(await d.evaluate(() => document.documentElement.dataset.theme), 'light'); ok('appearance: choice is remembered');
   await d.locator('[data-act=set-theme][data-v=dark]').click();
-  assert.equal(await d.evaluate(() => getComputedStyle(document.body).backgroundColor), 'rgb(15, 18, 20)'); ok('appearance: dark mode');
+  assert.equal(await d.evaluate(() => getComputedStyle(document.body).backgroundColor), 'rgb(11, 13, 12)'); ok('appearance: dark mode');
 
   // any user can create a team from the workspace menu
   await d.locator('.sidebar .ws').click();

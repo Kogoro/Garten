@@ -73,6 +73,7 @@ export function CodeEditor({ value, onChange, readOnly, label = 'Mermaid source'
     else if (e.key === 'Backspace' && !e.ctrlKey && !e.metaKey) { ed = onBackspace(t, s, en); if (ed) e.preventDefault(); }
     else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) { ed = onChar(t, s, en, e.key); if (ed) e.preventDefault(); }
     if (ed) { apply(el, ed); setPop(null); if (e.key.length === 1) requestAnimationFrame(() => refresh()); }
+    else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) setPop(null); // a typed character makes the open list stale until the next refresh: Enter/Tab must not accept an outdated suggestion
   };
 
   return (

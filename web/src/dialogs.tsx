@@ -1,10 +1,18 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Icon } from './ui';
 import { useUi } from './state';
+
+/** The element that opened the sheet: on larger screens the sheet grows out of it (origin-aware motion). */
+let trigger: Element | null = null;
+if (typeof document !== 'undefined') document.addEventListener('click', (e) => { trigger = (e.target as Element | null)?.closest?.('button, a, [role=button]') ?? null; }, true);
 
 /** Modal bottom sheet / dialog (the scrim, the close button and Escape close it). Focus moves in, stays in and returns to the opener. */
 export function Sheet({ onClose, wide, xl, children }: { onClose: () => void; wide?: boolean; xl?: boolean; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const box = ref.current, from = trigger?.getBoundingClientRect(), at = box?.getBoundingClientRect();
+    if (box && from && at && typeof matchMedia === 'function' && matchMedia('(min-width: 701px)').matches) box.style.transformOrigin = `${from.left + from.width / 2 - at.left}px ${from.top + from.height / 2 - at.top}px`;
+  }, []);
   useEffect(() => {
     const opener = document.activeElement as HTMLElement | null;
     const box = ref.current;
