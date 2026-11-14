@@ -281,6 +281,9 @@ try {
   const answeredDec = (await tool('list_decisions', { spec_id: 'SPEC-012' }));
   assert.match(JSON.stringify(answeredDec), /7 days/); assert.match(JSON.stringify(answeredDec), /Consumers in the field sync weekly/);
   assert.match(JSON.stringify(await tool('get_work_list')), /decisions_answered/); ok('garden: the answer reaches the server on reconnect and the agent finds it in its work list');
+  const s012 = (await admin.sync()).data.items.find((i) => i.id === 'SPEC-012');
+  assert.match(s012.body, /## DECISIONS\n\n- How long do old signing keys stay valid after a rotation\? → 7 days – Consumers in the field sync weekly\./); assert.ok(s012.rev > s012.releasedRev);
+  assert.ok(await page.locator(`#gd-answered [data-decision="${dec.id}"] [data-state=in-spec]`).isVisible()); ok('garden: the answer is also written into the spec under DECISIONS, as a draft change');
   await page.click('#gd-impl .gd-row[data-spec="SPEC-012"]');
   await page.locator('.sheet .rp-sum', { hasText: 'Rotation endpoint is built' }).waitFor();
   assert.equal(await page.locator('.sheet .rp-crit li').count(), 4); // the spec's own checklist: R1, R2, AC1, AC2

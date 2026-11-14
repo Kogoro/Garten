@@ -225,7 +225,7 @@ function buildServer(team, canDrafts, writer, agent) {
     server.registerTool(
       'request_decision',
       {
-        description: 'Ask a person to decide something the spec leaves open (a trade-off, an ambiguity, a product choice). Give 2–6 concrete options and say which you recommend. The person answers in the Specs app, often from a phone – keep the question and the options short and self-contained. ' +
+        description: 'Ask a person to decide something the spec leaves open (a trade-off, an ambiguity, a product choice). First read the spec\'s "## DECISIONS" section: questions answered there are settled and must not be asked again. Give 2–6 concrete options and say which you recommend. The person answers in the Specs app, often from a phone – keep the question and the options short and self-contained. ' +
           'Read the answer later with list_decisions (it also appears in get_work_list). Set blocking=false when you can sensibly continue with your recommendation in the meantime. The same open question is not recorded twice.',
         inputSchema: {
           spec_id: z.string(), question: z.string().min(1).max(2000).describe('One question a person can answer without reading code'),
