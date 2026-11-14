@@ -58,12 +58,12 @@ function SpecList({ selected }: { selected?: string }) {
       <Hint id="palette" fineOnly>Press <kbd>Ctrl</kbd>/<kbd>⌘</kbd> <kbd>K</kbd> to jump to any spec, document or term, and <kbd>?</kbd> for all shortcuts.</Hint>
       <div className="list" id="list">
         {!specs.length && <div className="empty">{all.length ? 'No specs match.' : S.can('write') ? 'No specs yet. Create your first one — it works offline.' : 'No specs yet.'}</div>}
-        {specs.map((s) => (
+        {specs.length > 0 && <div className="list-card">{specs.map((s) => (
           <Link key={s.id} className={`row ${selected === s.id ? 'active' : ''}`} to={`/spec/${encodeURIComponent(s.id)}`}>
             <div className="row-title">{s.title || <span className="muted">Untitled spec</span>}</div>
             <div className="row-meta"><span className="row-id">{s.id}</span><TypeChip s={s} S={S} /><StatusChip i={s} S={S} /><AgentChip s={s} S={S} /><ImplChip spec={s} />{S.feedbackCount(s.id) > 0 && <span className="chip warn" title="Open feedback">{S.feedbackCount(s.id)} feedback</span>}<ItemSync i={s} S={S} quiet /><span className="row-when">{s.links.length > 0 && <span className="row-docs">{s.links.length} document{s.links.length === 1 ? '' : 's'}</span>}<span>{s.fetchedAt && !S.hasUnreleased(s) ? <>Agent fetched {ago(Date.parse(s.fetchedAt))}</> : <><span className="row-word">Edited </span>{ago(touched(s))}</>}</span></span></div>
           </Link>
-        ))}
+        ))}</div>}
       </div>
       {S.can('write') && <Fab label="New spec" act="new-spec" onClick={create} />}
       {newSpec && <NewSpecSheet onClose={() => setNewSpec(false)} />}

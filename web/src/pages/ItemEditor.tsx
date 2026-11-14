@@ -1,4 +1,4 @@
-import { Suspense, lazy, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Dropdown, Sheet, MenuHost } from '../dialogs';
 import { glossaryTerms } from '../glossaryLib';
@@ -25,18 +25,25 @@ const EditorFallback = () => <div className="editor-skeleton" role="status" aria
 
 type Store = ReturnType<typeof useStore>;
 
-/** Versions of a spec: the draft being written and the released one. Every release is one commit and one tag in the team repository. */
+/** Versions of a spec: the draft being written and every released version (a Git tag with its commit). */
 function HistoryPanel({ item }: { item: Item }) {
   const S = useStore();
   const released = item.status === 'approved';
-  const rows: { title: string; meta: string }[] = [];
-  if (!released || S.hasUnreleased(item)) rows.push({ title: `v${item.version + 1} · Draft`, meta: `Edited ${ago(touched(item))}${item.updatedBy ? ` by ${item.updatedBy}` : ''} · only you and your team see it` });
-  if (released) rows.push({ title: `v${item.version} · Released`, meta: `${item.releasedAt ? ago(Date.parse(item.releasedAt)) : ''}${item.releasedBy ? ` by ${item.releasedBy}` : ''} · commit and tag v${item.version} in the team repository` });
+  const [remote, setRemote] = useState<{ version: number; commit: string; at: string; by: string }[] | null>(null);
+  useEffect(() => { let on = true; if (S.state.online) S.teamApi('GET', `/versions?spec=${encodeURIComponent(item.id)}`).then((d: any) => on && setRemote(d.versions)).catch(() => { /* offline: only the current release is known on this device */ }); return () => { on = false; }; }, [item.id, item.version, item.releasedAt, S.state.online]); // eslint-disable-line react-hooks/exhaustive-deps
+  const rows: { key: string; title: string; meta: string }[] = [];
+  if (!released || S.hasUnreleased(item)) rows.push({ key: 'draft', title: `v${item.version + 1} · Draft`, meta: `Edited ${ago(touched(item))}${item.updatedBy ? ` by ${item.updatedBy}` : ''} · only your team sees it` });
+  if (remote?.length) for (const v of remote) rows.push({ key: `v${v.version}`, title: `v${v.version} · Released`, meta: `${ago(Date.parse(v.at))} by ${v.by} · commit ${v.commit}, tag ${item.id}/v${v.version}` });
+  else if (released) rows.push({ key: 'cur', title: `v${item.version} · Released`, meta: `${item.releasedAt ? ago(Date.parse(item.releasedAt)) : ''}${item.releasedBy ? ` by ${item.releasedBy}` : ''} · commit and tag in the team repository` });
   return (
-    <section className="list-card" aria-label="Versions">
-      {rows.map((r) => <div className="row" key={r.title}><div className="row-top"><span className="row-title mono">{r.title}</span></div><div className="row-meta">{r.meta}</div></div>)}
-      <p className="note" style={{ padding: '12px 16px' }}>Older versions live in the team repository. <Link to="/release">Release</Link> shows what reaches agents.</p>
-    </section>
+    <>
+      <section className="list-card" aria-label="Versions">
+        {rows.map((r) => <div className="row" key={r.key}><div className="row-top"><span className="row-title mono">{r.title}</span></div><div className="row-meta">{r.meta}</div></div>)}
+        {!rows.length && <div className="hint-empty empty">Nothing released yet. Approve the spec to create v1.</div>}
+      </section>
+      {remote === null && !S.state.online && <p className="note">Offline – older versions load when you are online.</p>}
+      <p className="note">Every release is one commit and one tag in the team repository. <Link to="/release">Release</Link> shows what reaches agents.</p>
+    </>
   );
 }
 

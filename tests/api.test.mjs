@@ -70,6 +70,9 @@ try {
   const rev = (await approver.c.sync()).data.items.find((i) => i.id === id).rev;
   r = await approver.c.push([{ id, kind: 'spec', baseRev: rev, approve: true, fields: {} }]);
   assert.equal(r[0].item.status, 'approved'); assert.equal(r[0].item.releasedBy, 'approver user'); ok('approver can release');
+  { const v = await approver.c.get(`/api/teams/${T1}/versions?spec=${encodeURIComponent(id)}`);
+    assert.equal(v.status, 200); assert.equal(v.data.versions.length, 1); assert.equal(v.data.versions[0].version, 1); assert.equal(v.data.versions[0].tag, `${id}/v1`); assert.equal(v.data.versions[0].by, 'approver user');
+    assert.equal((await approver.c.get(`/api/teams/${T1}/versions?spec=${encodeURIComponent('*')}`)).status, 400); ok('the released versions of a spec are listed from its Git tags'); }
 
   // ---------------------------------------------------------------- team isolation
   const t2 = (await admin.post('/api/teams', { name: 'Payments', key: 'PAY' })).data.team;
