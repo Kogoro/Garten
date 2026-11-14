@@ -1212,3 +1212,19 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 /* the list header keeps its action at the right edge also while a spec is open (the title is an h2 then) */
 .master > .bar > h2 { margin: 0; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (min-width: 900px) { .master > .bar { padding-right: 16px; } }
+
+/* ===== phones, aligned with the prototype ===== */
+.gd-empty { border-style: solid; border-color: var(--line); background: var(--panel); }
+@media (max-width: 700px) {
+  .fab { width: 48px; height: 48px; padding: 0; justify-content: center; gap: 0; font-size: 0; }   /* icon only; the name stays as aria-label */
+  /* editor header: back, Done and menu on top, then the title (24 px), status and the tabs */
+  .editor > .ed-bar { flex-wrap: wrap; align-items: center; row-gap: 0; height: auto; min-height: 56px; padding-bottom: 8px; }
+  .editor > .ed-bar > .back { order: 1; margin-right: auto; }
+  .editor > .ed-bar > .ed-done { order: 2; }
+  .editor > .ed-bar > [data-act=item-menu] { order: 3; }
+  .editor > .ed-bar > .ed-titlebox { order: 4; flex: 1 1 100%; padding: 0 12px; justify-content: flex-start; }
+  .editor > .ed-bar .ed-titlebox .ed-title, .editor > .ed-bar h1.ed-title.view { font: 600 24px/1.2 var(--sans); letter-spacing: -0.02em; height: auto; white-space: normal; -webkit-line-clamp: 3; line-clamp: 3; margin: 0; }
+  .editor > .ed-bar .ed-titlebox input.ed-title { height: 36px; line-height: 36px; white-space: nowrap; text-overflow: ellipsis; }
+  .editor > .ed-bar .ed-meta { font-size: 13px; line-height: 1.4; white-space: normal; margin-top: 4px; }
+  .editor > .ed-bar:has(~ .tabs) { border-bottom: 0; background: var(--bg); }
+}

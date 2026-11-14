@@ -232,8 +232,6 @@ export function ItemEditor({ item }: { item: Item }) {
       </header>
       {phone && locked && isSpec && (
         <section className="sumstrip" aria-label="Overview">
-          {item.status === 'approved' && <button type="button" className="sumcell" data-act="report" onClick={() => setTab('report')}><small>Agent</small><span>{implState(item, S.latestReport(item.id)).text.replace(/ · built.*$/, '')}</span></button>}
-          <button type="button" className="sumcell" data-act="feedback" aria-label={`Feedback: ${S.feedbackCount(item.id)} open`} onClick={() => setTab('feedback')}><small>Feedback</small><span className={S.feedbackCount(item.id) ? 'hot' : ''}>{S.feedbackCount(item.id) ? `${S.feedbackCount(item.id)} open` : 'None open'}</span></button>
           <button type="button" className="sumcell" data-act="link-docs" onClick={() => setSheet('link')}><small>Documents</small><span>{item.links.length} linked</span></button>
         </section>
       )}

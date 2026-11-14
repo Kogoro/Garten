@@ -26,6 +26,8 @@ Status chips (`.chip`) render as a dot plus words: grey dot = neutral, check = f
 
 Buttons in bars are compact: 32 px high in a 56 px bar on desktop, 40 px on phones. There is exactly one primary action per view: while a spec or document is open its Approve button is the primary one and the list header's New steps back to a hairline button; inside lists of cards (Garden decisions) only the first card carries the primary. The editor header reads top to bottom: actions (sync, documents, Approve, menu), title (28 px), type and status, tabs.
 
+On phones the add button is a 48 px square with a plus (its name is the aria-label) and the editor header reads: back, Done, menu, then the title (24 px, up to three lines), type and status, the tabs. The read-first overview keeps only the Documents cell; feedback and the report are tabs.
+
 A spec opens with four tabs, as in the prototype: **Content** (the editor), **Report** (what the agent built, with checks), **Feedback** (open and answered) and **History** (the draft and every released version with commit and tag, from `GET /api/teams/:id/versions?spec=…`). The Garden lists Decisions, Feedback, Ready to approve and Implementation as separate sections; rows that open an item sit in one card with a right-pointing chevron. Toasts rise from the bottom left.
 
 Components (class names): `.btn` (`.primary`, `.danger`, `.small`), `.chip` (`.ok`, `.warn`, `.bad`), `.pill`, `.card` (`.warn`, `.bad`), `.row` (list item), `.field`, `.filter`, `.sheet` (dialog with title, close button and focus trap), `.hint-card` (one-time tip), `.onb` (checklist), `kbd`. New screens use these; a new component gets a token-based style next to them.

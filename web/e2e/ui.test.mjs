@@ -331,7 +331,7 @@ try {
   await page.locator('.sumstrip').waitFor();
   assert.equal(await page.locator('.toolbar').count(), 0); assert.equal(await page.locator('[data-act=edit-done]').count(), 0);
   assert.match(await page.locator('#edMeta').innerText(), /Approved v\d/);
-  assert.ok(await page.locator('.sumcell', { hasText: 'Feedback' }).isVisible() && await page.locator('.sumcell', { hasText: 'Documents' }).isVisible()); ok('phone: a spec opens read-only with status, feedback and documents at a glance');
+  assert.ok(await page.locator('#tab-feedback').isVisible() && await page.locator('.sumcell', { hasText: 'Documents' }).isVisible()); ok('phone: a spec opens read-only with status, the four tabs and its documents at a glance');
   await page.click('[data-act=edit]'); await page.locator('[data-act=edit-done]').waitFor(); assert.equal(await page.locator('.sumstrip').count(), 0); await page.click('[data-act=edit-done]'); await page.locator('.sumstrip').waitFor(); ok('phone: Edit switches to editing, Done returns to reading');
   // an address that leads nowhere offers the way back
   await page.evaluate(() => { location.hash = '#/spec/NOPE-999'; });
