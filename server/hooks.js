@@ -8,8 +8,11 @@ import { getTeam, TeamError, remoteOrigin } from './teams.js';
 import { encrypt, decrypt } from './secrets.js';
 import { HOOK_DEBOUNCE_MS, HOOK_ALLOW_LOCAL, PUBLIC_URL } from './config.js';
 import { makeSafeLookup, isPrivateHostLiteral } from './netguard.js';
+import { listChecks } from './checks.js';
 
-export const HOOK_EVENTS = ['release', 'answer'];
+// release: a person approved a spec · answer: a person answered a decision · check: CI reported a failing check, or a check went stale
+// resume: a person resumed paused agents
+export const HOOK_EVENTS = ['release', 'answer', 'check', 'resume'];
 export const HOOK_FORMATS = ['full', 'text'];
 
 // ---- never call into the server's own network (SSRF): private, loopback, link-local and metadata ranges are refused (see netguard.js)
@@ -154,15 +157,19 @@ async function flush(teamId) {
   if (!team?.row.hook_url) { db.prepare('DELETE FROM hook_outbox WHERE team_id=?').run(teamId); return; }
   const released = rows.filter((r) => r.kind === 'release').map((r) => JSON.parse(r.entry));
   const answered = rows.filter((r) => r.kind === 'answer').map((r) => JSON.parse(r.entry));
+  const checks = rows.filter((r) => r.kind === 'check').map((r) => JSON.parse(r.entry));
+  const resumed = rows.some((r) => r.kind === 'resume');
   // Names, titles and notes are written by people (or other agents): one line each, shortened – they are data, not instructions.
   const one = (x, n = 200) => String(x ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
   const lines = [`Update from Specs for the team "${one(team.name, 80)}".`];
   if (released.length) lines.push('', 'Released (approved by a person):', ...released.map((r) => `- ${one(r.id, 40)} v${r.version}: ${one(r.title)}${r.by ? ` (approved by ${one(r.by, 80)})` : ''}`));
   if (answered.length) lines.push('', 'Decisions answered:', ...answered.map((a) => `- ${one(a.spec_id, 40)}: "${one(a.question, 300)}" → ${one(a.answer, 120) || 'see note'}${a.note ? ` (note: ${one(a.note, 300)})` : ''}`));
+  if (checks.length) lines.push('', 'Checks to look at:', ...checks.map((c) => `- ${one(c.spec_id, 40)} "${one(c.name, 80)}": ${c.state === 'failing' ? `failing${c.source === 'ci' ? ' in CI' : ''}${c.value ? ` (${one(c.value, 120)})` : ''}` : 'stale – run it again'}`));
+  if (resumed) lines.push('', 'A person resumed the agents of this team after a pause: pick up everything that is open.');
   lines.push('', HOWTO);
   const out = await send(teamId, {
-    event: released.length && answered.length ? 'release+answer' : released.length ? 'release' : 'answer',
-    team: { id: team.id, key: team.key, name: team.name }, released, answered, mcpUrl: `${PUBLIC_URL}/mcp`, text: lines.join('\n'),
+    event: [released.length && 'release', answered.length && 'answer', checks.length && 'check', resumed && 'resume'].filter(Boolean).join('+'),
+    team: { id: team.id, key: team.key, name: team.name }, released, answered, checks, resumed, mcpUrl: `${PUBLIC_URL}/mcp`, text: lines.join('\n'),
   });
   // remove only what was sent; entries that arrived meanwhile stay for the next call
   const del = db.prepare('DELETE FROM hook_outbox WHERE team_id=? AND kind=? AND key=? AND entry=?');
@@ -176,7 +183,29 @@ export function resumeHooks() {
   for (const { team_id } of db.prepare('SELECT DISTINCT team_id FROM hook_outbox').all()) arm(team_id, 3000);
 }
 
+/** Checks that went stale since the last look: each stale run is announced once. */
+export function sweepStaleChecks(teamId = null) {
+  for (const t of db.prepare("SELECT id FROM teams WHERE hook_url IS NOT NULL AND agent_paused=0 AND (',' || hook_events || ',') LIKE '%,check,%'").all()) {
+    if (teamId && t.id !== teamId) continue;
+    for (const c of listChecks(t.id)) {
+      if (c.state !== 'stale' || !c.last) continue;
+      const run = db.prepare('SELECT id FROM check_runs WHERE check_id=? ORDER BY at DESC, rowid DESC LIMIT 1').get(c.id);
+      const row = db.prepare('SELECT stale_notified FROM checks WHERE id=?').get(c.id);
+      if (!run || row?.stale_notified === run.id) continue;
+      db.prepare('UPDATE checks SET stale_notified=? WHERE id=?').run(run.id, c.id);
+      queue(t.id, 'check', `${c.specId}|${c.name}`, { spec_id: c.specId, name: c.name, state: 'stale' });
+    }
+  }
+}
+
 export function initHooks() {
+  // failing results from a pipeline: the agent did not run them itself, so it does not know yet
+  events.on('check', ({ teamId, check: c, source }) => { if (c.state === 'failing' && source === 'ci') queue(teamId, 'check', `${c.specId}|${c.name}`, { spec_id: c.specId, name: c.name, state: 'failing', source, value: c.last?.value }); });
+  events.on('resumed', ({ teamId }) => queue(teamId, 'resume', 'resume', { at: new Date().toISOString() }));
+  const sweep = setInterval(() => { try { sweepStaleChecks(); } catch (e) { console.error('stale checks:', e.message); } }, 3600_000);
+  sweep.unref?.();
+  // a release makes the passing results of the older version stale at once – no need to wait for the hourly look
+  events.on('released', (e) => setImmediate(() => { try { sweepStaleChecks(e.teamId); } catch (err) { console.error('stale checks:', err.message); } }));
   events.on('released', (e) => queue(e.teamId, 'release', e.id, { id: e.id, version: e.version, title: e.title, by: e.by }));
   events.on('answered', ({ teamId, decision: d, by }) => queue(teamId, 'answer', d.id, {
     id: d.id, spec_id: d.specId, question: d.text.slice(0, 300), answer: d.answer >= 0 ? d.options[d.answer]?.label ?? null : null, note: d.reply || undefined, by,

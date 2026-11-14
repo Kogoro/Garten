@@ -966,6 +966,56 @@ try {
     await ag.close();
   }
 
+  // claims, liveness and the new trigger events (check, resume)
+  {
+    const hits = [];
+    const sink = createHttpServer((req, res) => { let b = ''; req.on('data', (d) => (b += d)); req.on('end', () => { hits.push(JSON.parse(b || '{}')); res.writeHead(200); res.end('{}'); }); });
+    await new Promise((r) => sink.listen(0, '127.0.0.1', r));
+    const waitHits = async (count, ms = 4000) => { const t0 = Date.now(); while (hits.length < count && Date.now() - t0 < ms) await new Promise((r) => setTimeout(r, 50)); return hits.length; };
+    const cEd = await mk('editor', 'cl');
+    const tokA = (await cEd.c.post('/api/me/tokens', { name: 'Agent A', scopes: ['mcp:read', 'mcp:drafts', 'mcp:write'], teamId: T1 })).data;
+    const tokB = (await cEd.c.post('/api/me/tokens', { name: 'Agent B', scopes: ['mcp:read', 'mcp:drafts', 'mcp:write'], teamId: T1 })).data;
+    const A = await mcp(tokA.token); const B = await mcp(tokB.token);
+    const sid = 'SPEC-872';
+    const body = (n) => `## ACCEPTANCE CRITERIA\n- [ ] Works (${n})\n`;
+    const release = async (n) => { const cur = (await admin.sync()).data.items.find((i) => i.id === sid); const r = await admin.push([{ id: sid, kind: 'spec', baseRev: cur?.rev ?? 0, approve: true, fields: { title: 'Claimed spec', body: body(n) } }]); assert.equal(r[0].status, 'applied', JSON.stringify(r)); };
+    await release(1);
+    const listOf = async (c) => JSON.parse((await call(c, 'get_work_list')).text);
+    const cA = JSON.parse((await call(A, 'claim_spec', { spec_id: sid, note: 'writing the parser' })).text);
+    assert.equal(cA.renewed, false); assert.ok(Date.parse(cA.until) - Date.now() > 25 * 60_000);
+    const wB = await listOf(B);
+    assert.ok(!wB.work.some((x) => x.spec_id === sid)); const other = wB.claimed_by_others.find((x) => x.spec_id === sid); assert.match(other.by, /Agent A/); assert.equal(other.doing, 'writing the parser');
+    const refusedB = await call(B, 'claim_spec', { spec_id: sid }); assert.equal(refusedB.isError, true); assert.match(refusedB.text, /being built by token: Agent A/);
+    assert.ok((await listOf(A)).work.find((x) => x.spec_id === sid).claimed_by_you_until); ok('claims: a claimed spec is listed apart for other agents, and a second claim is refused');
+    assert.equal(JSON.parse((await call(A, 'claim_spec', { spec_id: sid, minutes: 60 })).text).renewed, true);
+    assert.equal((await call(A, 'claim_spec', { spec_id: 'NOPE-1' })).isError, true); ok('claims: the holder renews its claim (heartbeat); only released specs can be claimed');
+    const g = (await cEd.c.post(`/api/teams/${T1}/sync`, { since: 1e9, changes: [] })).data.garden;
+    const ga = g.agents.find((x) => x.name === 'token: Agent A');
+    assert.equal(ga.connected, true); assert.equal(ga.lastTool, 'claim_spec'); assert.ok(Date.parse(ga.tokenExpiresAt) > Date.now()); assert.equal(ga.claims[0].specId, sid); assert.match(g.claims[sid].by, /Agent A/);
+    assert.ok(g.agents.find((x) => x.name === 'token: Agent B')); ok('liveness: the garden knows every agent, its last call, what it builds and when its token runs out');
+    assert.ok(JSON.parse((await call(A, 'report_implementation', { spec_id: sid, status: 'in_progress', summary: 'Started' })).text).claimed_until);
+    await call(A, 'report_implementation', { spec_id: sid, status: 'partial', summary: 'Half', criteria: [{ id: 'AC1', status: 'open' }] });
+    assert.equal(JSON.parse((await call(B, 'claim_spec', { spec_id: sid })).text).renewed, false);
+    assert.equal(JSON.parse((await call(B, 'unclaim_spec', { spec_id: sid })).text).released, true); assert.equal(JSON.parse((await call(A, 'unclaim_spec', { spec_id: sid })).text).released, false);
+    ok('claims: an in_progress report renews the claim, any other report gives it back; unclaim_spec only frees the own claim');
+
+    // trigger: failing CI results, stale checks (once per run) and resuming paused agents
+    await admin.req('PATCH', `/api/teams/${T1}`, { hook: { url: `http://127.0.0.1:${sink.address().port}/fire`, events: ['check', 'resume'], format: 'full' } });
+    await call(A, 'register_check', { spec_id: sid, name: 'unit: parser', kind: 'test', how: 'npm test' });
+    const ci = (st) => fetch(`${BASE}/api/ci/checks/results`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${tokA.token}` }, body: JSON.stringify({ spec_id: sid, name: 'unit: parser', status: st, value: st === 'fail' ? '3 failed' : '9 passed' }) });
+    await ci('fail');
+    assert.equal(await waitHits(1), 1); assert.equal(hits[0].event, 'check'); assert.deepEqual([hits[0].checks[0].state, hits[0].checks[0].source], ['failing', 'ci']); assert.match(hits[0].text, /unit: parser": failing in CI \(3 failed\)/);
+    await call(A, 'report_check_result', { spec_id: sid, name: 'unit: parser', status: 'fail' }); await new Promise((r) => setTimeout(r, 600)); assert.equal(hits.length, 1);
+    ok('trigger: a failing check from CI calls the trigger; one the agent reported itself does not');
+    await ci('pass'); await release(2);
+    assert.equal(await waitHits(2), 2); assert.equal(hits[1].checks[0].state, 'stale'); assert.match(hits[1].text, /stale – run it again/);
+    await release(3); await new Promise((r) => setTimeout(r, 600)); assert.equal(hits.length, 2); ok('trigger: a check that went stale is announced once per run');
+    await admin.req('PATCH', `/api/teams/${T1}`, { agentPaused: true }); await admin.req('PATCH', `/api/teams/${T1}`, { agentPaused: false });
+    assert.equal(await waitHits(3), 3); assert.equal(hits[2].event, 'resume'); assert.equal(hits[2].resumed, true); ok('trigger: resuming paused agents calls the trigger');
+    await admin.req('PATCH', `/api/teams/${T1}`, { hook: { url: '' } });
+    await A.close(); await B.close(); sink.close();
+  }
+
   // glossary lookup: input is validated before any third party is asked; sign-in is required
   assert.equal((await admin.get('/api/lookup?q=a')).status, 400); ok('lookup: a too short term is rejected');
   assert.equal((await anon.get('/api/lookup?q=idempotence')).status, 401); ok('lookup: needs a sign-in');

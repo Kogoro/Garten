@@ -331,3 +331,32 @@ db.exec(`CREATE TABLE IF NOT EXISTS audit_log (
 );
 CREATE INDEX IF NOT EXISTS audit_at ON audit_log(at);`);
 for (const f of [`${DB_FILE}-wal`, `${DB_FILE}-shm`]) { try { chmodSync(f, 0o600); } catch { /* no WAL file */ } }
+
+// v0.13: who works on what. agent_activity: the last MCP call of every agent (one row per user, kind of access and client name);
+// claims: an agent says it is building a spec – a lease it renews while it works, so two runs do not build the same spec
+// and a crashed agent does not look busy forever.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS agent_activity (
+    team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    agent TEXT NOT NULL,                       -- "<user id>|<pat|oauth>|<client or token name>"
+    name TEXT NOT NULL,                        -- what people see, e.g. "token: Builder agent"
+    user_name TEXT,
+    last_at TEXT NOT NULL,
+    last_tool TEXT,
+    calls INTEGER NOT NULL DEFAULT 0,
+    token_expires_at INTEGER,                  -- personal tokens only (seconds); OAuth tokens are refreshed
+    PRIMARY KEY (team_id, agent)
+  );
+  CREATE TABLE IF NOT EXISTS claims (
+    team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    spec_id TEXT NOT NULL,
+    agent TEXT NOT NULL,
+    name TEXT NOT NULL,
+    note TEXT NOT NULL DEFAULT '',
+    claimed_at TEXT NOT NULL,
+    heartbeat_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    PRIMARY KEY (team_id, spec_id)
+  );
+`);
+addColumn('checks', 'stale_notified', 'TEXT');   // id of the last run the agent trigger was told is stale (once per run)

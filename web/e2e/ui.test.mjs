@@ -255,6 +255,10 @@ try {
   assert.ok(await card.getByText('Blocks the agent').isVisible());
   assert.ok(await card.locator('.dc-opt', { hasText: '24 hours' }).locator('.dc-rec').isVisible()); ok('garden: the decision shows the spec, the options and the recommendation of the agent');
   await page.locator('#gd-impl .gd-row[data-spec="SPEC-012"] [data-impl=partial]', { hasText: '1/4 criteria' }).waitFor(); ok('garden: every released spec shows how far the agent is');
+  await tool('claim_spec', { spec_id: 'SPEC-012', note: 'key overlap' });
+  await page.evaluate(() => dispatchEvent(new Event('online')));
+  await page.locator('#gd-impl .gd-row[data-spec="SPEC-012"]', { hasText: 'Claude Code is building it' }).waitFor({ timeout: 10000 });
+  assert.match(await page.locator('#gd-agents .gd-row', { hasText: 'Claude Code' }).first().innerText(), /Waiting for a decision|Building SPEC-012/); ok('garden: a claim shows which agent builds a spec; the agent list comes from the server');
   await shot(page, '05a-garden');
   await ctx.setOffline(true);
   await page.evaluate(() => dispatchEvent(new Event('offline')));
