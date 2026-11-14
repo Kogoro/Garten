@@ -1229,3 +1229,8 @@ h1, h2, h3 { letter-spacing: -0.01em; }
   .editor > .ed-bar:has(~ .tabs) { border-bottom: 0; background: var(--bg); }
 }
 @media (max-width: 700px) { .editor > .sumstrip { background: var(--bg); border-bottom: 0; border-top: 0; } .editor > .sumstrip .sumcell { border-left: 0; } }
+
+/* empty states carry no frame, no fill and no shadow: just the words (and the quiet check) */
+.gd-empty, .empty, .hint-empty, .rp-empty, .dd-empty, .ff-empty { border: 0; background: none; box-shadow: none; border-radius: 0; }
+.gd-empty { padding: 4px 0; }
+.list-card:has(> .hint-empty:only-child), .list-card:has(> .empty:only-child) { border: 0; background: none; box-shadow: none; }

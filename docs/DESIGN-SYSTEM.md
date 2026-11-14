@@ -22,6 +22,8 @@ Everything visual comes from the tokens at the top of `web/src/styles.css`. Chan
 
 Type roles: page title 24 px / 600 (18 px in the one-row phone bar) · section 16–18 px / 600 · card and row title 14 px / 600 · body 14 px (16 px on phones, iOS zooms into smaller fields) · meta 13 px · caption 12 px / 500.
 
+Empty states have no frame, fill or shadow: only the words, with the quiet check where it helps.
+
 Status chips (`.chip`) render as a dot plus words: grey dot = neutral, check = fine, amber = waiting, red = problem; type and id chips are plain text. The sidebar has two quiet groups (Garden, Specs, Documents, Glossary, Release · Members & Git, Admin); on phones the tab bar starts with Garden.
 
 Buttons in bars are compact: 32 px high in a 56 px bar on desktop, 40 px on phones. There is exactly one primary action per view: while a spec or document is open its Approve button is the primary one and the list header's New steps back to a hairline button; inside lists of cards (Garden decisions) only the first card carries the primary. The editor header reads top to bottom: actions (sync, documents, Approve, menu), title (28 px), type and status, tabs.
