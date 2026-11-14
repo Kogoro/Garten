@@ -1209,3 +1209,6 @@ h1, h2, h3 { letter-spacing: -0.01em; }
   .bar, .editor > .ed-bar { min-height: 56px; }
   .approve, .bar .btn { height: 40px; min-height: 40px; }
 }
+/* the list header keeps its action at the right edge also while a spec is open (the title is an h2 then) */
+.master > .bar > h2 { margin: 0; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (min-width: 900px) { .master > .bar { padding-right: 16px; } }
