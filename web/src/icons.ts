@@ -8,6 +8,7 @@ export const ic = {
   sync: (s?: number) => svg('<path d="M20 12a8 8 0 0 0-14-5.3L4 9"/><path d="M4 4v5h5"/><path d="M4 12a8 8 0 0 0 14 5.3L20 15"/><path d="M20 20v-5h-5"/>', s),
   account: (s?: number) => svg('<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/>', s),
   glossary: (s?: number) => svg('<path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19V5"/><path d="M9 8h6"/><path d="M9 12h4"/>', s),
+  pause: (s?: number) => svg('<path d="M9 5v14"/><path d="M15 5v14"/>', s),
   more: (s: number = 22) => svg('<circle cx="5" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="19" cy="12" r="1.6" fill="currentColor"/>', s, 1),
   filter: (s: number = 22) => svg('<path d="M4 6h16"/><path d="M7 12h10"/><path d="M10 18h4"/>', s),
   shield: (s: number = 22) => svg('<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/>', s),

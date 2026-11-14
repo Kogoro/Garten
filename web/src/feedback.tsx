@@ -100,14 +100,15 @@ function FeedbackActions({ f, act }: { f: any; act: Act }) {
 }
 
 /** A question an agent asks a person: pick one of its options (or write your own answer). The agent reads the answer on its next run. */
-export function DecisionCard({ f, showSpec, act }: { f: any; showSpec?: boolean; act: Act }) {
+export function DecisionCard({ f, showSpec, act, collapsed }: { f: any; showSpec?: boolean; act: Act; collapsed?: boolean }) {
   const S = useStore();
   const can = S.can('write');
   const open = f.status === 'open', answered = f.status === 'answered';
   const [editing, setEditing] = useState(false);
+  const [folded, setFolded] = useState(!!collapsed); // the Garden opens the first decision and folds the rest
   const [pick, setPick] = useState<number | null>(answered ? f.answer : null);
   const [note, setNote] = useState<string>(f.reply ?? '');
-  const choosing = can && (open || (answered && editing));
+  const choosing = can && !(folded && open) && (open || (answered && editing));
   const options: { label: string; detail?: string }[] = f.options ?? [];
   const ready = pick !== null && (pick !== -1 || note.trim() !== '');
   const send = () => { if (!ready) return; act(f, { answer: pick!, reply: note.trim() }); setEditing(false); toast(S.state.online ? 'Answer sent' : 'Answer saved – it is sent when you are online again'); };
@@ -138,6 +139,7 @@ export function DecisionCard({ f, showSpec, act }: { f: any; showSpec?: boolean;
             : <button className="btn small" type="button" data-act="dc-dismiss" title="The question needs no answer" onClick={() => act(f, { status: 'dismissed', reply: note.trim() })}>Dismiss</button>}
         </div>
       </> : <>
+        {folded && open && can && <div className="btns"><button className="btn small" type="button" data-act="dc-open" onClick={() => setFolded(false)}>Answer</button></div>}
         {answered && <p className="dc-answer"><Icon name="check" size={14} /><span><b>{chosen}</b>{f.resolvedBy ? ` · ${f.resolvedBy}` : ''}{f.resolvedAt ? ` · ${ago(Date.parse(f.resolvedAt))}` : ''}</span></p>}
         {f.reply && <p className="fb-reply">{f.reply}</p>}
         {!answered && !open && options.length > 0 && <p className="muted dc-closed">Options were: {options.map((o) => o.label).join(' · ')}</p>}
