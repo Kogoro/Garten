@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
 import { mkdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createServer } from 'node:http';
@@ -62,7 +62,15 @@ try {
   await page.evaluate(() => navigator.serviceWorker.ready);
   await page.reload();
   await page.waitForFunction(() => navigator.serviceWorker.controller);
-  await page.waitForTimeout(800); // let the service worker finish caching mermaid
+  // Mermaid and its diagram engines are not precached (only the app shell + editor are); the service worker caches them on first
+  // use. Stand in for "diagrams were shown online once": fetch the on-demand chunks through the worker, then check they are cached.
+  const dist = new URL('../dist/', import.meta.url);
+  const sw = readFileSync(new URL('sw.js', dist), 'utf8');
+  assert.ok(!/mermaid\.core|elk-|cytoscape/.test(sw), 'Mermaid is not in the precache');
+  const onDemand = readdirSync(new URL('assets/', dist)).filter((f) => f.endsWith('.js') && !sw.includes(`assets/${f}`)).map((f) => `/assets/${f}`);
+  assert.ok(onDemand.some((f) => f.includes('mermaid.core')));
+  await page.evaluate((urls) => Promise.all(urls.map((u) => fetch(u).then((r) => r.arrayBuffer()))), onDemand);
+  assert.equal(await page.evaluate(async () => (await (await caches.open('assets-on-demand')).keys()).length), onDemand.length); ok('Mermaid is cached on first use, not precached');
   await ctx.setOffline(true);
   await page.reload();
   await page.locator('.row', { hasText: 'SPEC-012' }).waitFor(); ok('offline reload opens the app without a new login');
