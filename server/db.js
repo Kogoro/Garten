@@ -361,6 +361,9 @@ db.exec(`
 `);
 addColumn('checks', 'stale_notified', 'TEXT');   // id of the last run the agent trigger was told is stale (once per run)
 
+// v0.13: only results reported by CI prove a check (an agent's own "pass" then leaves it unverified)
+addColumn('teams', 'ci_required', 'INTEGER NOT NULL DEFAULT 0');
+
 // v0.13: the guardrails a report was built against ({ "G1": "text" }); NULL for reports made before this was recorded
 addColumn('reports', 'guardrails', 'TEXT');
 

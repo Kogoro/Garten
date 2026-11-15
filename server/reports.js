@@ -204,8 +204,8 @@ export async function workList(team, agentKey = null) {
         hint: 'The guardrails changed since your last report. Check the code of this spec against these rules (get_team_context has all of them). If it complies, report again (report_implementation, same status and criteria); if not, fix it – or ask with request_decision when a rule and the spec contradict each other.',
       } : {}),
       ...(state === 'recheck' ? {
-        hint: 'Run these checks again (list_checks shows how) and report each result with report_check_result. If one fails, fix the code or report the spec as partial.',
-        checks_to_run: (allChecks[s.id] ?? []).filter((c) => c.state !== 'passing').map((c) => ({ name: c.name, kind: c.kind, how: c.how, expect: c.expect || undefined, state: c.state })),
+        hint: 'Run these checks again (list_checks shows how) and report each result with report_check_result. If one fails, fix the code or report the spec as partial. Checks marked needs_ci pass only when the CI pipeline reports them: make sure the pipeline runs them (GET /api/ci/checks lists what to run).',
+        checks_to_run: (allChecks[s.id] ?? []).filter((c) => c.state !== 'passing').map((c) => ({ name: c.name, kind: c.kind, how: c.how, expect: c.expect || undefined, state: c.state, ...(c.needsCi ? { needs_ci: true } : {}) })),
       } : {}),
     });
   }
