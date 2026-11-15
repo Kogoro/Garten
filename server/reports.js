@@ -162,8 +162,8 @@ export function workList(team, agentKey = null) {
       ...(feedbackOpen[s.id] ? { open_feedback: feedbackOpen[s.id] } : {}),
       ...(chk.total ? { checks: chk } : {}),
       ...(state === 'recheck' ? {
-        hint: 'Run these checks again (list_checks shows how) and report each result with report_check_result. If one fails, fix the code or report the spec as partial.',
-        checks_to_run: (allChecks[s.id] ?? []).filter((c) => c.state !== 'passing').map((c) => ({ name: c.name, kind: c.kind, how: c.how, expect: c.expect || undefined, state: c.state })),
+        hint: 'Run these checks again (list_checks shows how) and report each result with report_check_result. If one fails, fix the code or report the spec as partial. Checks marked needs_ci pass only when the CI pipeline reports them: make sure the pipeline runs them (GET /api/ci/checks lists what to run).',
+        checks_to_run: (allChecks[s.id] ?? []).filter((c) => c.state !== 'passing').map((c) => ({ name: c.name, kind: c.kind, how: c.how, expect: c.expect || undefined, state: c.state, ...(c.needsCi ? { needs_ci: true } : {}) })),
       } : {}),
     });
   }

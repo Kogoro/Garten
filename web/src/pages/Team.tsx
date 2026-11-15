@@ -8,7 +8,7 @@ import { usePref } from '../prefs';
 import { Icon, ago, copy, toast, useStore } from '../ui';
 import { FIELD_KINDS, KIND_LABELS } from '@shared/specForm.js';
 import { ROLES, RIGHTS, ROLE_RIGHTS } from './Account';
-import { ROUTINE_HEADERS, ROUTINE_URL_HINT, mcpJson, routinePrompt } from '../agentSetup';
+import { ROUTINE_HEADERS, ROUTINE_URL_HINT, ciWorkflow, mcpJson, routinePrompt } from '../agentSetup';
 
 type Store = ReturnType<typeof useStore>;
 
@@ -195,8 +195,27 @@ function AgentSetup({ teamName, mcpUrl }: { teamName: string; mcpUrl: string }) 
       <div className="sect-title"><span>3 · Instruction for the routine</span></div>
       <div className="code as-prompt" id="as-prompt" tabIndex={0} role="region" aria-label="Instruction for the agent">{prompt}</div>
       <div className="btns"><button type="button" className="btn small" data-act="as-copy-prompt" onClick={() => copy(prompt)}>Copy instruction</button></div>
+      <CiSetup baseUrl={mcpUrl.replace(/\/mcp$/, '')} />
     </div>
   );
+}
+
+/** Optional: a pipeline runs the checks and reports the results itself – stronger evidence than the agent's word. */
+function CiSetup({ baseUrl }: { baseUrl: string }) {
+  const S = useStore();
+  const t = S.team();
+  const yaml = ciWorkflow(baseUrl);
+  const toggle = async (on: boolean) => {
+    try { await S.teamApi('PATCH', '', { ciRequired: on }); await S.refreshMe(); toast(on ? 'Only CI results prove a check now' : 'Agent results count again'); }
+    catch (e: any) { toast(e instanceof TypeError ? 'This needs a connection to the server.' : e.message); }
+  };
+  return <>
+    <div className="sect-title"><span>4 · Checks in your CI pipeline (optional)</span></div>
+    <p className="note">Agents register checks for what they built. A pipeline can run them and report the results itself: <span className="mono">GET /api/ci/checks</span> lists what to run, <span className="mono">POST /api/ci/checks/results</span> takes the results. The commands stay in your repository – the pipeline never runs a command it got from this server.</p>
+    <div className="code as-prompt" id="as-ci" tabIndex={0} role="region" aria-label="CI workflow">{yaml}</div>
+    <div className="btns"><button type="button" className="btn small" data-act="as-copy-ci" onClick={() => copy(yaml)}>Copy workflow</button></div>
+    {S.can('admin') && <label className="check"><input type="checkbox" id="ci-required" checked={!!t?.ciRequired} onChange={(e) => toggle(e.target.checked)} /> Only CI results prove a check (an agent’s own “pass” leaves it unverified)</label>}
+  </>;
 }
 
 export function TeamPage() {

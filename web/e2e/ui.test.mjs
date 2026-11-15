@@ -794,6 +794,7 @@ try {
   assert.deepEqual(Object.keys(hits[0].body), ['text']); assert.match(hits[0].body.text, /Connection test/);
   await d.locator('#hookStatus a', { hasText: 'Open the run' }).waitFor(); ok('team page: "Send test" calls the routine the way Claude Code expects and links the started run');
   assert.match(await d.locator('#as-prompt').innerText(), /get_work_list[\s\S]*request_decision[\s\S]*report_implementation/);
+  assert.match(await d.locator('#as-ci').innerText(), /secrets\.SPECS_TOKEN[\s\S]*api\/ci\/checks[\s\S]*api\/ci\/checks\/results/); assert.ok(await d.locator('#ci-required').isVisible());
   assert.match(await d.locator('#as-json').innerText(), /"url": "http:\/\/[^"]+\/mcp"[\s\S]*SPECS_TOKEN/); ok('team page: agent setup offers the MCP connection and the standing instruction to copy');
   await d.click('[data-tab=git]');
   await d.selectOption('#g-auth', 'ssh');

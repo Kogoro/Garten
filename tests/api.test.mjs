@@ -1016,6 +1016,37 @@ try {
     await A.close(); await B.close(); sink.close();
   }
 
+  // the CI loop: a pipeline lists the checks to run, reports per tested version, and can be the only proof
+  {
+    const cEd = await mk('editor', 'ci');
+    const wTok = (await cEd.c.post('/api/me/tokens', { name: 'CI', scopes: ['mcp:read', 'mcp:drafts', 'mcp:write'], teamId: T1 })).data.token;
+    const rTok = (await cEd.c.post('/api/me/tokens', { name: 'CI read', scopes: ['mcp:read'], teamId: T1 })).data.token;
+    const ag = await mcp(wTok);
+    const sid = 'SPEC-895';
+    const rel = async (body) => { const cur = (await admin.sync()).data.items.find((i) => i.id === sid); const r = await admin.push([{ id: sid, kind: 'spec', baseRev: cur?.rev ?? 0, approve: true, fields: { title: 'CI spec', body } }]); assert.equal(r[0].status, 'applied'); };
+    await rel('## ACCEPTANCE CRITERIA\n- [ ] Fast\n');
+    await call(ag, 'register_check', { spec_id: sid, name: 'perf: p95', kind: 'metric', how: 'k6 run perf.js', expect: 'p95 < 200 ms' });
+    const list = async (tok, q = '') => fetch(`${BASE}/api/ci/checks${q}`, { headers: tok ? { authorization: `Bearer ${tok}` } : {} });
+    assert.equal((await list(null)).status, 401);
+    let lj = await (await list(rTok, `?spec=${sid}`)).json();
+    assert.deepEqual(lj.checks.map((c) => [c.spec_id, c.spec_version, c.name, c.how, c.state]), [[sid, 1, 'perf: p95', 'k6 run perf.js', 'unverified']]); assert.match(lj.report_to, /\/api\/ci\/checks\/results$/);
+    assert.equal((await (await list(rTok, `?spec=${sid}&state=failing`)).json()).checks.length, 0); ok('CI: a pipeline lists the checks to run with any team token, filtered by state or spec');
+    const post = (body) => fetch(`${BASE}/api/ci/checks/results`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${wTok}` }, body: JSON.stringify(body) }).then((r) => r.json());
+    await rel('## ACCEPTANCE CRITERIA\n- [ ] Fast\n- [ ] Cheap\n');
+    let out = await post({ spec_id: sid, name: 'perf: p95', status: 'pass', spec_version: 1, commit: 'old' });
+    assert.equal(out.results[0].state, 'stale'); assert.match((await post({ spec_id: sid, name: 'perf: p95', status: 'pass', spec_version: 9 })).results[0].error, /spec_version/);
+    out = await post({ spec_id: sid, name: 'perf: p95', status: 'pass', commit: 'new' }); assert.equal(out.results[0].state, 'passing'); ok('CI: a result counts for the spec version the tested code implements');
+    assert.equal((await cEd.c.req('PATCH', `/api/teams/${T1}`, { ciRequired: true })).status, 403);
+    assert.equal((await admin.req('PATCH', `/api/teams/${T1}`, { ciRequired: true })).data.team.ciRequired, true);
+    assert.equal((await admin.get('/api/me')).data.me.teams.find((t) => t.id === T1).ciRequired, true);
+    const mine = JSON.parse((await call(ag, 'report_check_result', { spec_id: sid, name: 'perf: p95', status: 'pass', value: '150 ms' })).text);
+    assert.equal(mine.state, 'unverified'); assert.equal(mine.needs_ci, true); assert.match(mine.note, /only results reported by CI/);
+    lj = await (await list(rTok, `?spec=${sid}`)).json(); assert.equal(lj.ci_required, true); assert.equal(lj.checks[0].needs_ci, true);
+    assert.equal((await post({ spec_id: sid, name: 'perf: p95', status: 'pass' })).results[0].state, 'passing'); ok('CI: where a team requires it, only results from CI prove a check; only admins switch it');
+    await admin.req('PATCH', `/api/teams/${T1}`, { ciRequired: false });
+    await ag.close();
+  }
+
   // glossary lookup: input is validated before any third party is asked; sign-in is required
   assert.equal((await admin.get('/api/lookup?q=a')).status, 400); ok('lookup: a too short term is rejected');
   assert.equal((await anon.get('/api/lookup?q=idempotence')).status, 401); ok('lookup: needs a sign-in');

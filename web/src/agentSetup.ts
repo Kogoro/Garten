@@ -37,3 +37,34 @@ export const mcpJson = (mcpUrl: string) => `{
     }
   }
 }`;
+
+/** A GitHub Actions workflow that runs the checks of the specs and reports the results as CI. The commands live in the
+ * repository (reviewed like any code): the pipeline never runs a command it fetched from the Specs server. */
+export const ciWorkflow = (baseUrl: string) => `name: Specs checks
+on:
+  push: { branches: [main] }
+  schedule: [{ cron: '17 3 * * *' }]   # nightly, so passing results do not go stale
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    env:
+      SPECS: ${baseUrl}
+      SPECS_TOKEN: \${{ secrets.SPECS_TOKEN }}   # a personal token with "Read & write drafts"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checks the specs ask for
+        run: curl -fsS -H "Authorization: Bearer $SPECS_TOKEN" "$SPECS/api/ci/checks" | jq -r '.checks[] | "\\(.spec_id) | \\(.name) | \\(.state) | \\(.how)"'
+      - name: Run them and report
+        run: |
+          # One line per check: spec id | check name | command. Copy names from the step above.
+          while IFS='|' read -r spec name cmd; do
+            trim() { sed 's/^ *//; s/ *$//' <<< "$1"; }; spec=$(trim "$spec"); name=$(trim "$name"); [ -z "$spec" ] && continue
+            if bash -c "$cmd"; then status=pass; else status=fail; fi
+            jq -n --arg s "$spec" --arg n "$name" --arg st "$status" --arg c "$GITHUB_SHA" \\
+              --arg ref "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \\
+              '{spec_id: $s, name: $n, status: $st, commit: $c, ref: $ref}' |
+              curl -fsS -X POST -H "Authorization: Bearer $SPECS_TOKEN" -H 'Content-Type: application/json' --data @- "$SPECS/api/ci/checks/results"
+          done <<'CHECKS'
+          SPEC-012 | unit: signature rotation | npm test -- rotation
+          CHECKS
+`;
