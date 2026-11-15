@@ -360,3 +360,6 @@ db.exec(`
   );
 `);
 addColumn('checks', 'stale_notified', 'TEXT');   // id of the last run the agent trigger was told is stale (once per run)
+
+// v0.13: the guardrails a report was built against ({ "G1": "text" }); NULL for reports made before this was recorded
+addColumn('reports', 'guardrails', 'TEXT');

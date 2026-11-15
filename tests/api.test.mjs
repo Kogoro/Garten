@@ -1016,6 +1016,31 @@ try {
     await A.close(); await B.close(); sink.close();
   }
 
+  // guardrails that change after a spec was built put it back on the work list
+  {
+    const gEd2 = await mk('editor', 'gd');
+    const ag = await mcp((await gEd2.c.post('/api/me/tokens', { name: 'Rule agent', scopes: ['mcp:read', 'mcp:drafts', 'mcp:write'], teamId: T1 })).data.token);
+    const sid = 'SPEC-891';
+    const r0 = await admin.push([{ id: sid, kind: 'spec', baseRev: 0, fields: { title: 'Rule-bound spec', body: '## ACCEPTANCE CRITERIA\n- [ ] Done\n' } }]);
+    await admin.push([{ id: sid, kind: 'spec', baseRev: r0[0].item.rev, approve: true, fields: {} }]);
+    const setRules = async (body) => { const g = (await admin.sync()).data.items.find((i) => i.id === 'guardrails.md'); const r = await admin.push([{ id: 'guardrails.md', kind: 'doc', baseRev: g.rev, approve: true, fields: { body } }]); assert.equal(r[0].status, 'applied'); };
+    await setRules('# Guardrails\n\n## Always\n- G1: Verify webhook signatures.\n\n## Never\n- G2: Log secrets.\n');
+    const report = () => call(ag, 'report_implementation', { spec_id: sid, status: 'implemented', summary: 'Built', criteria: [{ id: 'AC1', status: 'met' }] });
+    await report();
+    const entry = async () => JSON.parse((await call(ag, 'get_work_list')).text).work.find((x) => x.spec_id === sid);
+    assert.equal(await entry(), undefined);
+    const rep = (await admin.get(`/api/teams/${T1}/reports?spec=${sid}`)).data.reports[0]; assert.deepEqual(rep.guardrails, { G1: 'Verify webhook signatures.', G2: 'Log secrets.' }); ok('guardrails: a report records the rules it was built against');
+    await setRules('# Guardrails\n\n## Always\n- G1: Verify webhook signatures in constant time.\n\n## Never\n- G2: Log secrets.\n- G3: Store card numbers.\n');
+    const e = await entry();
+    assert.equal(e.state, 'guardrails_changed'); assert.deepEqual(e.rules_changed.map((r) => [r.id, r.kind, r.change]), [['G1', 'always', 'changed'], ['G3', 'never', 'added']]); assert.match(e.hint, /report again/);
+    const g = (await admin.post(`/api/teams/${T1}/sync`, { since: 1e9, changes: [] })).data.garden; assert.deepEqual(g.guardrailDrift[sid], ['G1', 'G3']);
+    ok('guardrails: new or reworded rules put an implemented spec back on the work list, with the rules to check; the garden knows');
+    await report(); assert.equal(await entry(), undefined);
+    await setRules('# Guardrails\n\n## Always\n- G1: Verify webhook signatures in constant time.\n\n## Never\n- G3: Store card numbers.\n');
+    assert.equal(await entry(), undefined); ok('guardrails: reporting again clears it; removing a rule asks nothing');
+    await ag.close();
+  }
+
   // glossary lookup: input is validated before any third party is asked; sign-in is required
   assert.equal((await admin.get('/api/lookup?q=a')).status, 400); ok('lookup: a too short term is rejected');
   assert.equal((await anon.get('/api/lookup?q=idempotence')).status, 401); ok('lookup: needs a sign-in');

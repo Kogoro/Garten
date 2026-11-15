@@ -15,6 +15,7 @@ Every run:
 2. Take the entries in the order given. Leave the specs under "claimed_by_others" alone: another agent is building them. For each entry:
    - Before you start, call claim_spec. If it is refused, another agent got there first: take the next entry. While you work, call claim_spec again every 15 minutes or so – it is your heartbeat; a claim that is not renewed runs out after 30 minutes and the spec goes back to the work list.
    - state "changed": call get_spec_changes first, then get_spec. Build only what changed.
+   - state "guardrails_changed": the spec is built, but guardrails were added or reworded since (rules_changed). Check the code against those rules; fix what breaks one, then report again with report_implementation. If a rule contradicts the spec, ask with request_decision.
    - state "new", "in_progress", "partial", "blocked": call get_spec. Its front matter lists the linked documents – read the ones you need with get_document. Call get_team_context once per run: its guardrails are binding – if your work would break one, stop and ask with request_decision.
    - "decisions_answered": a person answered your question (outcome "answered"): follow the answer and its note exactly. Outcome "dismissed" means the person will not decide: do not ask again; follow the note, or continue with your recommendation and say so in the report. This also unblocks a spec you reported as blocked.
    - "waiting_for_decision" with blocking true: skip this spec, a person has not answered yet. Work on the others.
