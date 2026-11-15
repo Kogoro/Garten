@@ -1,9 +1,10 @@
 // Inline Markdown <-> BlockNote inline content. Specs store plain Markdown, so only the marks agents and Git can read
-// are supported: **bold**, *italic*, ~~strike~~, `code` and [links](url). Everything else (incl. [[Term]] refs) stays literal text.
+// are supported: **bold**, *italic*, ~~strike~~, `code`, [links](url) and glossary references #[Term] / #[Term|label] (shown as chips).
+// Everything else (incl. [[Term]] refs) stays literal text.
 export type Styles = { bold?: true; italic?: true; strike?: true; code?: true };
-export type Inline = { type: 'text'; text: string; styles: Styles } | { type: 'link'; href: string; content: Inline[] };
+export type Inline = { type: 'text'; text: string; styles: Styles } | { type: 'link'; href: string; content: Inline[] } | { type: 'termref'; props: { term: string; label: string } };
 
-const TOKEN = /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(~~[^~\n]+~~)|(\*[^*\n]+\*)|(\[[^\]\n]+\]\([^)\s]+\))/;
+const TOKEN = /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(~~[^~\n]+~~)|(\*[^*\n]+\*)|(\[[^\]\n]+\]\([^)\s]+\))|((?<![\w&#/])#\[[^\]|\n]+(?:\|[^\]\n]*)?\])/;
 
 export function mdToInline(md: string, styles: Styles = {}): Inline[] {
   const out: Inline[] = [];
@@ -18,6 +19,7 @@ export function mdToInline(md: string, styles: Styles = {}): Inline[] {
     else if (m[2]) out.push(...mdToInline(t.slice(2, -2), { ...styles, bold: true }));
     else if (m[3]) out.push(...mdToInline(t.slice(2, -2), { ...styles, strike: true }));
     else if (m[4]) out.push(...mdToInline(t.slice(1, -1), { ...styles, italic: true }));
+    else if (m[6]) { const r = /^#\[([^\]|]+)(?:\|([^\]]*))?\]$/.exec(t)!; out.push({ type: 'termref', props: { term: r[1].trim(), label: (r[2] ?? '').trim() } }); }
     else { const l = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(t)!; out.push({ type: 'link', href: l[2], content: mdToInline(l[1], styles) }); }
     rest = rest.slice(m.index + t.length);
   }
@@ -36,5 +38,5 @@ const wrap = (t: string, s: Styles) => {
 export function inlineToMd(content: Inline[] | string | undefined): string {
   if (!content) return '';
   if (typeof content === 'string') return content;
-  return content.map((c) => (c.type === 'link' ? `[${inlineToMd(c.content)}](${c.href})` : wrap(c.text, c.styles ?? {}))).join('');
+  return content.map((c) => (c.type === 'link' ? `[${inlineToMd(c.content)}](${c.href})` : c.type === 'termref' ? `#[${c.props.term}${c.props.label && c.props.label !== c.props.term ? `|${c.props.label}` : ''}]` : wrap(c.text, c.styles ?? {}))).join('');
 }

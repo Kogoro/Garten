@@ -28,14 +28,16 @@ export function ReleasePage() {
       <Bar title="Release" />
       <div className="scroll"><div className="page">
         <section className="card">
-          <div className="card-head"><h2>Agent endpoint</h2><span className="st" style={{ color: online ? 'var(--green)' : 'var(--amber)', fontWeight: 600 }}>● {online ? 'Server online' : 'Server unreachable'}</span></div>
+          <div className="card-head"><h2>Agent endpoint</h2><span className="st" style={{ color: online ? 'var(--text)' : 'var(--amber)', fontWeight: 600 }}>● {online ? 'Server online' : 'Server unreachable'}</span></div>
           <div className="mono" style={{ fontSize: 13, color: 'var(--soft)', wordBreak: 'break-all' }}>{url}</div>
           <div className="code">claude mcp add --transport http specs-{(S.team()?.key ?? 'team').toLowerCase()} {url}</div>
-          <p className="note">Claude opens a browser to sign in; choose <b style={{ color: 'var(--text)' }}>{teamName}</b> on the consent screen. Without OAuth: <Link to="/account" style={{ color: 'var(--green)' }}>create a token</Link>. Agents act with the rights of the person who connected them.</p>
+          <p className="note">Claude opens a browser to sign in; choose <b style={{ color: 'var(--text)' }}>{teamName}</b> on the consent screen. Without OAuth: <Link to="/account" style={{ color: 'var(--text)' }}>create a token</Link>. Agents act with the rights of the person who connected them.</p>
           <div className="btns"><button className="btn small" onClick={() => copy(url)}>Copy URL</button><Link className="btn small" to="/account">Manage tokens</Link></div>
         </section>
         <section className="card"><div className="card-head"><h2>Always available to agents</h2></div>
-          {S.foundationDocs().map((d) => { const f = foundState(d, S); return <div className="kv" key={d.id}><Link to={d.id === 'glossary.md' ? '/glossary' : `/doc/${enc(d.id)}`}>{CORE_LABEL[d.id] ?? d.id}</Link><span><span className={`chip ${f.cls}`}>{f.text}</span></span></div>; })}
+          {S.foundationDocs().map((d) => { const f = foundState(d, S); return <div className="kv" key={d.id}><Link to={`/doc/${enc(d.id)}`}>{CORE_LABEL[d.id] ?? d.id}</Link><span><span className={`chip ${f.cls}`}>{f.text}</span></span></div>; })}
+          {(() => { const terms = S.termItems(); const waiting = terms.filter((d) => !foundState(d, S).live); return (
+            <div className="kv"><Link to="/glossary">Glossary · {terms.length} term{terms.length === 1 ? '' : 's'}</Link><span>{!terms.length ? <span className="chip">Not written yet</span> : waiting.length ? <><span className="chip warn">{waiting.length} not live</span>{S.can('approve') && S.team()?.foundationAuto === false && <button className="btn small" data-act="release-terms" onClick={() => waiting.forEach((d) => S.requestApprove(d.id))}>Release all</button>}</> : <span className="chip ok">Live</span>}</span></div>); })()}
           <p className="note">Served via <span className="mono">get_team_context</span> as soon as they contain something{S.team()?.foundationAuto === false ? ' and have been approved' : ' – they are released automatically after edits'}.</p></section>
         <section className="card"><div className="card-head"><h2><Icon name="git" size={16} /> Git repository</h2>{g?.url && <span className={`st ${g.lastOk === false ? 'bad' : ''}`}><Icon name={g.lastOk === false ? 'warn' : 'check'} size={12} /> {g.lastOk === false ? 'Failed' : g.lastPushAt ? 'Pushed' : 'Connected'}</span>}</div>
           <p className="note">{g?.url && <><span className="mono">{g.url}</span> · branch <span className="mono">{g.branch}</span> · folder <span className="mono">{g.root}/</span><br /></>}{gitLine}</p>

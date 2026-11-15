@@ -1,5 +1,6 @@
-import { BlockNoteSchema, defaultBlockSpecs } from '@blocknote/core';
-import { createReactBlockSpec } from '@blocknote/react';
+import { BlockNoteSchema, defaultBlockSpecs, defaultInlineContentSpecs } from '@blocknote/core';
+import { createReactBlockSpec, createReactInlineContentSpec } from '@blocknote/react';
+import { lookupTerm } from './termLookup';
 import { useEffect, useRef, useState } from 'react';
 import { renderMermaid } from './mermaid';
 import { DiagramDialog } from './DiagramDialog';
@@ -11,7 +12,7 @@ const ro = (editor: any) => !editor.isEditable;
 /** R1, R2 … (the label is renumbered on every change) */
 export const requirement = createReactBlockSpec(
   { type: 'requirement', propSchema: { label: { default: 'R1' } }, content: 'inline' },
-  { render: ({ block, contentRef }) => <div className="blk-req" style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}><b className="req-label" contentEditable={false} style={{ color: 'var(--accent)', minWidth: 32 }}>{block.props.label}</b><div ref={contentRef} style={{ flex: 1 }} /></div> },
+  { render: ({ block, contentRef }) => <div className="blk-req" style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}><b className="req-label" contentEditable={false} style={{ color: 'var(--muted)', minWidth: 32 }}>{block.props.label}</b><div ref={contentRef} style={{ flex: 1 }} /></div> },
 );
 
 const ZOOM_MIN = 0.1, ZOOM_MAX = 6;
@@ -138,7 +139,34 @@ export const definition = createReactBlockSpec(
   { render: (p) => <Definition {...p} /> },
 );
 
+/** #[Term] in running text: a chip; hovering (or focusing) shows the definition's first paragraph, synonyms and words to avoid. */
+function TermChip({ term, label }: { term: string; label: string }) {
+  const [open, setOpen] = useState(false);
+  const info = lookupTerm(term);
+  const href = `#/glossary/${encodeURIComponent(info?.term ?? term)}`;
+  return (
+    <span className={`term-chip${info ? '' : ' broken'}`} data-term={term} tabIndex={0} onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)} onFocus={() => setOpen(true)} onBlur={() => setOpen(false)}
+      title={info ? undefined : `“${term}” is not in the glossary yet`}>
+      <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" /><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" /></svg>
+      {label || term}
+      {open && info && (
+        <span className="term-card" contentEditable={false} role="tooltip">
+          <span className="tc-head"><b>{info.term}</b><small>{info.folder || 'General'}{info.version ? ` · v${info.version}` : ''}</small></span>
+          <span className="tc-text">{info.text}</span>
+          {(info.aliases.length > 0 || info.avoid.length > 0) && <small className="tc-meta">{info.aliases.length > 0 && `Also: ${info.aliases.join(', ')}`}{info.aliases.length > 0 && info.avoid.length > 0 && ' · '}{info.avoid.length > 0 && `Avoid: ${info.avoid.join(', ')}`}</small>}
+          <a href={href} onMouseDown={(e) => e.preventDefault()} onClick={() => { location.hash = href.slice(1); }}>Open term</a>
+        </span>
+      )}
+    </span>
+  );
+}
+export const termRefSpec = createReactInlineContentSpec(
+  { type: 'termref', propSchema: { term: { default: '' }, label: { default: '' } }, content: 'none' } as const,
+  { render: ({ inlineContent }) => <TermChip term={inlineContent.props.term} label={inlineContent.props.label} /> },
+);
+
 export const schema = BlockNoteSchema.create({
   blockSpecs: { ...defaultBlockSpecs, requirement: requirement(), diagram: diagram(), endpoint: endpoint(), definition: definition() },
+  inlineContentSpecs: { ...defaultInlineContentSpecs, termref: termRefSpec },
 });
 export type SpecSchema = typeof schema;

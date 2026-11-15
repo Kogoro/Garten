@@ -2,12 +2,15 @@
 // Pure functions (no DOM) so the same code can be tested in Node.
 import { parseDefinitions } from './glossary.js';
 
-const list = (v) => (Array.isArray(v) ? v : String(v ?? '').split(/[|;,]/)).map((x) => String(x).trim()).filter(Boolean);
+const list = (v) => (Array.isArray(v) ? v : String(v ?? '').split(String(v ?? '').includes('|') ? /\|/ : /[;,]/)).map((x) => String(x).trim()).filter(Boolean);
 const COLS = {
   term: ['term', 'begriff', 'name', 'title'],
   definition: ['definition', 'description', 'beschreibung', 'bedeutung', 'meaning'],
   aliases: ['aliases', 'alias', 'synonyms', 'synonym', 'synonyme', 'aka', 'also known as'],
   see: ['see', 'see also', 'related', 'siehe auch', 'verweise', 'references'],
+  avoid: ['avoid', 'do not use', 'nicht verwenden', 'vermeiden'],
+  distinct: ['not to be confused with', 'distinct', 'nicht verwechseln mit'],
+  folder: ['folder', 'ordner', 'category', 'kategorie'],
 };
 const pick = (obj, names) => { for (const k of Object.keys(obj)) if (names.includes(k.trim().toLowerCase())) return obj[k]; return undefined; };
 
@@ -35,7 +38,7 @@ function fromRows(rows) {
   const head = rows[0].map((x) => x.trim().toLowerCase());
   const has = (k) => head.findIndex((h) => COLS[k].includes(h));
   const headed = has('term') >= 0;
-  const idx = headed ? { term: has('term'), definition: has('definition'), aliases: has('aliases'), see: has('see') } : { term: 0, definition: 1, aliases: 2, see: 3 };
+  const idx = headed ? { term: has('term'), definition: has('definition'), aliases: has('aliases'), see: has('see'), avoid: has('avoid'), distinct: has('distinct'), folder: has('folder') } : { term: 0, definition: 1, aliases: 2, see: 3, avoid: -1, distinct: -1, folder: -1 };
   const terms = [];
   const errors = [];
   rows.slice(headed ? 1 : 0).forEach((r, n) => {
@@ -44,7 +47,8 @@ function fromRows(rows) {
     const definition = (r[idx.definition] ?? '').trim();
     if (!term && !definition) return;
     if (!term || !definition) { errors.push(`Row ${line}: a term and a definition are required`); return; }
-    terms.push({ term, definition, aliases: list(idx.aliases >= 0 ? r[idx.aliases] : ''), see: list(idx.see >= 0 ? r[idx.see] : '') });
+    const col = (k) => (idx[k] >= 0 ? r[idx[k]] : '');
+    terms.push({ term, definition, aliases: list(col('aliases')), see: list(col('see')), avoid: list(col('avoid')), distinct: list(col('distinct')), folder: String(col('folder') ?? '').trim() });
   });
   return { terms, errors };
 }

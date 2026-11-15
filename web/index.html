@@ -3,8 +3,9 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#0F1214" />
-    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#F9FAF9" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0B0D0C" media="(prefers-color-scheme: dark)" />
+    <meta name="color-scheme" content="light dark" />
     <meta name="description" content="Self-hosted, offline-first specifications for people and AI agents." />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <link rel="manifest" href="/manifest.webmanifest" />
@@ -20,7 +21,7 @@
       .boot i.h { height: 28px; width: 40%; margin-bottom: 20px; } .boot i.r { height: 64px; }
       @media (prefers-reduced-motion: no-preference) { .boot i { animation: bootp 1.4s ease-in-out infinite; } }
       @keyframes bootp { 50% { opacity: .5; } }
-      body:has(.boot) { background: #0F1214; } @media (prefers-color-scheme: light) { body:has(.boot) { background: #F4F5F7; } }
+      body:has(.boot) { background: #F9FAF9; } @media (prefers-color-scheme: dark) { body:has(.boot) { background: #0B0D0C; } }
     </style>
     <noscript><p style="font:16px system-ui;padding:24px;max-width:36rem">Specs needs JavaScript. Enable it for this site and reload.</p></noscript>
     <div id="root"><div class="boot" role="status" aria-label="Loading"><i class="h"></i><i class="r"></i><i class="r"></i><i class="r"></i><i class="r"></i></div></div>

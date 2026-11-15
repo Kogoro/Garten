@@ -4,6 +4,7 @@ import { FormError, Sheet } from './dialogs';
 import type { FbPatch } from './store/core';
 import { Icon, ago, toast, useStore } from './ui';
 import { RuleSheet } from './guardrails';
+import { addDecisionToSpec, hasDecision } from './decisionsLib';
 
 export const KINDS: [string, string][] = [['concern', 'Concern'], ['conflict', 'Conflict'], ['question', 'Question'], ['suggestion', 'Suggestion'], ['gap', 'Missing info']];
 const kindLabel: Record<string, string> = { ...Object.fromEntries(KINDS), decision: 'Decision', propose_deletion: 'Proposes deletion', propose_acceptance: 'Proposes acceptance' };
@@ -100,17 +101,27 @@ function FeedbackActions({ f, act }: { f: any; act: Act }) {
 }
 
 /** A question an agent asks a person: pick one of its options (or write your own answer). The agent reads the answer on its next run. */
-export function DecisionCard({ f, showSpec, act }: { f: any; showSpec?: boolean; act: Act }) {
+export function DecisionCard({ f, showSpec, act, collapsed }: { f: any; showSpec?: boolean; act: Act; collapsed?: boolean }) {
   const S = useStore();
   const can = S.can('write');
   const open = f.status === 'open', answered = f.status === 'answered';
   const [editing, setEditing] = useState(false);
+  const [folded, setFolded] = useState(!!collapsed); // the Garden opens the first decision and folds the rest
   const [pick, setPick] = useState<number | null>(answered ? f.answer : null);
   const [note, setNote] = useState<string>(f.reply ?? '');
-  const choosing = can && (open || (answered && editing));
+  const choosing = can && !(folded && open) && (open || (answered && editing));
   const options: { label: string; detail?: string }[] = f.options ?? [];
   const ready = pick !== null && (pick !== -1 || note.trim() !== '');
-  const send = () => { if (!ready) return; act(f, { answer: pick!, reply: note.trim() }); setEditing(false); toast(S.state.online ? 'Answer sent' : 'Answer saved – it is sent when you are online again'); };
+  const spec = f.specId ? S.get(f.specId) : null;
+  const [record, setRecord] = useState(true); // write the answer into the spec, so the next version carries it
+  const inSpec = !!spec && hasDecision(spec.body, f.text);
+  const toSpec = (answer: number, reply: string) => { if (spec) S.edit(spec.id, { body: addDecisionToSpec(spec.body, f, answer, reply, S.state.me?.name, new Date().toISOString()) }); };
+  const send = () => {
+    if (!ready) return;
+    act(f, { answer: pick!, reply: note.trim() }); setEditing(false);
+    if (record && spec) toSpec(pick!, note.trim());
+    toast(`${S.state.online ? 'Answer sent' : 'Answer saved – it is sent when you are online again'}${record && spec ? ' · added to the spec as a draft change' : ''}`);
+  };
   const chosen = answered ? (f.answer >= 0 ? options[f.answer]?.label : 'Own answer') : null;
   return (
     <article className={`dc-item st-${f.status}${f.blocking && open ? ' blocking' : ''}`} data-decision={f.id}>
@@ -132,17 +143,22 @@ export function DecisionCard({ f, showSpec, act }: { f: any; showSpec?: boolean;
         </div>
         <label className="sr" htmlFor={`dn-${f.id}`}>Note for the agent</label>
         <textarea id={`dn-${f.id}`} className="field dc-note" rows={2} maxLength={2000} placeholder={pick === -1 ? 'Your answer (required)' : 'Note for the agent (optional)'} value={note} onChange={(e) => setNote(e.target.value)} />
+        {spec && <label className="check dc-record"><input type="checkbox" data-act="dc-record" checked={record} onChange={(e) => setRecord(e.target.checked)} /> Also write it into the spec (under DECISIONS – released with its next version)</label>}
         <div className="btns">
           <button className="btn primary small" type="button" data-act="dc-send" disabled={!ready} onClick={send}>{answered ? 'Change answer' : 'Send answer'}</button>
           {answered ? <button className="btn small" type="button" onClick={() => { setEditing(false); setPick(f.answer); setNote(f.reply ?? ''); }}>Cancel</button>
             : <button className="btn small" type="button" data-act="dc-dismiss" title="The question needs no answer" onClick={() => act(f, { status: 'dismissed', reply: note.trim() })}>Dismiss</button>}
+          {showSpec && f.specId && <Link className="btn small ghost" to={`/spec/${encodeURIComponent(f.specId)}`}>Open spec</Link>}
         </div>
       </> : <>
+        {folded && open && can && <div className="btns"><button className="btn small" type="button" data-act="dc-open" onClick={() => setFolded(false)}>Answer</button></div>}
         {answered && <p className="dc-answer"><Icon name="check" size={14} /><span><b>{chosen}</b>{f.resolvedBy ? ` · ${f.resolvedBy}` : ''}{f.resolvedAt ? ` · ${ago(Date.parse(f.resolvedAt))}` : ''}</span></p>}
         {f.reply && <p className="fb-reply">{f.reply}</p>}
         {!answered && !open && options.length > 0 && <p className="muted dc-closed">Options were: {options.map((o) => o.label).join(' · ')}</p>}
         {can && f.status !== 'withdrawn' && <div className="btns">
           {answered && <button className="btn small" type="button" data-act="dc-change" onClick={() => setEditing(true)}>Change answer</button>}
+          {answered && spec && !inSpec && <button className="btn small" type="button" data-act="dc-to-spec" title="Write the decision into the spec under DECISIONS, as a draft change released with its next version" onClick={() => { toSpec(f.answer, f.reply ?? ''); toast('Added to the spec as a draft change'); }}>Add to spec</button>}
+          {answered && inSpec && <span className="chip ok" data-state="in-spec" title="The spec records this decision under DECISIONS">In the spec</span>}
           {!open && <button className="btn small" type="button" data-act="dc-reopen" onClick={() => { act(f, { status: 'open' }); setPick(null); }}>Reopen</button>}
         </div>}
         {open && !can && <p className="muted dc-closed">Options: {options.map((o) => o.label).join(' · ')}</p>}
@@ -152,7 +168,7 @@ export function DecisionCard({ f, showSpec, act }: { f: any; showSpec?: boolean;
 }
 
 /** Feedback on one spec: what agents (or people) found, what they ask, and what the team decided about it. */
-export function FeedbackSheet({ specId, version, onClose }: { specId: string; version: number; onClose: () => void }) {
+export function FeedbackBody({ specId, version }: { specId: string; version: number }) {
   const S = useStore();
   const [remote, setRemote] = useState<any[] | null>(null); // the full history, when the server is reachable
   const [filter, setFilter] = useState<'open' | 'all'>('open');
@@ -171,9 +187,8 @@ export function FeedbackSheet({ specId, version, onClose }: { specId: string; ve
   const shown = list.filter((f) => filter === 'all' || f.status === 'open');
   const nOpen = list.filter((f) => f.status === 'open').length;
   return (
-    <Sheet onClose={onClose}>
-      <h2>Feedback on {specId}</h2>
-      <p>Findings and questions from agents and colleagues. They never change the spec – people read them, decide and reply.</p>
+    <>
+      <p className="note">Findings and questions from agents and colleagues. They never change the spec – people read them, decide and reply.</p>
       <div className="filters" role="group" aria-label="Feedback filter">
         <button className="filter" type="button" aria-pressed={filter === 'open'} onClick={() => setFilter('open')}>Open {nOpen}</button>
         <button className="filter" type="button" aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>All {list.length}</button>
@@ -190,6 +205,16 @@ export function FeedbackSheet({ specId, version, onClose }: { specId: string; ve
       <div className="fb-list">
         {shown.map((f) => (f.kind === 'decision' ? <DecisionCard key={f.id} f={f} act={act} /> : <FbItem key={f.id} f={f} version={version} act={act} />))}
       </div>
+    </>
+  );
+}
+
+/** The same list in a dialog. */
+export function FeedbackSheet({ specId, version, onClose }: { specId: string; version: number; onClose: () => void }) {
+  return (
+    <Sheet onClose={onClose}>
+      <h2>Feedback on {specId}</h2>
+      <FeedbackBody specId={specId} version={version} />
     </Sheet>
   );
 }

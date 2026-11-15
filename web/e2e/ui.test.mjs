@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createServer } from 'node:http';
 import { startServer, Client, startSmtpSink } from '../../tests/helpers.mjs';
+import { formatTermFile } from '../../shared/glossaryFiles.js';
 
 const SHOTS = process.env.SHOTS;
 if (SHOTS) mkdirSync(SHOTS, { recursive: true });
@@ -243,7 +244,7 @@ try {
     return JSON.parse(res.content[0].text);
   };
   const dec = await tool('request_decision', { spec_id: 'SPEC-012', question: 'How long do old signing keys stay valid after a rotation?', options: [{ label: '24 hours', detail: 'Matches the retry window of the queue' }, { label: '7 days', detail: 'Safer for slow consumers' }], recommended: 0, blocking: true, context: 'src/webhooks/keys.ts has no overlap at all' });
-  await tool('report_implementation', { spec_id: 'SPEC-012', status: 'partial', summary: 'Rotation endpoint is built. The overlap of old and new keys waits for a decision.', criteria: [{ text: 'A new key can be issued', status: 'met' }, { text: 'Old keys keep working during the overlap', status: 'open', note: 'waits for the decision' }], evidence: [{ kind: 'pr', ref: 'https://git.example.test/acme/api/pull/7', note: 'draft' }, { kind: 'test', ref: 'keys.rotate.test.ts' }], deviations: 'The audit log entry is written asynchronously.' });
+  await tool('report_implementation', { spec_id: 'SPEC-012', status: 'partial', summary: 'Rotation endpoint is built. The overlap of old and new keys waits for a decision.', criteria: [{ id: 'R1', status: 'met' }, { id: 'AC1', status: 'open', note: 'waits for the decision' }], evidence: [{ kind: 'pr', ref: 'https://git.example.test/acme/api/pull/7', note: 'draft' }, { kind: 'test', ref: 'keys.rotate.test.ts' }], deviations: 'The audit log entry is written asynchronously.' });
   await page.click('a[aria-label=Back]').catch(() => {});
   await page.evaluate(() => dispatchEvent(new Event('online')));
   await page.locator('.tabbar a[href="#/garden"] .badge', { hasText: '1' }).waitFor({ timeout: 10000 }); ok('garden: a question from an agent shows up as a badge in the tab bar');
@@ -253,7 +254,14 @@ try {
   assert.equal(await page.locator('#gd-needs').innerText(), '1');
   assert.ok(await card.getByText('Blocks the agent').isVisible());
   assert.ok(await card.locator('.dc-opt', { hasText: '24 hours' }).locator('.dc-rec').isVisible()); ok('garden: the decision shows the spec, the options and the recommendation of the agent');
-  await page.locator('#gd-impl .gd-row[data-spec="SPEC-012"] [data-impl=partial]', { hasText: '1/2 criteria' }).waitFor(); ok('garden: every released spec shows how far the agent is');
+  await page.locator('#gd-impl .gd-row[data-spec="SPEC-012"] [data-impl=partial]', { hasText: '1/4 criteria' }).waitFor(); ok('garden: every released spec shows how far the agent is');
+  await tool('claim_spec', { spec_id: 'SPEC-012', note: 'key overlap' });
+  await page.evaluate(() => dispatchEvent(new Event('online')));
+  await page.locator('#gd-impl .gd-row[data-spec="SPEC-012"]', { hasText: 'Claude Code is building it' }).waitFor({ timeout: 10000 });
+  assert.match(await page.locator('#gd-agents .gd-row', { hasText: 'Claude Code' }).first().innerText(), /Waiting for a decision|Building SPEC-012/); ok('garden: a claim shows which agent builds a spec; the agent list comes from the server');
+  await page.locator('#gd-quality summary').click();
+  assert.match(await page.locator('#gd-quality [data-type=api]').innerText(), /API spec[\s\S]*questions \/ spec/);
+  await page.locator('#gd-quality a.gd-row', { hasText: 'SPEC-012' }).waitFor(); ok('garden: spec quality by type, and the specs agents struggled with');
   await shot(page, '05a-garden');
   await ctx.setOffline(true);
   await page.evaluate(() => dispatchEvent(new Event('offline')));
@@ -276,18 +284,29 @@ try {
   const answeredDec = (await tool('list_decisions', { spec_id: 'SPEC-012' }));
   assert.match(JSON.stringify(answeredDec), /7 days/); assert.match(JSON.stringify(answeredDec), /Consumers in the field sync weekly/);
   assert.match(JSON.stringify(await tool('get_work_list')), /decisions_answered/); ok('garden: the answer reaches the server on reconnect and the agent finds it in its work list');
+  const s012 = (await admin.sync()).data.items.find((i) => i.id === 'SPEC-012');
+  assert.match(s012.body, /## DECISIONS\n\n- How long do old signing keys stay valid after a rotation\? → 7 days – Consumers in the field sync weekly\./); assert.ok(s012.rev > s012.releasedRev);
+  assert.ok(await page.locator(`#gd-answered [data-decision="${dec.id}"] [data-state=in-spec]`).isVisible()); ok('garden: the answer is also written into the spec under DECISIONS, as a draft change');
   await page.click('#gd-impl .gd-row[data-spec="SPEC-012"]');
   await page.locator('.sheet .rp-sum', { hasText: 'Rotation endpoint is built' }).waitFor();
-  assert.equal(await page.locator('.sheet .rp-crit li').count(), 2);
-  assert.equal(await page.locator('.sheet .rp-crit li[data-status=open]').count(), 1);
+  assert.equal(await page.locator('.sheet .rp-crit li').count(), 4); // the spec's own checklist: R1, R2, AC1, AC2
+  assert.equal(await page.locator('.sheet .rp-crit li[data-status=open]').count(), 3);
+  assert.equal(await page.locator('.sheet .rp-crit li', { hasText: 'Not in the report.' }).count(), 2);
+  assert.equal(await page.locator('.sheet .rp-crit li').first().locator('.rp-cid').innerText(), 'R1');
   assert.equal(await page.locator('.sheet .rp-ev a').getAttribute('href'), 'https://git.example.test/acme/api/pull/7');
   assert.ok(await page.locator('.sheet .rp-dev', { hasText: 'audit log' }).isVisible()); ok('garden: the report of the agent lists criteria, evidence and deviations');
+  await page.locator('#rp-steer [data-prio=high]').click();
+  await page.locator('#rp-steer [data-prio=high][aria-pressed=true]').waitFor();
+  await page.locator('#rp-steer [data-act=steer-hold]').check(); await page.locator('#rp-steer [aria-label="Why it is on hold"]').waitFor();
+  const wlSteer = await tool('get_work_list'); assert.ok(wlSteer.on_hold.some((x) => x.spec_id === 'SPEC-012'));
+  await page.locator('#rp-steer [data-act=steer-hold]').uncheck();
+  await page.locator('#gd-impl .gd-row[data-spec="SPEC-012"] [data-steer=priority]', { hasText: 'High priority' }).waitFor(); ok('garden: approvers set priority and hold of a spec in its report sheet; the pipeline shows it');
   await shot(page, '05c-report');
   await page.keyboard.press('Escape');
   // checks: re-runnable evidence next to the report, and "make it a rule" for a deviation
   await tool('register_check', { spec_id: 'SPEC-012', name: 'unit: key rotation', kind: 'test', how: 'npm test -- rotation', expect: 'exit 0', criterion: 'A new key can be issued' });
   await tool('report_check_result', { spec_id: 'SPEC-012', name: 'unit: key rotation', status: 'pass', value: '12 passed', ref: 'https://ci.example.test/run/9' });
-  await tool('report_implementation', { spec_id: 'SPEC-012', status: 'partial', summary: 'Rotation endpoint is built. The overlap of old and new keys waits for a decision.', criteria: [{ text: 'A new key can be issued', status: 'met', checks: ['unit: key rotation'] }, { text: 'Old keys keep working during the overlap', status: 'open' }], deviations: 'Key changes are written to the audit log, which the spec does not mention.' });
+  await tool('report_implementation', { spec_id: 'SPEC-012', status: 'partial', summary: 'Rotation endpoint is built. The overlap of old and new keys waits for a decision.', criteria: [{ id: 'R1', status: 'met', checks: ['unit: key rotation'] }, { id: 'AC1', status: 'open' }], deviations: 'Key changes are written to the audit log, which the spec does not mention.' });
   await page.evaluate(() => dispatchEvent(new Event('online')));
   await page.locator('#gd-impl .gd-row[data-spec="SPEC-012"] [data-impl=partial]', { hasText: '1 verified' }).waitFor({ timeout: 10000 });
   await page.click('#gd-impl .gd-row[data-spec="SPEC-012"]');
@@ -331,7 +350,7 @@ try {
   await page.locator('.sumstrip').waitFor();
   assert.equal(await page.locator('.toolbar').count(), 0); assert.equal(await page.locator('[data-act=edit-done]').count(), 0);
   assert.match(await page.locator('#edMeta').innerText(), /Approved v\d/);
-  assert.ok(await page.locator('.sumcell', { hasText: 'Feedback' }).isVisible() && await page.locator('.sumcell', { hasText: 'Documents' }).isVisible()); ok('phone: a spec opens read-only with status, feedback and documents at a glance');
+  assert.ok(await page.locator('#tab-feedback').isVisible() && await page.locator('.sumcell', { hasText: 'Documents' }).isVisible()); ok('phone: a spec opens read-only with status, the four tabs and its documents at a glance');
   await page.click('[data-act=edit]'); await page.locator('[data-act=edit-done]').waitFor(); assert.equal(await page.locator('.sumstrip').count(), 0); await page.click('[data-act=edit-done]'); await page.locator('.sumstrip').waitFor(); ok('phone: Edit switches to editing, Done returns to reading');
   // an address that leads nowhere offers the way back
   await page.evaluate(() => { location.hash = '#/spec/NOPE-999'; });
@@ -363,15 +382,20 @@ try {
   assert.ok(await d.locator('#list').isVisible() && await d.locator('.editor').isVisible()); ok('desktop: list and editor side by side');
   await d.locator('.bn-inline-content', { hasText: 'idempotency key' }).first().waitFor();
 
-  // --- editor bar: title, status, linked documents, save state, approve and overflow menu in ONE row
+  // --- editor header: one row of actions (sync, documents, Approve, menu), the title on its own row, status and type below
   const bar = await d.locator('.ed-bar').boundingBox();
-  assert.ok(bar.height < 70, `bar height ${bar.height}`);
+  assert.ok(bar.height < 160, `bar height ${bar.height}`);
+  const act = await d.locator('.ed-bar #approveSlot [data-act=approve]').boundingBox();
+  assert.ok(act.height <= 32, `the Approve button is compact (${act.height} px) inside the bar`);
+  const ttl = await d.locator('.ed-bar .ed-title').first().boundingBox();
+  assert.ok(ttl.y > act.y + act.height - 1, 'the title sits below the action row');
+  assert.equal(await d.locator('.master > .bar .btn.primary').evaluate((e) => getComputedStyle(e).backgroundColor !== getComputedStyle(document.querySelector('.ed-bar .approve')).backgroundColor), true); // one primary: the list button steps back while a spec is open
   for (const sel of ['.ed-title', '#chips', '#docsDd', '#saveInd', '#approveSlot [data-act=approve]', '[data-act=item-menu]']) {
     const b = await d.locator(`.ed-bar ${sel}`).boundingBox();
     assert.ok(b && b.y >= bar.y - 1 && b.y + b.height <= bar.y + bar.height + 1, `${sel} sits in the bar`);
   }
   assert.equal(await d.locator('.ed-bar [data-act=mode]').count(), 0); assert.equal(await d.locator('.editor .ed-meta, .editor .links').count(), 0);
-  ok('editor: title, status, documents, save state and Approve share one compact bar; no extra meta/link rows');
+  ok('editor: actions row, title row and status row in one header; compact Approve is the only primary; no extra meta/link rows');
   await d.click('#docsDd [data-act=dd-toggle]');
   await d.locator('#docsDd .dd-menu').waitFor();
   const labelBefore = await d.locator('#docsDd .docsbtn').innerText();
@@ -379,7 +403,7 @@ try {
   await d.locator('#docsDd .dd-menu').waitFor(); // stays open while toggling
   await d.waitForFunction((l) => document.querySelector('#docsDd .docsbtn')?.innerText !== l, labelBefore);
   await d.locator('#docsDd [data-act=dd-link][aria-checked=true]').first().click();
-  await d.keyboard.press('Escape'); assert.equal(await d.locator('#docsDd .dd-menu').isVisible(), false);
+  await d.keyboard.press('Escape'); await d.locator('#docsDd .dd-menu').waitFor({ state: 'hidden', timeout: 1000 }); // menus fade out in 130 ms
   ok('linked documents dropdown: toggle links (stays open), Escape closes');
   await d.click('[data-act=item-menu]');
   await d.getByRole('button', { name: 'Editor: Blocks' }).waitFor(); await d.getByRole('button', { name: 'Editor: Markdown' }).waitFor(); await d.keyboard.press('Escape');
@@ -389,23 +413,23 @@ try {
   const fbRes = await admin.post(`/api/teams/${admin.tid}/feedback`, { specId: 'SPEC-014', kind: 'concern', section: '## REQUIREMENTS', text: 'R3 (keys expire) conflicts with the retry window in ADR-007.', evidence: 'docs/adr/ADR-007.md' });
   assert.equal(fbRes.status, 200);
   await d.evaluate(() => dispatchEvent(new Event('online')));
-  await d.locator('.fbbtn.has .cnt', { hasText: '1' }).waitFor({ timeout: 10000 });
+  await d.locator('#tab-feedback .tab-badge', { hasText: '1' }).waitFor({ timeout: 10000 });
   await d.locator('#list .row', { hasText: 'SPEC-014' }).locator('.chip', { hasText: '1 feedback' }).waitFor(); ok('open feedback shows up as a badge in the editor bar and in the spec list');
-  await d.click('[data-act=feedback]');
+  await d.click('#tab-feedback');
   await d.locator('.fb-item', { hasText: 'conflicts with the retry window' }).waitFor();
-  assert.ok(await d.locator('.fb-item .fb-evidence', { hasText: 'ADR-007.md' }).isVisible()); ok('the feedback sheet shows kind, section, text and evidence');
+  assert.ok(await d.locator('.fb-item .fb-evidence', { hasText: 'ADR-007.md' }).isVisible()); ok('the feedback tab shows kind, section, text and evidence');
   await d.fill('.fb-item input', 'Good catch – extending the window in ADR-007.'); await d.click('[data-act=fb-accept]');
   await d.getByText('No open feedback.').waitFor();
-  await d.locator('.sheet').getByRole('button', { name: /^All/ }).click(); await d.locator('.fb-item .fb-reply', { hasText: 'Good catch' }).waitFor(); ok('a person accepts feedback with a reply; it leaves the open list');
-  await d.keyboard.press('Escape');
-  await d.waitForFunction(() => !document.querySelector('.fbbtn.has'), null, { timeout: 10000 }); ok('the badge disappears once nothing is open');
+  await d.locator('#tabpanel').getByRole('button', { name: /^All/ }).click(); await d.locator('.fb-item .fb-reply', { hasText: 'Good catch' }).waitFor(); ok('a person accepts feedback with a reply; it leaves the open list');
+  await d.click('#tab-content'); // feedback is a tab of the spec now
+  await d.waitForFunction(() => !document.querySelector('#tab-feedback .tab-badge'), null, { timeout: 10000 }); ok('the badge disappears once nothing is open');
   // accept a finding and take it into the spec as a review note (checklist item)
   const fb2 = await admin.post(`/api/teams/${admin.tid}/feedback`, { specId: 'SPEC-014', kind: 'question', section: '## ACCEPTANCE CRITERIA', text: 'What happens when the key store is unavailable?' });
   assert.equal(fb2.status, 200);
   await d.evaluate(() => dispatchEvent(new Event('online')));
-  await d.locator('.fbbtn.has').waitFor({ timeout: 10000 });
-  await d.click('[data-act=feedback]'); await d.locator('.fb-item', { hasText: 'key store is unavailable' }).waitFor();
-  await d.click('[data-act=fb-accept-note]'); await d.getByText('No open feedback.').waitFor(); await d.keyboard.press('Escape');
+  await d.locator('#tab-feedback .tab-badge').waitFor({ timeout: 10000 });
+  await d.click('#tab-feedback'); await d.locator('.fb-item', { hasText: 'key store is unavailable' }).waitFor();
+  await d.click('[data-act=fb-accept-note]'); await d.getByText('No open feedback.').waitFor(); await d.click('#tab-content');
   await setMode(d, 'markdown');
   assert.match(await d.inputValue('#body'), /## REVIEW NOTES\n\n- \[ \] question \(ACCEPTANCE CRITERIA\): What happens when the key store is unavailable\?/); ok('"Accept & add to spec" turns a finding into a checklist item under REVIEW NOTES (an unreleased edit)');
   await setMode(d, 'blocks');
@@ -457,7 +481,7 @@ try {
   await d.click('.bar [data-act=dd-toggle]'); await d.getByRole('menuitem', { name: 'Term' }).click();
   await d.fill('#termname', 'Dunning');
   await d.route('**/api/lookup**', (r) => r.fulfill({ json: { query: 'Dunning', lang: 'en', results: [{ source: 'Wikipedia', title: 'Dunning (debt)', text: 'Dunning is the process of communicating with customers to ensure the collection of accounts receivable.', url: 'https://en.wikipedia.org/wiki/Dunning', license: 'CC BY-SA 4.0', licenseUrl: 'https://creativecommons.org/licenses/by-sa/4.0/' }] } }));
-  await d.click('[data-act=lookup]'); await d.locator('[data-lookup-hit]').waitFor(); await d.click('[data-act=lookup-use]');
+  await d.click('[data-act=lookup-open]'); await d.click('[data-act=lookup]'); await d.locator('[data-lookup-hit]').waitFor(); await d.click('[data-act=lookup-use]');
   assert.match(await d.inputValue('#termdef'), /Dunning is the process.*\(Source: Wikipedia, CC BY-SA 4\.0 – https:\/\/en\.wikipedia\.org\/wiki\/Dunning\)/); ok('glossary: online lookup offers a definition and copies it with its source');
   await d.unroute('**/api/lookup**');
   await d.fill('#termdef', 'Reminding customers about unpaid invoices.'); await d.click('[data-act=create-term]');
@@ -465,7 +489,7 @@ try {
   // folder + a term with synonyms and references inside it
   await d.click('.bar [data-act=dd-toggle]'); await d.getByRole('menuitem', { name: 'Folder' }).click();
   await d.fill('#glfname', 'Payments'); await d.click('[data-act=do-gl-folder]');
-  await d.locator('#glList .ftoggle', { hasText: 'Payments' }).waitFor(); ok('glossary folders: create a folder (a section heading in glossary.md)');
+  await d.locator('#glList .ftoggle', { hasText: 'Payments' }).waitFor(); ok('glossary folders: create a folder (a folder of term files)');
   await d.click('.bar [data-act=dd-toggle]'); await d.getByRole('menuitem', { name: 'Term' }).click();
   await d.fill('#termname', 'Payout'); await d.fill('#termdef', 'Money sent to the merchant after [[Settlement]] and [[Ghost term]].');
   await d.fill('#termaliases', 'disbursement, transfer'); await d.fill('#termsee', 'Chargeback'); await d.selectOption('#termfolder', 'Payments'); await d.click('[data-act=create-term]');
@@ -476,13 +500,18 @@ try {
   assert.ok(order.indexOf('Payments') >= 0 && order.indexOf('Payout') > order.indexOf('Payments')); ok('the term is listed under its folder');
   // edit in the detail pane
   await d.click('[data-act=gl-edit]');
-  await d.fill('#gd-def', 'Money sent to the merchant after [[Settlement]] and [[Ghost term]]. Paid daily.');
-  await d.click('#glEditForm button[type=submit]');
-  await d.locator('#glDetail').getByText('Paid daily.').waitFor(); ok('glossary: edit a term in the detail pane (no jump to glossary.md)');
+  const defPara = d.locator('#glEditForm .bn-editor [data-content-type=paragraph]').last();
+  await defPara.waitFor(); await defPara.click(); await d.keyboard.press('End'); await d.keyboard.type(' Paid **daily**.');
+  await d.locator('#gd-avoid').fill('payout run'); await d.keyboard.press('Enter');
+  await d.click('[data-act=gl-save]');
+  await d.locator('#glDetail .md').getByText('Paid').waitFor(); await d.locator('#glDetail .gd-alias.avoid', { hasText: 'payout run' }).waitFor(); ok('glossary: edit a term in the detail pane with the block editor; words to avoid are kept');
   // folder actions + alias search
   await d.locator('#glList .frow', { hasText: 'Payments' }).locator('[data-act=gl-folder-menu]').click();
-  await d.getByRole('button', { name: 'Rename…' }).click(); await d.fill('#glfname', 'Billing'); await d.click('[data-act=do-gl-folder]');
-  await d.locator('#glList .ftoggle', { hasText: 'Billing' }).waitFor(); await d.locator('#glList .row', { hasText: 'Payout' }).waitFor(); ok('glossary folders can be renamed (terms move with them)');
+  await d.getByRole('button', { name: 'Rename / move…' }).click(); await d.fill('#glfname', 'Finance'); await d.click('[data-act=do-gl-folder]');
+  await d.locator('#glList .ftoggle', { hasText: 'Finance' }).waitFor(); await d.locator('#glList .row', { hasText: 'Payout' }).waitFor(); ok('glossary folders can be renamed (terms move with them)');
+  await d.locator('#glList .frow', { hasText: 'Finance' }).locator('[data-act=gl-folder-menu]').click();
+  await d.getByRole('button', { name: 'New sub-folder' }).click(); await d.fill('#glfname', 'Finance/Cards'); await d.click('[data-act=do-gl-folder]');
+  await d.locator('#glList .frow', { hasText: 'Cards' }).waitFor(); ok('glossary folders nest (Finance/Cards)');
   await d.fill('#gsearch', 'disbursement');
   await d.waitForFunction(() => document.querySelectorAll('#glList .row').length === 1 && /Payout/.test(document.querySelector('#glList .row').textContent)); ok('search also matches synonyms');
   await d.fill('#gsearch', '');
@@ -503,6 +532,7 @@ try {
   await d.locator('#glList .row[href$="/Settlement"]').click();
   await d.locator('#glDetail').getByText('Update available').first().waitFor({ timeout: 10000 });
   await d.locator('#glDetail [data-act=gl-update]').click();
+  await d.locator('.sheet .diff ins').first().waitFor(); await d.click('[data-act=do-gl-update]');
   await d.locator('#glDetail').getByText('Funds move from the processor to our bank account.').waitFor();
   assert.equal(await d.locator('#glDetail').getByText('Update available').count(), 0); ok('an updated global term can be pulled into the team glossary');
   await shot(d, '06e-desktop-glossary-refs');
@@ -510,14 +540,34 @@ try {
   await d.locator('#glList .row', { hasText: 'Ledger entry' }).click();
   await d.locator('#glDetail [data-act=gl-adopt]').waitFor(); ok('terms that live in a spec offer "Add to glossary"');
   await d.locator('#glList .row', { hasText: 'Dunning' }).click();
-  d.once('dialog', (x) => x.accept()); await d.click('[data-act=gl-delete]');
+  await d.click('[data-act=gl-delete]'); await d.click('[data-act=do-delete-term]');
   await d.waitForFunction(() => ![...document.querySelectorAll('#glList .row')].some((r) => /Dunning/.test(r.textContent))); ok('a term can be deleted from the glossary');
-  // the block editor still shows the same definitions (glossary.md is just Markdown)
-  await d.evaluate(() => (location.hash = '#/doc/glossary.md'));
-  await d.locator('[data-content-type=definition]').first().waitFor();
-  assert.equal(await d.locator('.editor .back').getAttribute('href'), '#/glossary');
-  const pay = d.locator('[data-content-type=definition]').filter({ has: d.locator('.def-term[value="Payout"]') });
-  assert.equal(await pay.locator('.def-aliases').inputValue(), 'disbursement, transfer'); ok('glossary.md still carries aliases and references as Markdown; its back link returns to the glossary');
+  // every term is a Markdown file with front matter in the team's working copy
+  for (let i = 0; i < 40; i++) { if ((await admin.sync()).data.items.some((x) => x.id === 'glossary/Finance/payout.md' && !x.deleted)) break; await new Promise((res) => setTimeout(res, 250)); }
+  const payFile = (await admin.sync()).data.items.find((x) => x.id === 'glossary/Finance/payout.md');
+  assert.match(payFile.body, /^---\nterm: "Payout"\naliases: \["disbursement", "transfer"\]\navoid: \["payout run"\]\nsee: \["Chargeback"\]\n---\n\nMoney sent to the merchant after \[\[Settlement\]\] and \[\[Ghost term\]\]\. Paid \*\*daily\*\*\.\n$/); assert.equal(payFile.pinned, true);
+  ok('each term is a Markdown file under glossary/<folder>/ with front matter (synonyms, words to avoid, see also)');
+  // proposed terms wait for an approver
+  await admin.push([{ id: 'glossary/_proposed/grace-period.md', kind: 'doc', baseRev: 0, fields: { title: 'x', body: formatTermFile({ term: 'Grace period', body: 'Days after the due date before **dunning** starts.', folder: 'Finance', proposedBy: 'Claude Code', from: 'notes/billing.md' }) } }]);
+  await d.evaluate(() => window.dispatchEvent(new Event('online')));
+  await d.locator('[role=tab]', { hasText: 'Proposed' }).click();
+  await d.locator('#glProposed .row', { hasText: 'Grace period' }).click();
+  await d.locator('#glDetail .chip', { hasText: 'Proposed by Claude Code' }).waitFor(); assert.equal(await d.inputValue('#pr-folder'), 'Finance');
+  await d.click('[data-act=pr-accept]');
+  await d.locator('#glDetail h1', { hasText: 'Grace period' }).waitFor(); await d.locator('#glDetail strong', { hasText: 'dunning' }).waitFor();
+  await d.locator('[role=tab]', { hasText: 'Terms' }).click(); await d.locator('#glList .row', { hasText: 'Grace period' }).waitFor(); ok('a proposed term is accepted into its folder by an approver and goes live like any term');
+  // health: broken references are listed with a way to define them
+  await d.locator('[role=tab]', { hasText: 'Health' }).click();
+  await d.locator('#glHealth [data-issues=broken] .row', { hasText: 'Ghost term' }).first().click();
+  await d.locator('[data-act=health-define]').waitFor(); ok('health lists broken references and offers to define the missing term');
+  await d.locator('[role=tab]', { hasText: 'Terms' }).click();
+  // in a spec: suggestions link defined terms, which then show as chips with the definition on hover
+  await d.evaluate(() => (location.hash = '#/spec/SPEC-014'));
+  await d.locator('#glossarySugg').waitFor();
+  await d.locator('#glossarySugg .sugg-row', { hasText: 'attempt window' }).locator('[data-act=sugg-link]').click();
+  const chip = d.locator('.bn-editor .term-chip', { hasText: 'attempt window' });
+  await chip.waitFor(); await chip.hover(); await d.locator('.term-card', { hasText: 'time bucket' }).waitFor();
+  ok('a spec suggests linking defined terms; #[Term] shows as a chip with the definition on hover');
   await d.evaluate(() => (location.hash = '#/glossary'));
 
   // --- documents in folders
@@ -534,8 +584,8 @@ try {
   const ddMenu = await d.locator('.dd-menu').boundingBox();
   assert.ok(Math.abs((ddMenu.x + ddMenu.width) - (ddBtn.x + ddBtn.width)) <= 2); ok('documents: New is a dropdown aligned to the right edge');
   assert.ok(await d.getByRole('menuitem', { name: 'Document' }).isVisible() && await d.getByRole('menuitem', { name: /Folder/ }).isVisible());
-  await d.keyboard.press('Escape'); assert.equal(await d.locator('.dd-menu').isVisible(), false);
-  await d.click('.bar [data-act=dd-toggle]'); await d.locator('#list').click({ position: { x: 5, y: 5 } }); assert.equal(await d.locator('.dd-menu').isVisible(), false); ok('the dropdown closes with Escape and on outside click');
+  await d.keyboard.press('Escape'); await d.locator('.dd-menu').waitFor({ state: 'hidden', timeout: 1000 });
+  await d.click('.bar [data-act=dd-toggle]'); await d.locator('#list').click({ position: { x: 5, y: 5 } }); await d.locator('.dd-menu').waitFor({ state: 'hidden', timeout: 1000 }); ok('the dropdown closes with Escape and on outside click');
   await d.click('.bar [data-act=dd-toggle]'); await d.getByRole('menuitem', { name: 'Document' }).click();
   await d.fill('#docname', 'notes/ideas/retry.md'); await d.click('[data-act=create-doc]');
   await d.locator('.ed-title', { hasText: 'notes/ideas/retry.md' }).waitFor();
@@ -645,13 +695,13 @@ try {
   await d.getByRole('button', { name: 'Add endpoint' }).click(); await d.getByRole('button', { name: 'Add endpoint' }).click();
   await d.locator('[aria-label="HTTP method 1"]').selectOption('POST'); await d.locator('[aria-label="Path 1"]').fill('/orders');
   await d.locator('[aria-label="Endpoint 1 description"]').fill('Creates an order. Idempotent via Idempotency-Key.');
-  await d.locator('[data-content-type=endpoint]').first().getByRole('tab', { name: 'Responses' }).click(); await d.locator('[aria-label="Endpoint 1 responses"]').fill('201 Created');
+  await d.locator('[aria-label="Endpoint 1 responses"]').fill('201 Created'); // description, request and responses are stacked: no third tab level
   await d.locator('[aria-label="Path 2"]').fill('/orders/{id}'); await d.locator('[aria-label="Endpoint 2 description"]').fill('Returns one order.');
   await d.getByRole('tab', { name: 'Quality', exact: true }).click();
   await d.locator('[data-field=requirements] .btn', { hasText: 'Add' }).click();
   const reqs = d.locator('[aria-label="REQUIREMENTS 1"]'); await reqs.fill('Orders are never duplicated'); await reqs.press('Enter'); await d.keyboard.type('Creating an order takes under 300 ms');
   await d.locator('[data-field=acceptance] .btn', { hasText: 'Add' }).click(); await d.keyboard.type('Retry with the same key returns the first order'); await d.locator('[aria-label="Done 1"]').check();
-  ok('form: fields, select, repeatable endpoint cards with tabs, requirement and checklist rows (Enter adds a row)');
+  ok('form: fields, select, repeatable endpoint cards with stacked sections, requirement and checklist rows (Enter adds a row)');
   await setMode(d, 'markdown');
   const formMd = await d.inputValue('#body');
   assert.match(formMd, /## OVERVIEW\n\nOrders for the checkout\.\n\n## AUTHENTICATION\n\nOAuth 2\n\n## ENDPOINTS\n\n```endpoint POST \/orders\nCreates an order\. Idempotent via Idempotency-Key\.\n\nResponses:\n201 Created\n```\n\n```endpoint GET \/orders\/\{id\}\nReturns one order\.\n```/);
@@ -756,6 +806,7 @@ try {
   assert.deepEqual(Object.keys(hits[0].body), ['text']); assert.match(hits[0].body.text, /Connection test/);
   await d.locator('#hookStatus a', { hasText: 'Open the run' }).waitFor(); ok('team page: "Send test" calls the routine the way Claude Code expects and links the started run');
   assert.match(await d.locator('#as-prompt').innerText(), /get_work_list[\s\S]*request_decision[\s\S]*report_implementation/);
+  assert.match(await d.locator('#as-ci').innerText(), /secrets\.SPECS_TOKEN[\s\S]*api\/ci\/checks[\s\S]*api\/ci\/checks\/results/); assert.ok(await d.locator('#ci-required').isVisible());
   assert.match(await d.locator('#as-json').innerText(), /"url": "http:\/\/[^"]+\/mcp"[\s\S]*SPECS_TOKEN/); ok('team page: agent setup offers the MCP connection and the standing instruction to copy');
   await d.click('[data-tab=git]');
   await d.selectOption('#g-auth', 'ssh');
@@ -796,11 +847,11 @@ try {
   await d.click('[data-tab=settings]');
   await d.locator('[data-act=set-theme][data-v=light]').click();
   assert.equal(await d.evaluate(() => document.documentElement.dataset.theme), 'light');
-  assert.equal(await d.evaluate(() => getComputedStyle(document.body).backgroundColor), 'rgb(244, 245, 247)'); ok('appearance: light mode');
+  assert.equal(await d.evaluate(() => getComputedStyle(document.body).backgroundColor), 'rgb(249, 250, 249)'); ok('appearance: light mode');
   await shot(d, '08b-desktop-light-account');
   await d.reload(); assert.equal(await d.evaluate(() => document.documentElement.dataset.theme), 'light'); ok('appearance: choice is remembered');
   await d.locator('[data-act=set-theme][data-v=dark]').click();
-  assert.equal(await d.evaluate(() => getComputedStyle(document.body).backgroundColor), 'rgb(15, 18, 20)'); ok('appearance: dark mode');
+  assert.equal(await d.evaluate(() => getComputedStyle(document.body).backgroundColor), 'rgb(11, 13, 12)'); ok('appearance: dark mode');
 
   // any user can create a team from the workspace menu
   await d.locator('.sidebar .ws').click();

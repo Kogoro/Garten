@@ -15,7 +15,7 @@ export function Onboarding() {
   const steps: { done: boolean; text: string; to: string }[] = [
     { done: hasContent(doc('vision.md')?.body ?? ''), text: 'Write the vision: where is the product heading, and why', to: '/doc/vision.md' },
     { done: S.all('spec').length > 0, text: 'Write a first spec', to: '/' },
-    { done: hasContent(doc('glossary.md')?.body ?? ''), text: 'Add the words your team uses to the glossary', to: '/glossary' },
+    { done: S.termItems().length > 0, text: 'Add the words your team uses to the glossary', to: '/glossary' },
     { done: S.all('spec').some((s) => s.status === 'approved'), text: 'Approve a spec so it is released to agents', to: '/release' },
     ...(S.can('admin') ? [{ done: false, text: 'Connect Git and an agent (Members & Git → Agent setup)', to: '/team' }] : []),
   ];
