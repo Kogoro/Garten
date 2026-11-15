@@ -22,7 +22,34 @@ function Health() {
   if (m.medianHoursToAnswer != null) parts.push(<span key="a">agents answered in <b>{dur(m.medianHoursToAnswer)}</b> median</span>);
   if (m.claimsVerified) parts.push(<span key="c"><b>{m.claimsVerified.verified} of {m.claimsVerified.met}</b> claims proven by checks</span>);
   if (i.blocked) parts.push(<span key="b"><b>{i.blocked}</b> blocked</span>);
-  return <p className="gd-health" id="gd-health">Last {m.days} days: {parts.map((x, k) => <span key={k}>{k ? ' · ' : ''}{x}</span>)}</p>;
+  return <>
+    <p className="gd-health" id="gd-health">Last {m.days} days: {parts.map((x, k) => <span key={k}>{k ? ' · ' : ''}{x}</span>)}</p>
+    <Quality q={m.quality} />
+  </>;
+}
+
+const pct = (x: number | null) => (x == null ? null : `${Math.round(x * 100)} %`);
+/** Which kinds of specs work for agents: per type, how often they asked or objected, deviated, reported again – and the specs they struggled with. */
+function Quality({ q }: { q?: { types: any[]; unclear: any[] } }) {
+  if (!q?.types?.some((t) => t.questionsPerSpec || t.feedbackPerSpec || t.reportsPerSpec)) return null;
+  return (
+    <details className="gd-quality" id="gd-quality">
+      <summary>Spec quality by type</summary>
+      <p className="note">Over every released spec. Many questions or much feedback per spec mean the type leaves too much open – sharpen its template or its acceptance criteria.</p>
+      <div className="list-card">{q.types.map((t) => (
+        <div className="gd-row static" key={t.type} data-type={t.type}>
+          <span className="grow"><b>{t.label} <small className="muted">{t.specs} spec{t.specs === 1 ? '' : 's'}</small></b>
+            <span>{[`${t.questionsPerSpec} questions / spec`, `${t.feedbackPerSpec} feedback / spec`, pct(t.deviationRate) && `${pct(t.deviationRate)} deviate`, t.reportsPerSpec != null && `${t.reportsPerSpec} reports / spec`, t.medianHoursToImplemented != null && `${dur(t.medianHoursToImplemented)} release to built`].filter(Boolean).join(' · ')}</span></span>
+        </div>
+      ))}</div>
+      {q.unclear.length > 0 && <>
+        <div className="sect-title" style={{ marginTop: 12 }}><span>Specs agents struggled with</span></div>
+        <div className="list-card">{q.unclear.map((x) => (
+          <Link className="gd-row" key={x.id} to={`/spec/${encodeURIComponent(x.id)}`}><span className="grow"><b><span className="mono">{x.id}</span> {x.title}</b><span>{x.questions} question{x.questions === 1 ? '' : 's'} · {x.feedback} feedback</span></span><Icon name="chevron" size={14} /></Link>
+        ))}</div>
+      </>}
+    </details>
+  );
 }
 
 const STATUS_TEXT: Record<string, string> = { implemented: 'implemented', partial: 'partly built', blocked: 'blocked', in_progress: 'in progress' };

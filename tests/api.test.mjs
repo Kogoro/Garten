@@ -1016,6 +1016,19 @@ try {
     await A.close(); await B.close(); sink.close();
   }
 
+  // spec quality: per type, how much agents had to ask, object, deviate and report again
+  {
+    const m = (await admin.get(`/api/teams/${T1}/metrics`)).data.metrics;
+    const q = m.quality;
+    assert.equal(q.types.reduce((a, t) => a + t.specs, 0), m.releasedSpecs); ok('quality: every released spec counts under its type');
+    const feat = q.types.find((t) => t.type === 'feature'); const api = q.types.find((t) => t.type === 'api');
+    assert.ok(feat.questionsPerSpec > 0 && feat.label === 'Feature spec' && feat.reportsPerSpec >= 1); assert.ok(api && api.specs >= 1);
+    const load = (t) => t.questionsPerSpec + t.feedbackPerSpec;
+    assert.ok(q.types.every((t, i) => !i || load(q.types[i - 1]) >= load(t))); ok('quality: types are ordered by how much agents had to ask or object');
+    assert.ok(q.unclear.length > 0 && q.unclear.length <= 5); assert.ok(q.unclear.every((x, i) => x.questions + x.feedback > 0 && (!i || q.unclear[i - 1].questions + q.unclear[i - 1].feedback >= x.questions + x.feedback)));
+    assert.ok(q.types.every((t) => t.deviationRate === null || (t.deviationRate >= 0 && t.deviationRate <= 1))); ok('quality: the specs agents struggled with most are listed, rates stay between 0 and 1');
+  }
+
   // glossary lookup: input is validated before any third party is asked; sign-in is required
   assert.equal((await admin.get('/api/lookup?q=a')).status, 400); ok('lookup: a too short term is rejected');
   assert.equal((await anon.get('/api/lookup?q=idempotence')).status, 401); ok('lookup: needs a sign-in');
