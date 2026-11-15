@@ -259,6 +259,9 @@ try {
   await page.evaluate(() => dispatchEvent(new Event('online')));
   await page.locator('#gd-impl .gd-row[data-spec="SPEC-012"]', { hasText: 'Claude Code is building it' }).waitFor({ timeout: 10000 });
   assert.match(await page.locator('#gd-agents .gd-row', { hasText: 'Claude Code' }).first().innerText(), /Waiting for a decision|Building SPEC-012/); ok('garden: a claim shows which agent builds a spec; the agent list comes from the server');
+  await page.locator('#gd-quality summary').click();
+  assert.match(await page.locator('#gd-quality [data-type=api]').innerText(), /API spec[\s\S]*questions \/ spec/);
+  await page.locator('#gd-quality a.gd-row', { hasText: 'SPEC-012' }).waitFor(); ok('garden: spec quality by type, and the specs agents struggled with');
   await shot(page, '05a-garden');
   await ctx.setOffline(true);
   await page.evaluate(() => dispatchEvent(new Event('offline')));

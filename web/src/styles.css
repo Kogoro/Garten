@@ -1308,6 +1308,9 @@ i.dot-ok { background: var(--accent); } i.dot-w { background: var(--amber); } i.
 .gd-row.static .gd-link { color: inherit; text-decoration: none; }
 .gd-row.static .gd-link:hover b { text-decoration: underline; }
 .gd-health { margin: 0; font-size: 13px; color: var(--muted); }
+.gd-quality { margin-top: 8px; }
+.gd-quality > summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; font: 600 13px var(--sans); color: var(--soft); }
+.gd-quality small { font-weight: 500; }
 .gd-health b { color: var(--soft); font-weight: 600; }
 .gd-seg { display: none; margin-bottom: 8px; }
 @media (max-width: 899px) {
