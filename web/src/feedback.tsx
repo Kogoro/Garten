@@ -4,6 +4,7 @@ import { FormError, Sheet } from './dialogs';
 import type { FbPatch } from './store/core';
 import { Icon, ago, toast, useStore } from './ui';
 import { RuleSheet } from './guardrails';
+import { addDecisionToSpec, hasDecision } from './decisionsLib';
 
 export const KINDS: [string, string][] = [['concern', 'Concern'], ['conflict', 'Conflict'], ['question', 'Question'], ['suggestion', 'Suggestion'], ['gap', 'Missing info']];
 const kindLabel: Record<string, string> = { ...Object.fromEntries(KINDS), decision: 'Decision', propose_deletion: 'Proposes deletion', propose_acceptance: 'Proposes acceptance' };
@@ -111,7 +112,16 @@ export function DecisionCard({ f, showSpec, act, collapsed }: { f: any; showSpec
   const choosing = can && !(folded && open) && (open || (answered && editing));
   const options: { label: string; detail?: string }[] = f.options ?? [];
   const ready = pick !== null && (pick !== -1 || note.trim() !== '');
-  const send = () => { if (!ready) return; act(f, { answer: pick!, reply: note.trim() }); setEditing(false); toast(S.state.online ? 'Answer sent' : 'Answer saved – it is sent when you are online again'); };
+  const spec = f.specId ? S.get(f.specId) : null;
+  const [record, setRecord] = useState(true); // write the answer into the spec, so the next version carries it
+  const inSpec = !!spec && hasDecision(spec.body, f.text);
+  const toSpec = (answer: number, reply: string) => { if (spec) S.edit(spec.id, { body: addDecisionToSpec(spec.body, f, answer, reply, S.state.me?.name, new Date().toISOString()) }); };
+  const send = () => {
+    if (!ready) return;
+    act(f, { answer: pick!, reply: note.trim() }); setEditing(false);
+    if (record && spec) toSpec(pick!, note.trim());
+    toast(`${S.state.online ? 'Answer sent' : 'Answer saved – it is sent when you are online again'}${record && spec ? ' · added to the spec as a draft change' : ''}`);
+  };
   const chosen = answered ? (f.answer >= 0 ? options[f.answer]?.label : 'Own answer') : null;
   return (
     <article className={`dc-item st-${f.status}${f.blocking && open ? ' blocking' : ''}`} data-decision={f.id}>
@@ -133,6 +143,7 @@ export function DecisionCard({ f, showSpec, act, collapsed }: { f: any; showSpec
         </div>
         <label className="sr" htmlFor={`dn-${f.id}`}>Note for the agent</label>
         <textarea id={`dn-${f.id}`} className="field dc-note" rows={2} maxLength={2000} placeholder={pick === -1 ? 'Your answer (required)' : 'Note for the agent (optional)'} value={note} onChange={(e) => setNote(e.target.value)} />
+        {spec && <label className="check dc-record"><input type="checkbox" data-act="dc-record" checked={record} onChange={(e) => setRecord(e.target.checked)} /> Also write it into the spec (under DECISIONS – released with its next version)</label>}
         <div className="btns">
           <button className="btn primary small" type="button" data-act="dc-send" disabled={!ready} onClick={send}>{answered ? 'Change answer' : 'Send answer'}</button>
           {answered ? <button className="btn small" type="button" onClick={() => { setEditing(false); setPick(f.answer); setNote(f.reply ?? ''); }}>Cancel</button>
@@ -146,6 +157,8 @@ export function DecisionCard({ f, showSpec, act, collapsed }: { f: any; showSpec
         {!answered && !open && options.length > 0 && <p className="muted dc-closed">Options were: {options.map((o) => o.label).join(' · ')}</p>}
         {can && f.status !== 'withdrawn' && <div className="btns">
           {answered && <button className="btn small" type="button" data-act="dc-change" onClick={() => setEditing(true)}>Change answer</button>}
+          {answered && spec && !inSpec && <button className="btn small" type="button" data-act="dc-to-spec" title="Write the decision into the spec under DECISIONS, as a draft change released with its next version" onClick={() => { toSpec(f.answer, f.reply ?? ''); toast('Added to the spec as a draft change'); }}>Add to spec</button>}
+          {answered && inSpec && <span className="chip ok" data-state="in-spec" title="The spec records this decision under DECISIONS">In the spec</span>}
           {!open && <button className="btn small" type="button" data-act="dc-reopen" onClick={() => { act(f, { status: 'open' }); setPick(null); }}>Reopen</button>}
         </div>}
         {open && !can && <p className="muted dc-closed">Options: {options.map((o) => o.label).join(' · ')}</p>}
