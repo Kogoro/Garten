@@ -8,7 +8,8 @@ describe('completion', () => {
   it('offers diagram headers on the first line', () => {
     expect(labels('seq')).toEqual(['sequenceDiagram']);
     expect(labels('flow')).toEqual(['flowchart TD', 'flowchart LR']);
-    expect(labels('')).toBeNull(); expect(labels('', 0, true)!.length).toBeGreaterThanOrEqual(12);
+    expect(labels('')).toBeNull();
+    expect(labels('', 0, true)!.length).toBeGreaterThanOrEqual(12);
     expect(labels('sequenceDiagram')).toBeNull(); // already complete
   });
   it('knows the keywords of the diagram type', () => {
@@ -40,7 +41,13 @@ describe('completion', () => {
     expect(expand({ label: 'a', insert: 'end' })).toEqual({ text: 'end', caret: 3 });
   });
   it('detects the diagram type', () => {
-    expect([typeOf('%% c\nsequenceDiagram'), typeOf('graph TD'), typeOf('stateDiagram-v2'), typeOf('gitGraph'), typeOf('x')]).toEqual(['sequence', 'flowchart', 'state', 'git', null]);
+    expect([typeOf('%% c\nsequenceDiagram'), typeOf('graph TD'), typeOf('stateDiagram-v2'), typeOf('gitGraph'), typeOf('x')]).toEqual([
+      'sequence',
+      'flowchart',
+      'state',
+      'git',
+      null,
+    ]);
   });
 });
 
@@ -51,7 +58,9 @@ describe('editing helpers', () => {
     expect(run(t, onEnter(t, t.length, t.length))).toBe(t + '\n    ');
     const c = 'classDiagram\n  class A {}';
     const at = c.length - 1;
-    const e = onEnter(c, at, at); expect(run(c, e)).toBe('classDiagram\n  class A {\n    \n  }'); expect(e.selStart).toBe(at + 1 + 4);
+    const e = onEnter(c, at, at);
+    expect(run(c, e)).toBe('classDiagram\n  class A {\n    \n  }');
+    expect(e.selStart).toBe(at + 1 + 4);
   });
   it('Tab inserts spaces up to the next stop and Shift+Tab removes them', () => {
     expect(run('a', onTab('a', 1, 1, false)!)).toBe('a ');
@@ -61,12 +70,14 @@ describe('editing helpers', () => {
   });
   it('Tab on a selection indents every selected line', () => {
     const t = 'a\nb\nc';
-    const e = onTab(t, 0, 3, false)!; expect(run(t, e)).toBe('  a\n  b\nc');
+    const e = onTab(t, 0, 3, false)!;
+    expect(run(t, e)).toBe('  a\n  b\nc');
     expect(run('  a\n  b\nc', onTab('  a\n  b\nc', 0, 7, true)!)).toBe('a\nb\nc');
   });
   it('Ctrl+/ comments and uncomments lines', () => {
     const t = 'a\n  b';
-    const on = run(t, toggleComment(t, 0, t.length)); expect(on).toBe('%% a\n  %% b');
+    const on = run(t, toggleComment(t, 0, t.length));
+    expect(on).toBe('%% a\n  %% b');
     expect(run(on, toggleComment(on, 0, on.length))).toBe(t);
   });
   it('brackets pair, wrap a selection, step over and delete together', () => {

@@ -5,7 +5,8 @@ import path from 'node:path';
 process.umask(0o077);
 
 const env = (k, d = '') => (process.env[k] ?? d) || d;
-const flag = (k, d = false) => (process.env[k] === undefined || process.env[k] === '' ? d : !['0', 'false', 'no'].includes(process.env[k].toLowerCase()));
+const flag = (k, d = false) =>
+  process.env[k] === undefined || process.env[k] === '' ? d : !['0', 'false', 'no'].includes(process.env[k].toLowerCase());
 
 export const PORT = Number(env('PORT', '3000'));
 /** Address to listen on. Empty = all interfaces; 127.0.0.1 when a reverse proxy on the same machine is the only way in. */
@@ -82,7 +83,13 @@ export const FOUNDATION_DEBOUNCE_MS = Number(env('FOUNDATION_DEBOUNCE_MS', '1500
 export const SMTP_URL = env('SMTP_URL');
 export const SMTP_FROM = env('SMTP_FROM', 'Specs <no-reply@localhost>');
 /** Refuse to send unless the connection is upgraded to TLS. Default: on for every mail server except one on this machine. */
-const smtpLocal = (() => { try { return /^(localhost|127\.\d+\.\d+\.\d+|\[?::1\]?)$/.test(new URL(SMTP_URL).hostname); } catch { return true; } })();
+const smtpLocal = (() => {
+  try {
+    return /^(localhost|127\.\d+\.\d+\.\d+|\[?::1\]?)$/.test(new URL(SMTP_URL).hostname);
+  } catch {
+    return true;
+  }
+})();
 export const SMTP_REQUIRE_TLS = flag('SMTP_REQUIRE_TLS', !smtpLocal);
 
 /** Online definition lookup for the glossary (Wikipedia, Wiktionary, dictionaryapi.dev). LOOKUP=0 switches it off. */

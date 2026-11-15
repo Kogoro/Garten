@@ -10,7 +10,9 @@ export function useStore(): typeof S {
 }
 
 type IconName = keyof typeof ic;
-export const Icon = ({ name, size }: { name: IconName; size?: number }) => <span style={{ display: 'inline-flex' }} dangerouslySetInnerHTML={{ __html: (ic[name] as (s?: number) => string)(size) }} />;
+export const Icon = ({ name, size }: { name: IconName; size?: number }) => (
+  <span style={{ display: 'inline-flex' }} dangerouslySetInnerHTML={{ __html: (ic[name] as (s?: number) => string)(size) }} />
+);
 
 export function ago(ts?: number | null) {
   if (!ts) return '';
@@ -24,7 +26,10 @@ export function ago(ts?: number | null) {
 export const touched = (i: Item) => i.editedAt ?? (i.updatedAt ? Date.parse(i.updatedAt) : 0);
 
 // ---- toast
-export interface ToastAction { label: string; run: () => void }
+export interface ToastAction {
+  label: string;
+  run: () => void;
+}
 let toastEl: ((m: string, a?: ToastAction) => void) | null = null;
 /** A short message; with an action (e.g. Undo) it stays a little longer and can be tapped. */
 export const toast = (m: string, a?: ToastAction) => toastEl?.(m, a);
@@ -37,30 +42,67 @@ export function Toaster() {
       el.classList.toggle('has-action', !!a);
       if (a) {
         const b = document.createElement('button');
-        b.type = 'button'; b.className = 'toast-act'; b.textContent = a.label;
-        b.onclick = () => { el.classList.remove('show'); clearTimeout(t); a.run(); };
+        b.type = 'button';
+        b.className = 'toast-act';
+        b.textContent = a.label;
+        b.onclick = () => {
+          el.classList.remove('show');
+          clearTimeout(t);
+          a.run();
+        };
         el.append(b);
       }
-      el.classList.add('show'); clearTimeout(t); t = setTimeout(() => el.classList.remove('show'), a ? 6000 : 2800);
+      el.classList.add('show');
+      clearTimeout(t);
+      t = setTimeout(() => el.classList.remove('show'), a ? 6000 : 2800);
     };
-    return () => { toastEl = null; };
+    return () => {
+      toastEl = null;
+    };
   }, []);
   return <div id="toast" role="status" aria-live="polite" />;
 }
 
 // ---- theme (system / light / dark), same keys as the vanilla app
 const KEY = 'specs-theme';
-export const themePref = () => { try { return localStorage.getItem(KEY) || 'system'; } catch { return 'system'; } };
-export const effectiveTheme = (): 'light' | 'dark' => { const p = themePref(); return p !== 'system' ? (p as 'light' | 'dark') : matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; };
+export const themePref = () => {
+  try {
+    return localStorage.getItem(KEY) || 'system';
+  } catch {
+    return 'system';
+  }
+};
+export const effectiveTheme = (): 'light' | 'dark' => {
+  const p = themePref();
+  return p !== 'system' ? (p as 'light' | 'dark') : matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+};
 export function applyTheme() {
-  const p = themePref(); const el = document.documentElement;
-  if (p === 'system') el.removeAttribute('data-theme'); else el.dataset.theme = p;
+  const p = themePref();
+  const el = document.documentElement;
+  if (p === 'system') el.removeAttribute('data-theme');
+  else el.dataset.theme = p;
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', effectiveTheme() === 'light' ? '#F9FAF9' : '#0B0D0C');
 }
-export function setTheme(pref: string) { try { pref === 'system' ? localStorage.removeItem(KEY) : localStorage.setItem(KEY, pref); } catch { /* private mode */ } applyTheme(); }
+export function setTheme(pref: string) {
+  try {
+    pref === 'system' ? localStorage.removeItem(KEY) : localStorage.setItem(KEY, pref);
+  } catch {
+    /* private mode */
+  }
+  applyTheme();
+}
 
-export const Page = ({ children }: { children: ReactNode }) => <div className="scroll"><div className="page">{children}</div></div>;
+export const Page = ({ children }: { children: ReactNode }) => (
+  <div className="scroll">
+    <div className="page">{children}</div>
+  </div>
+);
 
 export async function copy(text: string) {
-  try { await navigator.clipboard.writeText(text); toast('Copied'); } catch { toast('Copy not available here — select the text instead'); }
+  try {
+    await navigator.clipboard.writeText(text);
+    toast('Copied');
+  } catch {
+    toast('Copy not available here — select the text instead');
+  }
 }

@@ -1,10 +1,32 @@
 import { describe, expect, it } from 'vitest';
-import { parseTermFile, formatTermFile, slugify, termPath, rewriteRefsIn, refsIn, avoidHits, replaceWord, linkFirst, firstMention, splitGlossaryMd, termsToCsv, firstParagraph, definitionsOf, isTermPath } from '@shared/glossaryFiles.js';
+import {
+  parseTermFile,
+  formatTermFile,
+  slugify,
+  termPath,
+  rewriteRefsIn,
+  refsIn,
+  avoidHits,
+  replaceWord,
+  linkFirst,
+  firstMention,
+  splitGlossaryMd,
+  termsToCsv,
+  firstParagraph,
+  definitionsOf,
+  isTermPath,
+} from '@shared/glossaryFiles.js';
 import { parseGlossaryFile } from '@shared/glossaryImport.js';
 import { mdToInline, inlineToMd } from './editor/inline';
 
 describe('term files', () => {
-  const file = formatTermFile({ term: 'Attempt window', aliases: ['retry window', 'a, b'], avoid: ['retry period'], see: ['Idempotency key'], body: 'The **bucket** of [[Invoice run]].\n\n- one\n- two' });
+  const file = formatTermFile({
+    term: 'Attempt window',
+    aliases: ['retry window', 'a, b'],
+    avoid: ['retry period'],
+    see: ['Idempotency key'],
+    body: 'The **bucket** of [[Invoice run]].\n\n- one\n- two',
+  });
   it('round-trips front matter and a Markdown body', () => {
     const t = parseTermFile(file)!;
     expect(t.term).toBe('Attempt window');
@@ -28,15 +50,29 @@ describe('term files', () => {
   });
   it('splits the old glossary.md into folders', () => {
     const e = splitGlossaryMd('# Glossary\n\nA\n: one\n\n## Pay ments\n\nB\n: two\n\n### Cards\n\nC\n: three\n');
-    expect(e.map((x) => [x.folder, x.term])).toEqual([['', 'A'], ['Pay-ments', 'B'], ['Pay-ments/Cards', 'C']]);
+    expect(e.map((x) => [x.folder, x.term])).toEqual([
+      ['', 'A'],
+      ['Pay-ments', 'B'],
+      ['Pay-ments/Cards', 'C'],
+    ]);
   });
 });
 
 describe('references', () => {
   it('renames and unlinks [[…]], #[…] and See also lists', () => {
     const t = formatTermFile({ term: 'X', see: ['Invoice run'], body: 'see [[Invoice run|runs]] and #[invoice run]' });
-    expect(parseTermFile(rewriteRefsIn('glossary/x.md', t, 'Invoice run', 'Billing run'))).toMatchObject({ see: ['Billing run'], body: 'see [[Billing run|runs]] and #[Billing run]' });
-    expect(rewriteRefsIn('SPEC-1', 'Uses #[Invoice run|runs] and [[Invoice run]]\n\nFoo\n: bar\n: See also: Invoice run, Y\n', 'Invoice run', null)).toBe('Uses runs and Invoice run\n\nFoo\n: bar\n: See also: Y\n');
+    expect(parseTermFile(rewriteRefsIn('glossary/x.md', t, 'Invoice run', 'Billing run'))).toMatchObject({
+      see: ['Billing run'],
+      body: 'see [[Billing run|runs]] and #[Billing run]',
+    });
+    expect(
+      rewriteRefsIn(
+        'SPEC-1',
+        'Uses #[Invoice run|runs] and [[Invoice run]]\n\nFoo\n: bar\n: See also: Invoice run, Y\n',
+        'Invoice run',
+        null,
+      ),
+    ).toBe('Uses runs and Invoice run\n\nFoo\n: bar\n: See also: Y\n');
     expect(refsIn('SPEC-1', '#[A] [[a|x]]\n\nB\n: b\n: See also: A', 'A')).toBe(3);
   });
   it('links the first plain mention, never inside code or existing references', () => {
@@ -45,7 +81,9 @@ describe('references', () => {
   });
   it('finds and replaces words to avoid outside code', () => {
     const md = 'R1 The retry period ends.\n`retry period` stays';
-    expect(avoidHits(md, [{ term: 'Attempt window', avoid: ['retry period'] }])).toEqual([{ word: 'retry period', term: 'Attempt window', line: 1, text: 'R1 The retry period ends.' }]);
+    expect(avoidHits(md, [{ term: 'Attempt window', avoid: ['retry period'] }])).toEqual([
+      { word: 'retry period', term: 'Attempt window', line: 1, text: 'R1 The retry period ends.' },
+    ]);
     expect(replaceWord(md, 'retry period', 'Attempt window')).toBe('R1 The Attempt window ends.\n`retry period` stays');
   });
   it('keeps #[Term] as an inline chip in the editor model', () => {
@@ -57,10 +95,19 @@ describe('references', () => {
 
 describe('export and import', () => {
   it('writes CSV that the import reads back', () => {
-    const csv = termsToCsv([{ term: 'A', body: 'x, "y"\n\n- z', aliases: ['q', 'r'], avoid: ['bad'], distinct: ['B'], see: [], folder: 'Billing/Cards' }]);
+    const csv = termsToCsv([
+      { term: 'A', body: 'x, "y"\n\n- z', aliases: ['q', 'r'], avoid: ['bad'], distinct: ['B'], see: [], folder: 'Billing/Cards' },
+    ]);
     const back = parseGlossaryFile('g.csv', csv);
     expect(back.errors).toEqual([]);
-    expect(back.terms[0]).toMatchObject({ term: 'A', definition: 'x, "y"\n\n- z', aliases: ['q', 'r'], avoid: ['bad'], distinct: ['B'], folder: 'Billing/Cards' });
+    expect(back.terms[0]).toMatchObject({
+      term: 'A',
+      definition: 'x, "y"\n\n- z',
+      aliases: ['q', 'r'],
+      avoid: ['bad'],
+      distinct: ['B'],
+      folder: 'Billing/Cards',
+    });
   });
   it('summarises a definition by its first paragraph', () => {
     expect(firstParagraph('## Heading\n\nThe **x** [[Y|y]].\n\nmore')).toBe('The x y.');

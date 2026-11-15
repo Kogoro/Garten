@@ -16,33 +16,69 @@ let tweakClaims = (c) => c; // tests change the ID token claims here
 const b64 = (o) => Buffer.from(typeof o === 'string' ? o : JSON.stringify(o)).toString('base64url');
 function idToken(claims) {
   const head = b64({ alg: 'RS256', kid: KID, typ: 'JWT' });
-  const body = b64(tweakClaims({ iss: ISSUER, aud: 'specs', iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 300, ...claims }));
+  const body = b64(
+    tweakClaims({ iss: ISSUER, aud: 'specs', iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 300, ...claims }),
+  );
   return `${head}.${body}.${createSign('RSA-SHA256').update(`${head}.${body}`).sign(privateKey).toString('base64url')}`;
 }
 const codes = new Map();
 const tokens = new Map();
 const idp = http.createServer((req, res) => {
   const u = new URL(req.url, ISSUER);
-  const json = (o, s = 200) => { res.writeHead(s, { 'content-type': 'application/json' }); res.end(JSON.stringify(o)); };
-  if (u.pathname === '/.well-known/openid-configuration') return json({ issuer: ISSUER, authorization_endpoint: `${ISSUER}/authorize`, token_endpoint: `${ISSUER}/token`, userinfo_endpoint: `${ISSUER}/userinfo`, jwks_uri: `${ISSUER}/jwks` });
+  const json = (o, s = 200) => {
+    res.writeHead(s, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(o));
+  };
+  if (u.pathname === '/.well-known/openid-configuration')
+    return json({
+      issuer: ISSUER,
+      authorization_endpoint: `${ISSUER}/authorize`,
+      token_endpoint: `${ISSUER}/token`,
+      userinfo_endpoint: `${ISSUER}/userinfo`,
+      jwks_uri: `${ISSUER}/jwks`,
+    });
   if (u.pathname === '/jwks') return json({ keys: [{ ...publicKey.export({ format: 'jwk' }), kid: KID, use: 'sig', alg: 'RS256' }] });
   if (u.pathname === '/authorize') {
     const code = randomUUID();
-    codes.set(code, { challenge: u.searchParams.get('code_challenge'), id: nextIdentity, redirect: u.searchParams.get('redirect_uri'), nonce: u.searchParams.get('nonce') });
+    codes.set(code, {
+      challenge: u.searchParams.get('code_challenge'),
+      id: nextIdentity,
+      redirect: u.searchParams.get('redirect_uri'),
+      nonce: u.searchParams.get('nonce'),
+    });
     const back = new URL(u.searchParams.get('redirect_uri'));
-    back.searchParams.set('code', code); back.searchParams.set('state', u.searchParams.get('state'));
-    res.writeHead(302, { location: back.href }); return res.end();
+    back.searchParams.set('code', code);
+    back.searchParams.set('state', u.searchParams.get('state'));
+    res.writeHead(302, { location: back.href });
+    return res.end();
   }
   if (u.pathname === '/token') {
-    let body = ''; req.on('data', (d) => (body += d)); req.on('end', () => {
-      const p = new URLSearchParams(body); const c = codes.get(p.get('code')); codes.delete(p.get('code'));
-      if (!c || createHash('sha256').update(p.get('code_verifier') ?? '').digest('base64url') !== c.challenge) return json({ error: 'invalid_grant' }, 400);
+    let body = '';
+    req.on('data', (d) => (body += d));
+    req.on('end', () => {
+      const p = new URLSearchParams(body);
+      const c = codes.get(p.get('code'));
+      codes.delete(p.get('code'));
+      if (
+        !c ||
+        createHash('sha256')
+          .update(p.get('code_verifier') ?? '')
+          .digest('base64url') !== c.challenge
+      )
+        return json({ error: 'invalid_grant' }, 400);
       if (p.get('client_secret') !== 'idp-secret') return json({ error: 'invalid_client' }, 401);
-      const at = randomUUID(); tokens.set(at, c.id); json({ access_token: at, token_type: 'Bearer', id_token: idToken({ sub: c.id.sub, nonce: c.nonce }) });
-    }); return;
+      const at = randomUUID();
+      tokens.set(at, c.id);
+      json({ access_token: at, token_type: 'Bearer', id_token: idToken({ sub: c.id.sub, nonce: c.nonce }) });
+    });
+    return;
   }
-  if (u.pathname === '/userinfo') { const id = tokens.get((req.headers.authorization ?? '').slice(7)); return id ? json(id) : json({ error: 'invalid_token' }, 401); }
-  res.writeHead(404); res.end();
+  if (u.pathname === '/userinfo') {
+    const id = tokens.get((req.headers.authorization ?? '').slice(7));
+    return id ? json(id) : json({ error: 'invalid_token' }, 401);
+  }
+  res.writeHead(404);
+  res.end();
 });
 await new Promise((r) => idp.listen(idpPort, r));
 
@@ -63,7 +99,9 @@ async function ssoLogin(base, next = '/', { dropStateCookie = false } = {}) {
 /** One server with the given environment for the surrounding describe block. */
 function oidcServer(env) {
   const s = {};
-  before(async () => { s.srv = await startServer(env); });
+  before(async () => {
+    s.srv = await startServer(env);
+  });
   after(() => s.srv?.kill());
   return s;
 }
@@ -75,18 +113,25 @@ describe('OIDC sign-in', () => {
     const s = oidcServer(oidcEnv);
     const step = chain();
     let srv, admin, c, location;
-    before(() => { ({ srv } = s); });
+    before(() => {
+      ({ srv } = s);
+    });
     step('app advertises the SSO provider', async () => {
       const cfg = await (await fetch(`${srv.base}/api/auth/config`)).json();
       assert.equal(cfg.oidc.name, 'Mock SSO');
     });
     step('unknown identity is refused (no auto-create)', async () => {
       ({ c, location } = await ssoLogin(srv.base));
-      assert.match(location, /login_error=.*No%20account|login_error=No/); assert.equal((await c.get('/api/me')).status, 401);
+      assert.match(location, /login_error=.*No%20account|login_error=No/);
+      assert.equal((await c.get('/api/me')).status, 401);
     });
     step('admin invites a user by e-mail (no password)', async () => {
-      admin = new Client(srv.base); await admin.login('admin@localhost', 'adminpass1');
-      assert.equal((await admin.post('/api/users', { email: 'SSO@example.com', name: 'Invited', teamId: admin.tid, role: 'editor' })).status, 200);
+      admin = new Client(srv.base);
+      await admin.login('admin@localhost', 'adminpass1');
+      assert.equal(
+        (await admin.post('/api/users', { email: 'SSO@example.com', name: 'Invited', teamId: admin.tid, role: 'editor' })).status,
+        200,
+      );
     });
     step('invited user signs in via SSO and is redirected to `next`', async () => {
       ({ c, location } = await ssoLogin(srv.base, '/oauth/consent?request=abc'));
@@ -94,7 +139,8 @@ describe('OIDC sign-in', () => {
     });
     step('SSO session carries the role assigned in the team', async () => {
       const me = (await c.get('/api/me')).data.me;
-      assert.equal(me.teams[0].role, 'editor'); assert.equal(me.email, 'sso@example.com');
+      assert.equal(me.teams[0].role, 'editor');
+      assert.equal(me.email, 'sso@example.com');
     });
     step('open redirect via next= is blocked (also with backslashes and control characters)', async () => {
       for (const bad of ['https://evil.example/', '//evil.example', '/\\evil.example', '/\t/evil.example', 'javascript:alert(1)']) {
@@ -107,22 +153,32 @@ describe('OIDC sign-in', () => {
     // login CSRF: the callback must come from the browser that started the login
     step('a callback without the state cookie is refused', async () => {
       ({ c, location } = await ssoLogin(srv.base, '/', { dropStateCookie: true }));
-      assert.match(location, /login_error=.*expired/); assert.equal((await c.get('/api/me')).status, 401);
+      assert.match(location, /login_error=.*expired/);
+      assert.equal((await c.get('/api/me')).status, 401);
     });
     step('ID tokens with a wrong audience, issuer, expiry or nonce are refused', async () => {
       try {
-        for (const [name, tweak] of [['wrong audience', (x) => ({ ...x, aud: 'someone-else' })], ['wrong issuer', (x) => ({ ...x, iss: 'https://evil.example' })], ['expired', (x) => ({ ...x, exp: 1000 })], ['wrong nonce', (x) => ({ ...x, nonce: 'forged' })]]) {
+        for (const [name, tweak] of [
+          ['wrong audience', (x) => ({ ...x, aud: 'someone-else' })],
+          ['wrong issuer', (x) => ({ ...x, iss: 'https://evil.example' })],
+          ['expired', (x) => ({ ...x, exp: 1000 })],
+          ['wrong nonce', (x) => ({ ...x, nonce: 'forged' })],
+        ]) {
           tweakClaims = tweak;
           ({ c, location } = await ssoLogin(srv.base));
-          assert.match(location, /login_error=Sign-in%20failed/, name); assert.equal((await c.get('/api/me')).status, 401);
+          assert.match(location, /login_error=Sign-in%20failed/, name);
+          assert.equal((await c.get('/api/me')).status, 401);
         }
-      } finally { tweakClaims = (x) => x; }
+      } finally {
+        tweakClaims = (x) => x;
+      }
     });
     // a local account is never handed over by an e-mail match: admin and password accounts stay as they are
     step('an existing admin / password account is not taken over through SSO', async () => {
       nextIdentity = { sub: 'u-evil', email: 'admin@localhost', name: 'Not the admin', email_verified: true };
       ({ c, location } = await ssoLogin(srv.base));
-      assert.match(location, /login_error=.*already%20exists/); assert.equal((await c.get('/api/me')).status, 401);
+      assert.match(location, /login_error=.*already%20exists/);
+      assert.equal((await c.get('/api/me')).status, 401);
       nextIdentity = { sub: 'u-1', email: 'sso@example.com', name: 'Sso Person', email_verified: true };
     });
     step('unverified e-mail is refused (also when the provider does not say)', async () => {
@@ -133,26 +189,43 @@ describe('OIDC sign-in', () => {
       ({ location } = await ssoLogin(srv.base));
       assert.match(location, /not%20verified/);
     });
-    step('SSO-only account has no usable password', async () => { assert.equal((await new Client(srv.base).post('/api/auth/login', { email: 'sso@example.com', password: 'anything-123' })).status, 401); });
+    step('SSO-only account has no usable password', async () => {
+      assert.equal(
+        (await new Client(srv.base).post('/api/auth/login', { email: 'sso@example.com', password: 'anything-123' })).status,
+        401,
+      );
+    });
 
     // without SMTP_URL nothing is sent: admins get the link, the test mail is refused, invitations are rate limited
     step('without a mail server the invitation link is returned for copying', async () => {
       const noMail = await admin.post(`/api/teams/${admin.tid}/invites`, { email: 'nomail@example.com', role: 'viewer' });
-      assert.equal(noMail.data.mailEnabled, false); assert.equal(noMail.data.emailed, false); assert.ok(noMail.data.link);
+      assert.equal(noMail.data.mailEnabled, false);
+      assert.equal(noMail.data.emailed, false);
+      assert.ok(noMail.data.link);
     });
-    step('test e-mail is refused when no mail server is configured', async () => { assert.equal((await admin.post('/api/admin/mail/test')).status, 400); });
+    step('test e-mail is refused when no mail server is configured', async () => {
+      assert.equal((await admin.post('/api/admin/mail/test')).status, 400);
+    });
     step('invitations are rate limited per team', async () => {
       const bulkTeam = (await admin.post('/api/teams', { name: 'Bulk' })).data.team;
-      let limited = 0; for (let i = 0; i < 32; i++) { const r = await admin.post(`/api/teams/${bulkTeam.id}/invites`, { email: `bulk${i}@example.com`, role: 'viewer' }); if (r.status === 429) limited++; }
+      let limited = 0;
+      for (let i = 0; i < 32; i++) {
+        const r = await admin.post(`/api/teams/${bulkTeam.id}/invites`, { email: `bulk${i}@example.com`, role: 'viewer' });
+        if (r.status === 429) limited++;
+      }
       assert.ok(limited >= 1);
     });
     // someone invited by a team admin who has no account yet is created on first SSO login and joins the team
     step('SSO login accepts a pending invitation and creates the account', async () => {
-      assert.equal((await admin.post(`/api/teams/${admin.tid}/invites`, { email: 'invited-sso@example.com', role: 'approver' })).status, 200);
+      assert.equal(
+        (await admin.post(`/api/teams/${admin.tid}/invites`, { email: 'invited-sso@example.com', role: 'approver' })).status,
+        200,
+      );
       nextIdentity = { sub: 'u-9', email: 'invited-sso@example.com', name: 'Invited Sso', email_verified: true };
       ({ c } = await ssoLogin(srv.base));
       const inviteMe = (await c.get('/api/me')).data.me;
-      assert.equal(inviteMe.teams[0].role, 'approver'); assert.equal(inviteMe.invites.length, 0);
+      assert.equal(inviteMe.teams[0].role, 'approver');
+      assert.equal(inviteMe.invites.length, 0);
     });
   });
 
@@ -165,8 +238,11 @@ describe('OIDC sign-in', () => {
       assert.equal((await c.get('/api/me')).data.me.teams[0].role, 'viewer');
     });
     step('e-mail claims that are only in the ID token are used', async () => {
-      nextIdentity = { sub: 'u-5' }; tweakClaims = (x) => ({ ...x, email: 'idtoken@example.com', email_verified: true }); // e-mail claims only in the ID token
-      const viaToken = await ssoLogin(s.srv.base).finally(() => { tweakClaims = (x) => x; });
+      nextIdentity = { sub: 'u-5' };
+      tweakClaims = (x) => ({ ...x, email: 'idtoken@example.com', email_verified: true }); // e-mail claims only in the ID token
+      const viaToken = await ssoLogin(s.srv.base).finally(() => {
+        tweakClaims = (x) => x;
+      });
       assert.equal((await viaToken.c.get('/api/me')).data.me.email, 'idtoken@example.com');
     });
   });

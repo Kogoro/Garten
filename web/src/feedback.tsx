@@ -6,9 +6,27 @@ import { Icon, ago, toast, useStore } from './ui';
 import { RuleSheet } from './guardrails';
 import { addDecisionToSpec, hasDecision } from './decisionsLib';
 
-export const KINDS: [string, string][] = [['concern', 'Concern'], ['conflict', 'Conflict'], ['question', 'Question'], ['suggestion', 'Suggestion'], ['gap', 'Missing info']];
-const kindLabel: Record<string, string> = { ...Object.fromEntries(KINDS), decision: 'Decision', propose_deletion: 'Proposes deletion', propose_acceptance: 'Proposes acceptance' };
-const STATUS: Record<string, string> = { open: 'Open', accepted: 'Accepted', dismissed: 'Dismissed', done: 'Done', answered: 'Answered', withdrawn: 'Withdrawn by agent' };
+export const KINDS: [string, string][] = [
+  ['concern', 'Concern'],
+  ['conflict', 'Conflict'],
+  ['question', 'Question'],
+  ['suggestion', 'Suggestion'],
+  ['gap', 'Missing info'],
+];
+const kindLabel: Record<string, string> = {
+  ...Object.fromEntries(KINDS),
+  decision: 'Decision',
+  propose_deletion: 'Proposes deletion',
+  propose_acceptance: 'Proposes acceptance',
+};
+const STATUS: Record<string, string> = {
+  open: 'Open',
+  accepted: 'Accepted',
+  dismissed: 'Dismissed',
+  done: 'Done',
+  answered: 'Answered',
+  withdrawn: 'Withdrawn by agent',
+};
 type Act = (f: any, patch: FbPatch, note?: boolean) => void;
 
 /** Appends the finding as a checklist item to a "## REVIEW NOTES" section (created when missing) – an unreleased edit a person can refine. */
@@ -27,11 +45,19 @@ export function addReviewNote(body: string, f: { kind: string; section?: string;
 export function useFbAct(after?: (next: any) => void): Act {
   const S = useStore();
   return (f, patch, note) => {
-    if (note) { const it = S.get(f.specId); if (it) S.edit(f.specId, { body: addReviewNote(it.body, f) }); }
+    if (note) {
+      const it = S.get(f.specId);
+      if (it) S.edit(f.specId, { body: addReviewNote(it.body, f) });
+    }
     const next = S.fbAct(f, patch); // not inside after?.(…): an optional call skips its arguments when there is no callback
     after?.(next);
     if (patch.status === 'dismissed' || patch.status === 'accepted') {
-      toast(patch.status === 'dismissed' ? 'Dismissed' : 'Accepted', { label: 'Undo', run: () => { after?.(S.fbAct(f, { status: 'open' })); } });
+      toast(patch.status === 'dismissed' ? 'Dismissed' : 'Accepted', {
+        label: 'Undo',
+        run: () => {
+          after?.(S.fbAct(f, { status: 'open' }));
+        },
+      });
     }
   };
 }
@@ -44,27 +70,86 @@ function ProposalActions({ f, act }: { f: any; act: Act }) {
   const [err, setErr] = useState<string | null>(null);
   const del = f.kind === 'propose_deletion';
   const accept = async () => {
-    if (del && !confirm(`Delete ${f.specId}? ${S.get(f.specId)?.status === 'approved' ? 'It is released and will be revoked first. ' : ''}Its feedback and reports are deleted with it.`)) return;
-    setBusy(true); setErr(null);
-    try { await S.teamApi('PATCH', `/feedback/${f.id}`, { status: 'accepted', reply }); await S.sync(); toast(del ? `${f.specId} deleted` : `${f.specId} released`); }
-    catch (x: any) { setErr(x instanceof TypeError ? 'This needs a connection to the server.' : x.message); }
+    if (
+      del &&
+      !confirm(
+        `Delete ${f.specId}? ${S.get(f.specId)?.status === 'approved' ? 'It is released and will be revoked first. ' : ''}Its feedback and reports are deleted with it.`,
+      )
+    )
+      return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await S.teamApi('PATCH', `/feedback/${f.id}`, { status: 'accepted', reply });
+      await S.sync();
+      toast(del ? `${f.specId} deleted` : `${f.specId} released`);
+    } catch (x: any) {
+      setErr(x instanceof TypeError ? 'This needs a connection to the server.' : x.message);
+    }
     setBusy(false);
   };
-  if (f.status !== 'open') return S.can('write') ? <div className="btns"><button className="btn small" data-act="fb-reopen" onClick={() => act(f, { status: 'open' })}>Reopen</button></div> : null;
-  return (<div className="fb-acts">
-    <FormError msg={err} />
-    <label className="sr" htmlFor={`rp-${f.id}`}>Reply</label>
-    <input id={`rp-${f.id}`} className="field" placeholder="Reply (optional)" value={reply} maxLength={2000} onChange={(e) => setReply(e.target.value)} />
-    <div className="btns">
-      {S.can('approve') && <button className={`btn small ${del ? '' : 'primary'}`} data-act="proposal-accept" disabled={busy || !S.state.online} onClick={accept}>{del ? 'Accept & delete spec' : 'Accept & release spec'}</button>}
-      {S.can('write') && <button className="btn small" data-act="fb-dismiss" disabled={busy} onClick={() => act(f, { status: 'dismissed', reply })}>Dismiss</button>}
+  if (f.status !== 'open')
+    return S.can('write') ? (
+      <div className="btns">
+        <button className="btn small" data-act="fb-reopen" onClick={() => act(f, { status: 'open' })}>
+          Reopen
+        </button>
+      </div>
+    ) : null;
+  return (
+    <div className="fb-acts">
+      <FormError msg={err} />
+      <label className="sr" htmlFor={`rp-${f.id}`}>
+        Reply
+      </label>
+      <input
+        id={`rp-${f.id}`}
+        className="field"
+        placeholder="Reply (optional)"
+        value={reply}
+        maxLength={2000}
+        onChange={(e) => setReply(e.target.value)}
+      />
+      <div className="btns">
+        {S.can('approve') && (
+          <button
+            className={`btn small ${del ? '' : 'primary'}`}
+            data-act="proposal-accept"
+            disabled={busy || !S.state.online}
+            onClick={accept}
+          >
+            {del ? 'Accept & delete spec' : 'Accept & release spec'}
+          </button>
+        )}
+        {S.can('write') && (
+          <button className="btn small" data-act="fb-dismiss" disabled={busy} onClick={() => act(f, { status: 'dismissed', reply })}>
+            Dismiss
+          </button>
+        )}
+      </div>
+      {!S.can('approve') && <p className="muted">Only an approver can accept this.</p>}
     </div>
-    {!S.can('approve') && <p className="muted">Only an approver can accept this.</p>}
-  </div>);
+  );
 }
 
-const Waiting = ({ id }: { id: string }) => { const S = useStore(); return S.fbPending(id) ? <span className="chip warn fb-wait" title="Saved on this device – sent with the next sync"><Icon name="up" size={11} /> Waiting to sync</span> : null; };
-const SpecRef = ({ f }: { f: any }) => { const S = useStore(); const s = S.get(f.specId); return <Link className="fb-spec" to={`/spec/${encodeURIComponent(f.specId)}`}><span className="mono">{f.specId}</span>{s?.title ? ` · ${s.title}` : ''}</Link>; };
+const Waiting = ({ id }: { id: string }) => {
+  const S = useStore();
+  return S.fbPending(id) ? (
+    <span className="chip warn fb-wait" title="Saved on this device – sent with the next sync">
+      <Icon name="up" size={11} /> Waiting to sync
+    </span>
+  ) : null;
+};
+const SpecRef = ({ f }: { f: any }) => {
+  const S = useStore();
+  const s = S.get(f.specId);
+  return (
+    <Link className="fb-spec" to={`/spec/${encodeURIComponent(f.specId)}`}>
+      <span className="mono">{f.specId}</span>
+      {s?.title ? ` · ${s.title}` : ''}
+    </Link>
+  );
+};
 
 /** One feedback entry with what the team decided about it. */
 export function FbItem({ f, version, showSpec, act }: { f: any; version?: number; showSpec?: boolean; act: Act }) {
@@ -72,12 +157,31 @@ export function FbItem({ f, version, showSpec, act }: { f: any; version?: number
   return (
     <article className={`fb-item st-${f.status}`} data-kind={f.kind}>
       {showSpec && <SpecRef f={f} />}
-      <div className="fb-head"><span className={`chip ${f.kind === 'conflict' || f.kind === 'concern' || f.kind === 'propose_deletion' ? 'warn' : ''}`}>{kindLabel[f.kind] ?? f.kind}</span>{f.section && <span className="mono fb-sec">{f.section}</span>}
-        <span className="muted fb-meta">{f.via ?? f.author} · {ago(Date.parse(f.createdAt))}{version !== undefined && f.specVersion !== version ? ` · on v${f.specVersion || 0}` : ''}</span><span className={`chip ${f.status === 'open' ? '' : 'ok'}`}>{STATUS[f.status] ?? f.status}</span><Waiting id={f.id} /></div>
+      <div className="fb-head">
+        <span className={`chip ${f.kind === 'conflict' || f.kind === 'concern' || f.kind === 'propose_deletion' ? 'warn' : ''}`}>
+          {kindLabel[f.kind] ?? f.kind}
+        </span>
+        {f.section && <span className="mono fb-sec">{f.section}</span>}
+        <span className="muted fb-meta">
+          {f.via ?? f.author} · {ago(Date.parse(f.createdAt))}
+          {version !== undefined && f.specVersion !== version ? ` · on v${f.specVersion || 0}` : ''}
+        </span>
+        <span className={`chip ${f.status === 'open' ? '' : 'ok'}`}>{STATUS[f.status] ?? f.status}</span>
+        <Waiting id={f.id} />
+      </div>
       <p className="fb-text">{f.text}</p>
       {f.evidence && <p className="fb-evidence mono">{f.evidence}</p>}
-      {f.reply && <p className="fb-reply"><b>{f.resolvedBy ?? 'Reply'}:</b> {f.reply}</p>}
-      {f.status !== 'withdrawn' && (f.kind === 'propose_deletion' || f.kind === 'propose_acceptance' ? <ProposalActions f={f} act={act} /> : S.can('write') && <FeedbackActions f={f} act={act} />)}
+      {f.reply && (
+        <p className="fb-reply">
+          <b>{f.resolvedBy ?? 'Reply'}:</b> {f.reply}
+        </p>
+      )}
+      {f.status !== 'withdrawn' &&
+        (f.kind === 'propose_deletion' || f.kind === 'propose_acceptance' ? (
+          <ProposalActions f={f} act={act} />
+        ) : (
+          S.can('write') && <FeedbackActions f={f} act={act} />
+        ))}
     </article>
   );
 }
@@ -85,26 +189,72 @@ export function FbItem({ f, version, showSpec, act }: { f: any; version?: number
 function FeedbackActions({ f, act }: { f: any; act: Act }) {
   const [reply, setReply] = useState(f.reply ?? '');
   const [rule, setRule] = useState(false);
-  return (<>
-    {rule && <RuleSheet initial={f.text} source={`${f.via ?? f.author}'s feedback on ${f.specId}`} onClose={() => setRule(false)} />}
-    <div className="fb-acts">
-      <label className="sr" htmlFor={`rp-${f.id}`}>Reply</label>
-      <input id={`rp-${f.id}`} className="field" placeholder="Reply (optional)" value={reply} maxLength={2000} onChange={(e) => setReply(e.target.value)} />
-      <div className="btns">
-        {f.status === 'open'
-          ? <><button className="btn small" data-act="fb-accept" onClick={() => act(f, { status: 'accepted', reply })}>Accept</button><button className="btn small" data-act="fb-accept-note" title="Accept and add it to the spec as a checklist item under REVIEW NOTES" onClick={() => act(f, { status: 'accepted', reply }, true)}>Accept &amp; add to spec</button><button className="btn small" data-act="fb-dismiss" onClick={() => act(f, { status: 'dismissed', reply })}>Dismiss</button></>
-          : <><button className="btn small" data-act="fb-reopen" onClick={() => act(f, { status: 'open', reply })}>Reopen</button>{f.status === 'accepted' && <button className="btn small" data-act="fb-done" onClick={() => act(f, { status: 'done', reply })}>Mark done</button>}</>}
-        <button className="btn small" type="button" data-act="fb-rule" title="Turn this into a guardrail every agent receives" onClick={() => setRule(true)}>Make it a rule</button>
+  return (
+    <>
+      {rule && <RuleSheet initial={f.text} source={`${f.via ?? f.author}'s feedback on ${f.specId}`} onClose={() => setRule(false)} />}
+      <div className="fb-acts">
+        <label className="sr" htmlFor={`rp-${f.id}`}>
+          Reply
+        </label>
+        <input
+          id={`rp-${f.id}`}
+          className="field"
+          placeholder="Reply (optional)"
+          value={reply}
+          maxLength={2000}
+          onChange={(e) => setReply(e.target.value)}
+        />
+        <div className="btns">
+          {f.status === 'open' ? (
+            <>
+              <button className="btn small" data-act="fb-accept" onClick={() => act(f, { status: 'accepted', reply })}>
+                Accept
+              </button>
+              <button
+                className="btn small"
+                data-act="fb-accept-note"
+                title="Accept and add it to the spec as a checklist item under REVIEW NOTES"
+                onClick={() => act(f, { status: 'accepted', reply }, true)}
+              >
+                Accept &amp; add to spec
+              </button>
+              <button className="btn small" data-act="fb-dismiss" onClick={() => act(f, { status: 'dismissed', reply })}>
+                Dismiss
+              </button>
+            </>
+          ) : (
+            <>
+              <button className="btn small" data-act="fb-reopen" onClick={() => act(f, { status: 'open', reply })}>
+                Reopen
+              </button>
+              {f.status === 'accepted' && (
+                <button className="btn small" data-act="fb-done" onClick={() => act(f, { status: 'done', reply })}>
+                  Mark done
+                </button>
+              )}
+            </>
+          )}
+          <button
+            className="btn small"
+            type="button"
+            data-act="fb-rule"
+            title="Turn this into a guardrail every agent receives"
+            onClick={() => setRule(true)}
+          >
+            Make it a rule
+          </button>
+        </div>
       </div>
-    </div>
-  </>);
+    </>
+  );
 }
 
 /** A question an agent asks a person: pick one of its options (or write your own answer). The agent reads the answer on its next run. */
 export function DecisionCard({ f, showSpec, act, collapsed }: { f: any; showSpec?: boolean; act: Act; collapsed?: boolean }) {
   const S = useStore();
   const can = S.can('write');
-  const open = f.status === 'open', answered = f.status === 'answered';
+  const open = f.status === 'open',
+    answered = f.status === 'answered';
   const [editing, setEditing] = useState(false);
   const [folded, setFolded] = useState(!!collapsed); // the Garden opens the first decision and folds the rest
   const [pick, setPick] = useState<number | null>(answered ? f.answer : null);
@@ -115,54 +265,174 @@ export function DecisionCard({ f, showSpec, act, collapsed }: { f: any; showSpec
   const spec = f.specId ? S.get(f.specId) : null;
   const [record, setRecord] = useState(true); // write the answer into the spec, so the next version carries it
   const inSpec = !!spec && hasDecision(spec.body, f.text);
-  const toSpec = (answer: number, reply: string) => { if (spec) S.edit(spec.id, { body: addDecisionToSpec(spec.body, f, answer, reply, S.state.me?.name, new Date().toISOString()) }); };
+  const toSpec = (answer: number, reply: string) => {
+    if (spec) S.edit(spec.id, { body: addDecisionToSpec(spec.body, f, answer, reply, S.state.me?.name, new Date().toISOString()) });
+  };
   const send = () => {
     if (!ready) return;
-    act(f, { answer: pick!, reply: note.trim() }); setEditing(false);
+    act(f, { answer: pick!, reply: note.trim() });
+    setEditing(false);
     if (record && spec) toSpec(pick!, note.trim());
-    toast(`${S.state.online ? 'Answer sent' : 'Answer saved – it is sent when you are online again'}${record && spec ? ' · added to the spec as a draft change' : ''}`);
+    toast(
+      `${S.state.online ? 'Answer sent' : 'Answer saved – it is sent when you are online again'}${record && spec ? ' · added to the spec as a draft change' : ''}`,
+    );
   };
   const chosen = answered ? (f.answer >= 0 ? options[f.answer]?.label : 'Own answer') : null;
   return (
     <article className={`dc-item st-${f.status}${f.blocking && open ? ' blocking' : ''}`} data-decision={f.id}>
       {showSpec && <SpecRef f={f} />}
       <div className="fb-head">
-        <span className={`chip ${open ? 'warn' : answered ? 'ok' : ''}`}>{open ? (f.blocking ? 'Blocks the agent' : 'Decision') : STATUS[f.status] ?? f.status}</span>{f.section && <span className="mono fb-sec">{f.section}</span>}
-        <span className="muted fb-meta">{f.via ?? f.author} asks · {ago(Date.parse(f.createdAt))}</span><Waiting id={f.id} />
+        <span className={`chip ${open ? 'warn' : answered ? 'ok' : ''}`}>
+          {open ? (f.blocking ? 'Blocks the agent' : 'Decision') : (STATUS[f.status] ?? f.status)}
+        </span>
+        {f.section && <span className="mono fb-sec">{f.section}</span>}
+        <span className="muted fb-meta">
+          {f.via ?? f.author} asks · {ago(Date.parse(f.createdAt))}
+        </span>
+        <Waiting id={f.id} />
       </div>
       <p className="dc-q">{f.text}</p>
       {f.evidence && <p className="fb-evidence">{f.evidence}</p>}
-      {choosing ? <>
-        <div className="dc-opts" role="group" aria-label="Options">
-          {options.map((o, i) => (
-            <button type="button" key={i} className="dc-opt" aria-pressed={pick === i} onClick={() => setPick(i)}>
-              <span className="dc-radio" /><span className="dc-body"><b>{o.label}</b>{f.recommended === i && <span className="chip agent dc-rec">Recommended</span>}{o.detail && <small>{o.detail}</small>}</span>
+      {choosing ? (
+        <>
+          <div className="dc-opts" role="group" aria-label="Options">
+            {options.map((o, i) => (
+              <button type="button" key={i} className="dc-opt" aria-pressed={pick === i} onClick={() => setPick(i)}>
+                <span className="dc-radio" />
+                <span className="dc-body">
+                  <b>{o.label}</b>
+                  {f.recommended === i && <span className="chip agent dc-rec">Recommended</span>}
+                  {o.detail && <small>{o.detail}</small>}
+                </span>
+              </button>
+            ))}
+            <button type="button" className="dc-opt other" aria-pressed={pick === -1} onClick={() => setPick(-1)}>
+              <span className="dc-radio" />
+              <span className="dc-body">
+                <b>Other answer…</b>
+                <small>None of these – write what the agent should do instead.</small>
+              </span>
             </button>
-          ))}
-          <button type="button" className="dc-opt other" aria-pressed={pick === -1} onClick={() => setPick(-1)}><span className="dc-radio" /><span className="dc-body"><b>Other answer…</b><small>None of these – write what the agent should do instead.</small></span></button>
-        </div>
-        <label className="sr" htmlFor={`dn-${f.id}`}>Note for the agent</label>
-        <textarea id={`dn-${f.id}`} className="field dc-note" rows={2} maxLength={2000} placeholder={pick === -1 ? 'Your answer (required)' : 'Note for the agent (optional)'} value={note} onChange={(e) => setNote(e.target.value)} />
-        {spec && <label className="check dc-record"><input type="checkbox" data-act="dc-record" checked={record} onChange={(e) => setRecord(e.target.checked)} /> Also write it into the spec (under DECISIONS – released with its next version)</label>}
-        <div className="btns">
-          <button className="btn primary small" type="button" data-act="dc-send" disabled={!ready} onClick={send}>{answered ? 'Change answer' : 'Send answer'}</button>
-          {answered ? <button className="btn small" type="button" onClick={() => { setEditing(false); setPick(f.answer); setNote(f.reply ?? ''); }}>Cancel</button>
-            : <button className="btn small" type="button" data-act="dc-dismiss" title="The question needs no answer" onClick={() => act(f, { status: 'dismissed', reply: note.trim() })}>Dismiss</button>}
-          {showSpec && f.specId && <Link className="btn small ghost" to={`/spec/${encodeURIComponent(f.specId)}`}>Open spec</Link>}
-        </div>
-      </> : <>
-        {folded && open && can && <div className="btns"><button className="btn small" type="button" data-act="dc-open" onClick={() => setFolded(false)}>Answer</button></div>}
-        {answered && <p className="dc-answer"><Icon name="check" size={14} /><span><b>{chosen}</b>{f.resolvedBy ? ` · ${f.resolvedBy}` : ''}{f.resolvedAt ? ` · ${ago(Date.parse(f.resolvedAt))}` : ''}</span></p>}
-        {f.reply && <p className="fb-reply">{f.reply}</p>}
-        {!answered && !open && options.length > 0 && <p className="muted dc-closed">Options were: {options.map((o) => o.label).join(' · ')}</p>}
-        {can && f.status !== 'withdrawn' && <div className="btns">
-          {answered && <button className="btn small" type="button" data-act="dc-change" onClick={() => setEditing(true)}>Change answer</button>}
-          {answered && spec && !inSpec && <button className="btn small" type="button" data-act="dc-to-spec" title="Write the decision into the spec under DECISIONS, as a draft change released with its next version" onClick={() => { toSpec(f.answer, f.reply ?? ''); toast('Added to the spec as a draft change'); }}>Add to spec</button>}
-          {answered && inSpec && <span className="chip ok" data-state="in-spec" title="The spec records this decision under DECISIONS">In the spec</span>}
-          {!open && <button className="btn small" type="button" data-act="dc-reopen" onClick={() => { act(f, { status: 'open' }); setPick(null); }}>Reopen</button>}
-        </div>}
-        {open && !can && <p className="muted dc-closed">Options: {options.map((o) => o.label).join(' · ')}</p>}
-      </>}
+          </div>
+          <label className="sr" htmlFor={`dn-${f.id}`}>
+            Note for the agent
+          </label>
+          <textarea
+            id={`dn-${f.id}`}
+            className="field dc-note"
+            rows={2}
+            maxLength={2000}
+            placeholder={pick === -1 ? 'Your answer (required)' : 'Note for the agent (optional)'}
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+          />
+          {spec && (
+            <label className="check dc-record">
+              <input type="checkbox" data-act="dc-record" checked={record} onChange={(e) => setRecord(e.target.checked)} /> Also write it
+              into the spec (under DECISIONS – released with its next version)
+            </label>
+          )}
+          <div className="btns">
+            <button className="btn primary small" type="button" data-act="dc-send" disabled={!ready} onClick={send}>
+              {answered ? 'Change answer' : 'Send answer'}
+            </button>
+            {answered ? (
+              <button
+                className="btn small"
+                type="button"
+                onClick={() => {
+                  setEditing(false);
+                  setPick(f.answer);
+                  setNote(f.reply ?? '');
+                }}
+              >
+                Cancel
+              </button>
+            ) : (
+              <button
+                className="btn small"
+                type="button"
+                data-act="dc-dismiss"
+                title="The question needs no answer"
+                onClick={() => act(f, { status: 'dismissed', reply: note.trim() })}
+              >
+                Dismiss
+              </button>
+            )}
+            {showSpec && f.specId && (
+              <Link className="btn small ghost" to={`/spec/${encodeURIComponent(f.specId)}`}>
+                Open spec
+              </Link>
+            )}
+          </div>
+        </>
+      ) : (
+        <>
+          {folded && open && can && (
+            <div className="btns">
+              <button className="btn small" type="button" data-act="dc-open" onClick={() => setFolded(false)}>
+                Answer
+              </button>
+            </div>
+          )}
+          {answered && (
+            <p className="dc-answer">
+              <Icon name="check" size={14} />
+              <span>
+                <b>{chosen}</b>
+                {f.resolvedBy ? ` · ${f.resolvedBy}` : ''}
+                {f.resolvedAt ? ` · ${ago(Date.parse(f.resolvedAt))}` : ''}
+              </span>
+            </p>
+          )}
+          {f.reply && <p className="fb-reply">{f.reply}</p>}
+          {!answered && !open && options.length > 0 && (
+            <p className="muted dc-closed">Options were: {options.map((o) => o.label).join(' · ')}</p>
+          )}
+          {can && f.status !== 'withdrawn' && (
+            <div className="btns">
+              {answered && (
+                <button className="btn small" type="button" data-act="dc-change" onClick={() => setEditing(true)}>
+                  Change answer
+                </button>
+              )}
+              {answered && spec && !inSpec && (
+                <button
+                  className="btn small"
+                  type="button"
+                  data-act="dc-to-spec"
+                  title="Write the decision into the spec under DECISIONS, as a draft change released with its next version"
+                  onClick={() => {
+                    toSpec(f.answer, f.reply ?? '');
+                    toast('Added to the spec as a draft change');
+                  }}
+                >
+                  Add to spec
+                </button>
+              )}
+              {answered && inSpec && (
+                <span className="chip ok" data-state="in-spec" title="The spec records this decision under DECISIONS">
+                  In the spec
+                </span>
+              )}
+              {!open && (
+                <button
+                  className="btn small"
+                  type="button"
+                  data-act="dc-reopen"
+                  onClick={() => {
+                    act(f, { status: 'open' });
+                    setPick(null);
+                  }}
+                >
+                  Reopen
+                </button>
+              )}
+            </div>
+          )}
+          {open && !can && <p className="muted dc-closed">Options: {options.map((o) => o.label).join(' · ')}</p>}
+        </>
+      )}
     </article>
   );
 }
@@ -176,34 +446,107 @@ export function FeedbackBody({ specId, version }: { specId: string; version: num
   const [adding, setAdding] = useState(false);
   const can = S.can('write');
   const rev = S.state.garden[S.state.teamId]?.rev;
-  const load = async () => { try { setRemote((await S.teamApi('GET', `/feedback?spec=${encodeURIComponent(specId)}`)).feedback); } catch { /* offline: the copy on this device is shown */ } };
-  useEffect(() => { if (S.fbPending() === 0) load(); }, [specId, rev]); // eslint-disable-line react-hooks/exhaustive-deps
+  const load = async () => {
+    try {
+      setRemote((await S.teamApi('GET', `/feedback?spec=${encodeURIComponent(specId)}`)).feedback);
+    } catch {
+      /* offline: the copy on this device is shown */
+    }
+  };
+  useEffect(() => {
+    if (S.fbPending() === 0) load();
+  }, [specId, rev]); // eslint-disable-line react-hooks/exhaustive-deps
   const act = useFbAct((next) => setRemote((r) => r && r.map((x) => (x.id === next.id ? next : x))));
   async function add(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault(); const f = new FormData(e.currentTarget);
-    try { await S.teamApi('POST', '/feedback', { specId, kind: f.get('kind'), section: f.get('section'), text: f.get('text') }); setAdding(false); setErr(null); await load(); S.sync(); toast('Feedback added'); } catch (x: any) { setErr(x instanceof TypeError ? 'Adding feedback needs a connection to the server.' : x.message); }
+    e.preventDefault();
+    const f = new FormData(e.currentTarget);
+    try {
+      await S.teamApi('POST', '/feedback', { specId, kind: f.get('kind'), section: f.get('section'), text: f.get('text') });
+      setAdding(false);
+      setErr(null);
+      await load();
+      S.sync();
+      toast('Feedback added');
+    } catch (x: any) {
+      setErr(x instanceof TypeError ? 'Adding feedback needs a connection to the server.' : x.message);
+    }
   }
   const list: any[] = remote ?? S.specFeedback(specId);
   const shown = list.filter((f) => filter === 'all' || f.status === 'open');
   const nOpen = list.filter((f) => f.status === 'open').length;
   return (
     <>
-      <p className="note">Findings and questions from agents and colleagues. They never change the spec – people read them, decide and reply.</p>
+      <p className="note">
+        Findings and questions from agents and colleagues. They never change the spec – people read them, decide and reply.
+      </p>
       <div className="filters" role="group" aria-label="Feedback filter">
-        <button className="filter" type="button" aria-pressed={filter === 'open'} onClick={() => setFilter('open')}>Open {nOpen}</button>
-        <button className="filter" type="button" aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>All {list.length}</button>
-        {can && <button className="btn small" type="button" data-act="feedback-add" onClick={() => setAdding(!adding)} style={{ marginLeft: 'auto' }}><Icon name="plus" size={14} /> Add</button>}
+        <button className="filter" type="button" aria-pressed={filter === 'open'} onClick={() => setFilter('open')}>
+          Open {nOpen}
+        </button>
+        <button className="filter" type="button" aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>
+          All {list.length}
+        </button>
+        {can && (
+          <button
+            className="btn small"
+            type="button"
+            data-act="feedback-add"
+            onClick={() => setAdding(!adding)}
+            style={{ marginLeft: 'auto' }}
+          >
+            <Icon name="plus" size={14} /> Add
+          </button>
+        )}
       </div>
-      {adding && <form className="form" id="feedbackForm" onSubmit={add}>
-        <div className="grid2"><label className="sr" htmlFor="fb-kind">Kind</label><select className="field" id="fb-kind" name="kind" defaultValue="question">{KINDS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
-          <label className="sr" htmlFor="fb-sec">Section</label><input className="field" id="fb-sec" name="section" placeholder="Section (optional), e.g. ## DECISION" maxLength={80} /></div>
-        <label className="sr" htmlFor="fb-text">Feedback</label><textarea className="field" id="fb-text" name="text" style={{ height: 90, padding: 12 }} placeholder="What did you notice?" required />
-        <button className="btn primary" type="submit">Save feedback</button></form>}
+      {adding && (
+        <form className="form" id="feedbackForm" onSubmit={add}>
+          <div className="grid2">
+            <label className="sr" htmlFor="fb-kind">
+              Kind
+            </label>
+            <select className="field" id="fb-kind" name="kind" defaultValue="question">
+              {KINDS.map(([k, l]) => (
+                <option key={k} value={k}>
+                  {l}
+                </option>
+              ))}
+            </select>
+            <label className="sr" htmlFor="fb-sec">
+              Section
+            </label>
+            <input className="field" id="fb-sec" name="section" placeholder="Section (optional), e.g. ## DECISION" maxLength={80} />
+          </div>
+          <label className="sr" htmlFor="fb-text">
+            Feedback
+          </label>
+          <textarea
+            className="field"
+            id="fb-text"
+            name="text"
+            style={{ height: 90, padding: 12 }}
+            placeholder="What did you notice?"
+            required
+          />
+          <button className="btn primary" type="submit">
+            Save feedback
+          </button>
+        </form>
+      )}
       <FormError msg={err} />
-      {remote === null && !S.state.online && <p className="muted fb-offline">Offline – showing what is stored on this device (open entries and recent answers). Your answers are sent with the next sync.</p>}
-      {!shown.length && <p className="muted" style={{ padding: '12px 0' }}>{filter === 'open' ? 'No open feedback.' : 'No feedback yet.'}</p>}
+      {remote === null && !S.state.online && (
+        <p className="muted fb-offline">
+          Offline – showing what is stored on this device (open entries and recent answers). Your answers are sent with the next sync.
+        </p>
+      )}
+      {!shown.length && (
+        <p className="muted" style={{ padding: '12px 0' }}>
+          {filter === 'open' ? 'No open feedback.' : 'No feedback yet.'}
+        </p>
+      )}
       <div className="fb-list">
-        {shown.map((f) => (f.kind === 'decision' ? <DecisionCard key={f.id} f={f} act={act} /> : <FbItem key={f.id} f={f} version={version} act={act} />))}
+        {shown.map((f) =>
+          f.kind === 'decision' ? <DecisionCard key={f.id} f={f} act={act} /> : <FbItem key={f.id} f={f} version={version} act={act} />,
+        )}
       </div>
     </>
   );

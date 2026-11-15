@@ -1,6 +1,12 @@
 import { useState, type ReactNode } from 'react';
 
-const seen = (id: string) => { try { return localStorage.getItem(`specs-hint-${id}`) === '1'; } catch { return false; } };
+const seen = (id: string) => {
+  try {
+    return localStorage.getItem(`specs-hint-${id}`) === '1';
+  } catch {
+    return false;
+  }
+};
 
 /** A one-time tip next to the task it is about. Dismissed for good on this device; never blocks anything. */
 export function Hint({ id, children, fineOnly }: { id: string; children: ReactNode; fineOnly?: boolean }) {
@@ -10,7 +16,21 @@ export function Hint({ id, children, fineOnly }: { id: string; children: ReactNo
   return (
     <aside className="hint-card" role="note" data-hint={id}>
       <p>{children}</p>
-      <button type="button" className="btn small" data-act="hint-dismiss" onClick={() => { try { localStorage.setItem(`specs-hint-${id}`, '1'); } catch { /* private mode */ } setGone(true); }}>Got it</button>
+      <button
+        type="button"
+        className="btn small"
+        data-act="hint-dismiss"
+        onClick={() => {
+          try {
+            localStorage.setItem(`specs-hint-${id}`, '1');
+          } catch {
+            /* private mode */
+          }
+          setGone(true);
+        }}
+      >
+        Got it
+      </button>
     </aside>
   );
 }

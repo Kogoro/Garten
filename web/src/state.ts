@@ -1,8 +1,19 @@
 import { create } from 'zustand';
 import type { SpecType } from './store/types';
 
-export interface MenuItem { key: string; label: string; danger?: boolean; current?: boolean; disabled?: boolean }
-interface MenuState { title: string; text?: string; items: MenuItem[]; resolve: (k: string | null) => void }
+export interface MenuItem {
+  key: string;
+  label: string;
+  danger?: boolean;
+  current?: boolean;
+  disabled?: boolean;
+}
+interface MenuState {
+  title: string;
+  text?: string;
+  items: MenuItem[];
+  resolve: (k: string | null) => void;
+}
 
 interface UiState {
   mode: 'blocks' | 'markdown';
@@ -15,7 +26,12 @@ interface UiState {
   set: (p: Partial<UiState>) => void;
 }
 export const useUi = create<UiState>((set) => ({
-  mode: 'blocks', modes: {}, openFolders: {}, lastFolder: '', lastType: 'feature', menu: null,
+  mode: 'blocks',
+  modes: {},
+  openFolders: {},
+  lastFolder: '',
+  lastType: 'feature',
+  menu: null,
   set: (p) => set(p),
 }));
 

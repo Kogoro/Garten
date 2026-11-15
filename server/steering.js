@@ -5,13 +5,30 @@ import { ApiError } from './store.js';
 import { bumpGarden } from './feedback.js';
 
 export const PRIORITIES = ['high', 'normal', 'low'];
-const json = (s) => { try { return JSON.parse(s) ?? []; } catch { return []; } };
-const view = (r) => ({ priority: r.priority, hold: !!r.hold, holdNote: r.hold_note || undefined, depends: json(r.depends), updatedBy: r.updated_by, updatedAt: r.updated_at });
+const json = (s) => {
+  try {
+    return JSON.parse(s) ?? [];
+  } catch {
+    return [];
+  }
+};
+const view = (r) => ({
+  priority: r.priority,
+  hold: !!r.hold,
+  holdNote: r.hold_note || undefined,
+  depends: json(r.depends),
+  updatedBy: r.updated_by,
+  updatedAt: r.updated_at,
+});
 const DEFAULT = { priority: 'normal', hold: false, depends: [] };
 
 /** { SPEC-1: { priority, hold, holdNote, depends } } – only specs someone steered. */
 export function steeringOf(teamId) {
-  return Object.fromEntries(sql('SELECT * FROM spec_steering WHERE team_id=?').all(teamId).map((r) => [r.spec_id, view(r)]));
+  return Object.fromEntries(
+    sql('SELECT * FROM spec_steering WHERE team_id=?')
+      .all(teamId)
+      .map((r) => [r.spec_id, view(r)]),
+  );
 }
 export const steeringFor = (teamId, specId) => steeringOf(teamId)[specId] ?? DEFAULT;
 
@@ -24,7 +41,11 @@ export function setSteering(teamId, specId, { priority, hold, holdNote, depends 
   const p = priority === undefined ? cur.priority : priority;
   if (!PRIORITIES.includes(p)) throw new ApiError(`priority must be one of: ${PRIORITIES.join(', ')}`);
   const h = hold === undefined ? cur.hold : !!hold;
-  const note = h ? String(holdNote === undefined ? cur.holdNote ?? '' : holdNote ?? '').trim().slice(0, 300) : '';
+  const note = h
+    ? String(holdNote === undefined ? (cur.holdNote ?? '') : (holdNote ?? ''))
+        .trim()
+        .slice(0, 300)
+    : '';
   let deps = cur.depends;
   if (depends !== undefined) {
     if (!Array.isArray(depends)) throw new ApiError('depends must be a list of spec ids.');
@@ -36,17 +57,27 @@ export function setSteering(teamId, specId, { priority, hold, holdNote, depends 
       if (!o || o.kind !== 'spec') throw new ApiError(`No spec "${d}".`);
     }
     // no cycles: walk the dependencies of the new dependencies
-    const seen = new Set(); const stack = [...deps];
+    const seen = new Set();
+    const stack = [...deps];
     while (stack.length) {
       const x = stack.pop();
       if (x === specId) throw new ApiError(`That would make a cycle: ${specId} already comes before ${deps.join(', ')}.`);
-      if (seen.has(x)) continue; seen.add(x);
+      if (seen.has(x)) continue;
+      seen.add(x);
       stack.push(...(all[x]?.depends ?? []));
     }
   }
   sql(`INSERT INTO spec_steering (team_id,spec_id,priority,hold,hold_note,depends,updated_by,updated_at) VALUES (?,?,?,?,?,?,?,?)
-    ON CONFLICT (team_id, spec_id) DO UPDATE SET priority=excluded.priority, hold=excluded.hold, hold_note=excluded.hold_note, depends=excluded.depends, updated_by=excluded.updated_by, updated_at=excluded.updated_at`)
-    .run(teamId, specId, p, h ? 1 : 0, note, JSON.stringify(deps), user?.name ?? null, new Date().toISOString());
+    ON CONFLICT (team_id, spec_id) DO UPDATE SET priority=excluded.priority, hold=excluded.hold, hold_note=excluded.hold_note, depends=excluded.depends, updated_by=excluded.updated_by, updated_at=excluded.updated_at`).run(
+    teamId,
+    specId,
+    p,
+    h ? 1 : 0,
+    note,
+    JSON.stringify(deps),
+    user?.name ?? null,
+    new Date().toISOString(),
+  );
   bumpGarden(teamId);
   return steeringFor(teamId, specId);
 }

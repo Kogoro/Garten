@@ -14,4 +14,3 @@ export function addRule(body: string, text: string, where: 'Always' | 'Never'): 
   const end = after + (next ? next.index : rest.length);
   return `${body.slice(0, end).replace(/\s+$/, '')}\n${line}\n${next ? `\n${body.slice(end)}` : ''}`;
 }
-

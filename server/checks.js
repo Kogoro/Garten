@@ -8,7 +8,10 @@ import { bumpGarden } from './feedback.js';
 
 export const CHECK_KINDS = ['test', 'ci', 'metric', 'command', 'url', 'manual'];
 export const RUN_STATUSES = ['pass', 'fail', 'error'];
-const clip = (s, n) => String(s ?? '').trim().slice(0, n);
+const clip = (s, n) =>
+  String(s ?? '')
+    .trim()
+    .slice(0, n);
 const NAME = /^[\w][\w .:/@#()+-]{0,79}$/;
 
 const ciRequired = (teamId) => !!sql('SELECT ci_required AS v FROM teams WHERE id=?').get(teamId)?.v;
@@ -23,9 +26,30 @@ const checkView = (c, run, specVersion, needCi = false) => {
     else state = 'passing';
   }
   return {
-    id: c.id, specId: c.spec_id, name: c.name, kind: c.kind, how: c.how, expect: c.expect, criterion: c.criterion, maxAgeDays: c.max_age_days, retired: !!c.retired, state,
+    id: c.id,
+    specId: c.spec_id,
+    name: c.name,
+    kind: c.kind,
+    how: c.how,
+    expect: c.expect,
+    criterion: c.criterion,
+    maxAgeDays: c.max_age_days,
+    retired: !!c.retired,
+    state,
     ...(needCi && run?.status === 'pass' && run.source !== 'ci' && state === 'unverified' ? { needsCi: true } : {}),
-    last: run ? { status: run.status, value: run.value || undefined, detail: run.detail || undefined, ref: run.ref || undefined, commit: run.commit_sha || undefined, specVersion: run.spec_version, source: run.source, by: run.run_by, at: run.at } : null,
+    last: run
+      ? {
+          status: run.status,
+          value: run.value || undefined,
+          detail: run.detail || undefined,
+          ref: run.ref || undefined,
+          commit: run.commit_sha || undefined,
+          specVersion: run.spec_version,
+          source: run.source,
+          by: run.run_by,
+          at: run.at,
+        }
+      : null,
   };
 };
 const lastRun = (checkId) => sql('SELECT * FROM check_runs WHERE check_id=? ORDER BY at DESC, rowid DESC LIMIT 1').get(checkId);
@@ -44,20 +68,47 @@ export function registerCheck(team, { specId, name, kind, how, expect, criterion
   const now = new Date().toISOString();
   const cur = sql('SELECT * FROM checks WHERE team_id=? AND spec_id=? AND name=?').get(team.id, specId, name);
   if (cur) {
-    sql('UPDATE checks SET kind=?, how=?, expect=?, criterion=?, max_age_days=?, retired=0, updated_at=? WHERE id=?')
-      .run(kind, how, clip(expect, 300), clip(criterion, 400), age, now, cur.id);
+    sql('UPDATE checks SET kind=?, how=?, expect=?, criterion=?, max_age_days=?, retired=0, updated_at=? WHERE id=?').run(
+      kind,
+      how,
+      clip(expect, 300),
+      clip(criterion, 400),
+      age,
+      now,
+      cur.id,
+    );
   } else {
     const n = sql('SELECT COUNT(*) AS n FROM checks WHERE team_id=? AND spec_id=? AND retired=0').get(team.id, specId).n;
     if (n >= 40) throw new ApiError('At most 40 checks per spec.');
-    sql('INSERT INTO checks (id,team_id,spec_id,name,kind,how,expect,criterion,max_age_days,created_by,via,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
-      .run(randomUUID(), team.id, specId, name, kind, how, clip(expect, 300), clip(criterion, 400), age, by?.name ?? null, by?.via ?? null, now, now);
+    sql(
+      'INSERT INTO checks (id,team_id,spec_id,name,kind,how,expect,criterion,max_age_days,created_by,via,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+    ).run(
+      randomUUID(),
+      team.id,
+      specId,
+      name,
+      kind,
+      how,
+      clip(expect, 300),
+      clip(criterion, 400),
+      age,
+      by?.name ?? null,
+      by?.via ?? null,
+      now,
+      now,
+    );
   }
   bumpGarden(team.id);
   return getCheck(team.id, specId, name);
 }
 
 export function retireCheck(team, specId, name) {
-  const r = sql('UPDATE checks SET retired=1, updated_at=? WHERE team_id=? AND spec_id=? AND name=?').run(new Date().toISOString(), team.id, specId, name);
+  const r = sql('UPDATE checks SET retired=1, updated_at=? WHERE team_id=? AND spec_id=? AND name=?').run(
+    new Date().toISOString(),
+    team.id,
+    specId,
+    name,
+  );
   if (!r.changes) throw new ApiError(`No check "${name}" on ${specId}.`, 404);
   bumpGarden(team.id);
 }
@@ -79,13 +130,32 @@ export function recordRun(team, { specId, name, status, value, detail, ref, comm
   if (c.retired) sql('UPDATE checks SET retired=0 WHERE id=?').run(c.id);
   // the version the tested code implements: a pipeline that tests an older commit says so, and the result counts for that version only
   const v = specVersion === undefined || specVersion === null ? spec.version : Number(specVersion);
-  if (!Number.isInteger(v) || v < 1 || v > spec.version) throw new ApiError(`spec_version must be a released version of ${specId} (1–${spec.version}).`);
-  if (ref && !/^[\w+.-]+:\/\/\S+$|^[\w./#@-]{1,200}$/.test(String(ref).trim())) throw new ApiError('ref must be a URL or a short reference (run id, file path).');
+  if (!Number.isInteger(v) || v < 1 || v > spec.version)
+    throw new ApiError(`spec_version must be a released version of ${specId} (1–${spec.version}).`);
+  if (ref && !/^[\w+.-]+:\/\/\S+$|^[\w./#@-]{1,200}$/.test(String(ref).trim()))
+    throw new ApiError('ref must be a URL or a short reference (run id, file path).');
   const id = randomUUID();
-  sql('INSERT INTO check_runs (id,check_id,team_id,spec_id,spec_version,status,value,detail,ref,commit_sha,source,run_by,at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
-    .run(id, c.id, team.id, specId, v, status, clip(value, 200), clip(detail, 2000), clip(ref, 400), clip(commit, 80), source, by?.via ? `${by.via}${by.name ? ` (${by.name})` : ''}` : by?.name ?? null, new Date().toISOString());
+  sql(
+    'INSERT INTO check_runs (id,check_id,team_id,spec_id,spec_version,status,value,detail,ref,commit_sha,source,run_by,at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+  ).run(
+    id,
+    c.id,
+    team.id,
+    specId,
+    v,
+    status,
+    clip(value, 200),
+    clip(detail, 2000),
+    clip(ref, 400),
+    clip(commit, 80),
+    source,
+    by?.via ? `${by.via}${by.name ? ` (${by.name})` : ''}` : (by?.name ?? null),
+    new Date().toISOString(),
+  );
   // keep the history bounded: the 50 newest runs per check
-  sql('DELETE FROM check_runs WHERE check_id=? AND rowid NOT IN (SELECT rowid FROM check_runs WHERE check_id=? ORDER BY at DESC, rowid DESC LIMIT 50)').run(c.id, c.id);
+  sql(
+    'DELETE FROM check_runs WHERE check_id=? AND rowid NOT IN (SELECT rowid FROM check_runs WHERE check_id=? ORDER BY at DESC, rowid DESC LIMIT 50)',
+  ).run(c.id, c.id);
   bumpGarden(team.id);
   const out = getCheck(team.id, specId, c.name);
   events.emit('check', { teamId: team.id, check: out, source });
@@ -105,8 +175,19 @@ export function listChecks(teamId, { specId, includeRetired = false } = {}) {
 export function runHistory(teamId, specId, name, limit = 20) {
   const c = sql('SELECT id FROM checks WHERE team_id=? AND spec_id=? AND name=?').get(teamId, specId, name);
   if (!c) return [];
-  return sql('SELECT * FROM check_runs WHERE check_id=? ORDER BY at DESC, rowid DESC LIMIT ?').all(c.id, limit)
-    .map((r) => ({ status: r.status, value: r.value || undefined, detail: r.detail || undefined, ref: r.ref || undefined, commit: r.commit_sha || undefined, specVersion: r.spec_version, source: r.source, by: r.run_by, at: r.at }));
+  return sql('SELECT * FROM check_runs WHERE check_id=? ORDER BY at DESC, rowid DESC LIMIT ?')
+    .all(c.id, limit)
+    .map((r) => ({
+      status: r.status,
+      value: r.value || undefined,
+      detail: r.detail || undefined,
+      ref: r.ref || undefined,
+      commit: r.commit_sha || undefined,
+      specVersion: r.spec_version,
+      source: r.source,
+      by: r.run_by,
+      at: r.at,
+    }));
 }
 
 /** { SPEC-012: [check…] } for the garden view (also offline). */

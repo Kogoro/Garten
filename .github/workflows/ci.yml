@@ -3,9 +3,9 @@ on:
   push:
     branches: [main]
   pull_request:
-  workflow_call:   # the release workflow runs the same checks before it publishes anything
+  workflow_call: # the release workflow runs the same checks before it publishes anything
 permissions:
-  contents: read   # the workflow only reads the repository
+  contents: read # the workflow only reads the repository
 
 jobs:
   test:
@@ -74,8 +74,7 @@ jobs:
         with:
           node-version: 24
       - run: npm ci
-      - run: npm --prefix web ci   # web/src is linted and type-checked against the web dependencies
+      - run: npm --prefix web ci # web/src is linted and type-checked against the web dependencies
       - run: npm run lint
       - run: npm run typecheck
-      # Enable once the sources have been reformatted in one pass with `npm run format`:
-      # - run: npm run format:check
+      - run: npm run format:check

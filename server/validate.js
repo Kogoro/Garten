@@ -3,7 +3,21 @@
 export const EMAIL = /^[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)*$/;
 export const isEmail = (s) => typeof s === 'string' && s.length <= 254 && EMAIL.test(s);
 
-const COMMON_PASSWORDS = new Set(['password', 'password1', 'password12', 'password123', '1234567890', '12345678910', 'qwertyuiop', 'admin-demo-1', 'admin123456', 'changeme123', 'letmein1234', 'welcome1234', 'iloveyou123']);
+const COMMON_PASSWORDS = new Set([
+  'password',
+  'password1',
+  'password12',
+  'password123',
+  '1234567890',
+  '12345678910',
+  'qwertyuiop',
+  'admin-demo-1',
+  'admin123456',
+  'changeme123',
+  'letmein1234',
+  'welcome1234',
+  'iloveyou123',
+]);
 /** Returns a message when the password is not acceptable, else null. */
 export function passwordProblem(pw) {
   const p = String(pw ?? '');

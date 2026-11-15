@@ -13,8 +13,10 @@ export function sweepExpired() {
   db.prepare('DELETE FROM oauth_tokens WHERE revoked=1 OR refresh_expires_at < ?').run(t);
   db.prepare('DELETE FROM pats WHERE revoked=1 OR expires_at < ?').run(t - 30 * 86400);
   db.prepare('DELETE FROM invites WHERE expires_at < ?').run(t - 30 * 86400);
-  db.prepare(`DELETE FROM oauth_clients WHERE created_at < ? AND client_id NOT IN (SELECT client_id FROM oauth_tokens)
-              AND client_id NOT IN (SELECT client_id FROM oauth_requests) AND client_id NOT IN (SELECT client_id FROM oauth_codes)`).run(old);
+  db.prepare(
+    `DELETE FROM oauth_clients WHERE created_at < ? AND client_id NOT IN (SELECT client_id FROM oauth_tokens)
+              AND client_id NOT IN (SELECT client_id FROM oauth_requests) AND client_id NOT IN (SELECT client_id FROM oauth_codes)`,
+  ).run(old);
   db.prepare('DELETE FROM claims WHERE expires_at < ?').run(new Date(Date.now() - 86400_000).toISOString()); // run out a day ago
   db.prepare('DELETE FROM agent_activity WHERE last_at < ?').run(new Date(Date.now() - 90 * 86400_000).toISOString());
   pruneAudit();
@@ -22,7 +24,13 @@ export function sweepExpired() {
 }
 
 export function startJanitor() {
-  const run = () => { try { sweepExpired(); } catch (e) { console.error('cleanup:', e.message); } };
+  const run = () => {
+    try {
+      sweepExpired();
+    } catch (e) {
+      console.error('cleanup:', e.message);
+    }
+  };
   run();
   setInterval(run, 3600_000).unref();
 }

@@ -19,15 +19,36 @@ export function RuleSheet({ initial, source, onClose }: { initial: string; sourc
   return (
     <Sheet onClose={onClose}>
       <h2>Make it a rule</h2>
-      <p>A guardrail applies to every agent on every task, without being asked. Phrase it so it can be checked.{source ? ` From ${source}.` : ''}</p>
-      <label className="sr" htmlFor="rule-text">Rule</label>
-      <textarea id="rule-text" className="field" style={{ height: 110, padding: 12 }} value={text} maxLength={400} onChange={(e) => setText(e.target.value)} placeholder="e.g. Webhook signatures are always verified with a constant-time comparison." />
+      <p>
+        A guardrail applies to every agent on every task, without being asked. Phrase it so it can be checked.
+        {source ? ` From ${source}.` : ''}
+      </p>
+      <label className="sr" htmlFor="rule-text">
+        Rule
+      </label>
+      <textarea
+        id="rule-text"
+        className="field"
+        style={{ height: 110, padding: 12 }}
+        value={text}
+        maxLength={400}
+        onChange={(e) => setText(e.target.value)}
+        placeholder="e.g. Webhook signatures are always verified with a constant-time comparison."
+      />
       <div className="filters" role="group" aria-label="Kind of rule">
-        <button type="button" className="filter" aria-pressed={where === 'Always'} onClick={() => setWhere('Always')}>Always</button>
-        <button type="button" className="filter" aria-pressed={where === 'Never'} onClick={() => setWhere('Never')}>Never</button>
+        <button type="button" className="filter" aria-pressed={where === 'Always'} onClick={() => setWhere('Always')}>
+          Always
+        </button>
+        <button type="button" className="filter" aria-pressed={where === 'Never'} onClick={() => setWhere('Never')}>
+          Never
+        </button>
       </div>
       {!doc && <p className="muted">The guardrails document is not on this device yet – sync once.</p>}
-      <div className="btns"><button className="btn primary" data-act="rule-add" disabled={!can || !doc || !text.trim()} onClick={add}>Add to guardrails</button></div>
+      <div className="btns">
+        <button className="btn primary" data-act="rule-add" disabled={!can || !doc || !text.trim()} onClick={add}>
+          Add to guardrails
+        </button>
+      </div>
     </Sheet>
   );
 }
