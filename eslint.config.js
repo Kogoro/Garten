@@ -39,7 +39,7 @@ const typed = {
 };
 
 export default defineConfig(
-  globalIgnores(['**/node_modules/', '**/dist/', 'web/dev-dist/', 'data/', 'docs/', 'coverage/']),
+  globalIgnores(['**/node_modules/', '**/dist/', 'web/dev-dist/', 'data/', 'docs/', 'coverage/', '.claude/']),
 
   // ---- plain JavaScript: server, shared code, tests, scripts
   {

@@ -5,6 +5,7 @@ web/dev-dist/
 coverage/
 data/
 *.log
+.claude/
 
 # Lock files are written by npm
 package-lock.json
