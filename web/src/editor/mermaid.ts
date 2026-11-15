@@ -8,11 +8,15 @@ let mm: Promise<typeof import('mermaid').default> | undefined;
 let n = 0;
 let queue: Promise<unknown> = Promise.resolve();
 
-/** Mermaid is bundled (lazy chunk, cached by the service worker) so diagrams render offline. */
+/** Mermaid is bundled as lazy chunks. The service worker caches them on first use (not at install – they are most of the
+ *  app's weight), so diagrams work offline once Mermaid has run on this device. A failed load (offline before that) is not
+ *  remembered: the next diagram tries again. */
 export function loadMermaid() {
-  mm ??= import('mermaid').then((m) => m.default);
+  mm ??= import('mermaid').then((m) => m.default, (e) => { mm = undefined; throw e; });
   return mm;
 }
+// a chunk that could not be fetched (Chrome / Firefox / Safari wording)
+const CHUNK_FAILED = /dynamically imported module|error loading dynamically imported|importing a module script failed/i;
 export function renderMermaid(src: string): Promise<{ svg?: string; error?: string }> {
   const job = async () => {
     if (!src.trim()) return { error: 'Empty diagram – write Mermaid code.' };
@@ -25,7 +29,9 @@ export function renderMermaid(src: string): Promise<{ svg?: string; error?: stri
       return { svg };
     } catch (e: any) {
       document.getElementById(`dmm${n}`)?.remove();
-      return { error: String(e?.message ?? e).split('\n')[0] };
+      const msg = String(e?.message ?? e);
+      if (CHUNK_FAILED.test(msg)) return { error: navigator.onLine ? 'Could not load the diagram renderer – try again.' : 'Offline: this kind of diagram renders once it has been shown online on this device.' };
+      return { error: msg.split('\n')[0] };
     }
   };
   const p = queue.then(job, job); // Mermaid is not re-entrant

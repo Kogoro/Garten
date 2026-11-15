@@ -9,7 +9,6 @@ import { Hint } from '../Hint';
 import { useMedia } from '../prefs';
 import { CORE_LABEL, enc, foundState, hasContent, rawMode } from '../lib';
 import { ConflictSheet, DeriveSpecSheet, LinkSheet, PathSheet } from '../sheets';
-import { TermSheet } from './Glossary';
 import { newDefinitions, termPrefill } from '../derive';
 import { openMenu, useUi } from '../state';
 import type { Item } from '../store/types';
@@ -22,7 +21,9 @@ import { Icon, ago, toast, touched, useStore } from '../ui';
 // The service worker precaches it, so opening works offline as before.
 const SpecEditor = lazy(() => import('../editor/SpecEditor').then((m) => ({ default: m.SpecEditor })));
 const SpecForm = lazy(() => import('../form/SpecForm').then((m) => ({ default: m.SpecForm })));
-const EditorFallback = () => <div className="editor-skeleton" role="status" aria-label="Loading the editor"><i /><i /><i /></div>;
+// "Define as term" opens the glossary's sheet – it comes with the (lazily loaded) glossary page, so the specs screen does not carry it.
+const TermSheet = lazy(() => import('./Glossary').then((m) => ({ default: m.TermSheet })));
+const EditorFallback =() => <div className="editor-skeleton" role="status" aria-label="Loading the editor"><i /><i /><i /></div>;
 
 type Store = ReturnType<typeof useStore>;
 
@@ -324,7 +325,7 @@ export function ItemEditor({ item }: { item: Item }) {
         </footer>
       )}
       {derive?.kind === 'spec' && <DeriveSpecSheet text={derive.text} source={item.id} whole={derive.whole} onClose={() => setDerive(null)} />}
-      {derive?.kind === 'term' && (() => { const p = termPrefill(derive.text, item.id, derive.whole); return <TermSheet initial={p.term} definition={p.definition} from={item.id} onClose={() => setDerive(null)} />; })()}
+      {derive?.kind === 'term' && (() => { const p = termPrefill(derive.text, item.id, derive.whole); return <Suspense fallback={null}><TermSheet initial={p.term} definition={p.definition} from={item.id} onClose={() => setDerive(null)} /></Suspense>; })()}
       {sheet === 'ref' && <LinkSheet specId={item.id} onClose={() => setSheet(null)} onPick={(id) => (blocks ? insertRef(id) : (() => { const t = document.getElementById('body') as HTMLTextAreaElement | null; if (t) S.edit(item.id, { body: `${item.body}${item.body.endsWith('\n') || !item.body ? '' : ' '}@${id} ` }); })())} />}
       {sheet === 'link' && <LinkSheet specId={item.id} onClose={() => setSheet(null)} />}
       {sheet === 'newdoc' && <PathSheet kind="newdoc" linkTo={item.id} onClose={() => setSheet(null)} />}
