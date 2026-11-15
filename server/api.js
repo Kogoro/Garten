@@ -10,7 +10,7 @@ import { db } from './db.js';
 import { listConnections, revokeConnection } from './oauth.js';
 import { PROJECT_NAME, PUBLIC_URL, OIDC, ALLOW_TEAM_CREATION, MAX_TEAMS_PER_USER } from './config.js';
 import {
-  createTeam, renameTeam, setFoundationAuto, setCiRequired, setAgentPaused, setFeedbackMail, deleteTeamRows, listTeams, teamsCreatedBy, publicGit, saveGitSettings, getTeam, TeamError,
+  createTeam, renameTeam, setFoundationAuto, setCiRequired, setAgentPaused, setFeedbackMail, setFeedbackKeepDays, deleteTeamRows, listTeams, teamsCreatedBy, publicGit, saveGitSettings, getTeam, TeamError,
 } from './teams.js';
 import { lookupDefinitions, LookupError } from './lookup.js';
 import { testRemote, pushTeam, generateSshKey, forgetHostKey } from './gitremote.js';
@@ -116,7 +116,7 @@ async function acceptProposal(team, fb, body, user) {
 const order = (c) => (c.delete ? (c.kind === 'folder' ? 3 : 2) : c.kind === 'folder' ? -1 : c.kind === 'doc' ? 0 : 1); // folders/docs first, deletions last
 
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
-const teamView = (team, role) => ({ id: team.id, key: team.key, name: team.name, role, foundationAuto: !!team.row.foundation_auto, ciRequired: !!team.row.ci_required, agentPaused: !!team.row.agent_paused, feedbackMail: !!team.row.feedback_mail, mailEnabled, git: publicGit(team), ...(role === 'admin' ? { hook: publicHook(team) } : {}) });
+const teamView = (team, role) => ({ id: team.id, key: team.key, name: team.name, role, foundationAuto: !!team.row.foundation_auto, ciRequired: !!team.row.ci_required, agentPaused: !!team.row.agent_paused, feedbackMail: !!team.row.feedback_mail, feedbackKeepDays: team.row.feedback_keep_days, mailEnabled, git: publicGit(team), ...(role === 'admin' ? { hook: publicHook(team) } : {}) });
 
 // keeps one admin from using the invite form as a mail cannon
 const inviteLimiter = new Limiter({ windowMs: 3600_000, max: 30 });
@@ -366,13 +366,14 @@ export function apiRouter() {
       if (t.row.foundation_auto) await store.startupSweep(); // catch up on documents edited while auto-release was off
     }
     if (req.body?.feedbackMail !== undefined) t = setFeedbackMail(t.id, !!req.body.feedbackMail);
+    if (req.body?.feedbackKeepDays !== undefined) t = setFeedbackKeepDays(t.id, req.body.feedbackKeepDays);
     if (req.body?.agentPaused !== undefined) {
       const was = !!t.row.agent_paused;
       t = setAgentPaused(t.id, !!req.body.agentPaused); bumpGarden(t.id);
       if (was && !req.body.agentPaused) store.events.emit('resumed', { teamId: t.id });
     }
     if (req.body?.hook !== undefined) t = saveHook(t.id, req.body.hook ?? {});
-    audit(req, 'team.update', { team: t.id, detail: { fields: Object.keys(req.body ?? {}).filter((k) => ['name', 'foundationAuto', 'feedbackMail', 'hook', 'ciRequired'].includes(k)), ...(req.body?.hook !== undefined ? { hookHost: (() => { try { return new URL(t.row.hook_url).host; } catch { return null; } })() } : {}) } });
+    audit(req, 'team.update', { team: t.id, detail: { fields: Object.keys(req.body ?? {}).filter((k) => ['name', 'foundationAuto', 'feedbackMail', 'feedbackKeepDays', 'hook', 'ciRequired'].includes(k)), ...(req.body?.hook !== undefined ? { hookHost: (() => { try { return new URL(t.row.hook_url).host; } catch { return null; } })() } : {}) } });
     res.json({ team: teamView(t, req.role) });
   }));
   team.post('/hook/test', requireTeam('admin'), wrap(async (req, res) => { audit(req, 'team.hook.test', { team: req.team.id }); res.json(await testHook(req.team.id)); }));

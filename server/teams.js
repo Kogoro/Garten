@@ -57,6 +57,14 @@ export function setFeedbackMail(id, on) {
   sql('UPDATE teams SET feedback_mail=? WHERE id=?').run(on ? 1 : 0, id);
   return getTeam(id);
 }
+/** How long closed feedback is kept, in days; 0 = forever. The janitor applies it (feedback.js, pruneFeedback). */
+export const FEEDBACK_KEEP_DAYS = [0, 90, 180, 365, 730];
+export function setFeedbackKeepDays(id, days) {
+  const n = Number(days);
+  if (!FEEDBACK_KEEP_DAYS.includes(n)) throw new TeamError(`feedbackKeepDays must be one of: ${FEEDBACK_KEEP_DAYS.join(', ')} (0 = keep forever)`);
+  sql('UPDATE teams SET feedback_keep_days=? WHERE id=?').run(n, id);
+  return getTeam(id);
+}
 /** Removes a team and everything that belongs to it (the Git repository directory is removed by the caller). */
 export function deleteTeamRows(id) {
   for (const t of ['items', 'feedback', 'reports', 'pats', 'oauth_tokens', 'oauth_codes', 'hook_outbox']) sql(`DELETE FROM ${t} WHERE team_id=?`).run(id);

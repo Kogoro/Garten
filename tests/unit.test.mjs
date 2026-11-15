@@ -117,7 +117,7 @@ describe('bounded history', () => {
     assert.equal(db.prepare("SELECT COUNT(*) n FROM reports WHERE spec_id='P-1'").get().n, REPORTS_KEPT); assert.equal(listReports('tp', { specId: 'P-1' }).at(-1).summary, 'step 5');
     const latest = latestReports('tp'); assert.equal(latest['P-1'].summary, `step ${REPORTS_KEPT + 4}`); assert.equal(latest['P-2'].summary, 'done');
   });
-  step('janitor: old closed feedback beyond 100 per spec goes; open entries and decisions stay', async () => {
+  step('janitor: feedback retention is a team setting – off by default; when set, old closed feedback beyond 100 per spec goes, open entries and decisions stay', async () => {
     const { db } = await import('../server/db.js');
     const { sweepExpired } = await import('../server/janitor.js');
     db.prepare("DELETE FROM reports WHERE team_id='tp'").run();
@@ -126,8 +126,12 @@ describe('bounded history', () => {
     for (let i = 0; i < 104; i++) fb.run(`d${i}`, 'concern', 'dismissed', ago(400), ago(200 + i));
     fb.run('ans', 'decision', 'answered', ago(400), ago(310)); // a person's decision: kept, however old
     fb.run('open', 'question', 'open', ago(900), null);
+    const ids = () => new Set(db.prepare("SELECT id FROM feedback WHERE team_id='tp'").all().map((r) => r.id));
     sweepExpired();
-    const left = new Set(db.prepare("SELECT id FROM feedback WHERE team_id='tp'").all().map((r) => r.id));
+    assert.equal(ids().size, 106); // a team keeps everything until it chooses otherwise
+    db.prepare("UPDATE teams SET feedback_keep_days=180 WHERE id='tp'").run();
+    sweepExpired();
+    const left = ids();
     assert.equal(left.size, 102); assert.ok(left.has('ans') && left.has('open') && left.has('d99') && !left.has('d100') && !left.has('d103'));
   });
 });

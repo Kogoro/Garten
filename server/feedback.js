@@ -148,19 +148,23 @@ export function gardenFeedback(teamId) {
 }
 
 /**
- * Retention (hourly, from the janitor): closed feedback – dismissed, done, accepted, withdrawn – is history. A spec keeps its 100
- * most recently closed entries; older ones go once they have been closed for half a year. Decisions a person answered or dismissed
- * are never removed: they are the record of what people decided (agents read them with list_decisions, the work list shows the ones
- * reported on since, and writing one into the spec under DECISIONS is optional and done on a device). Open entries stay, too.
+ * Retention (hourly, from the janitor), a setting of each team: teams.feedback_keep_days, 0 = keep everything (the default).
+ * Where a team sets a number of days, closed feedback – dismissed, done, accepted, withdrawn – that has been closed for longer
+ * goes, except the 100 most recently closed entries of each spec. Decisions a person answered or dismissed are never removed:
+ * they are the record of what people decided (agents read them with list_decisions, the work list shows the ones reported on
+ * since, and writing one into the spec under DECISIONS is optional and done on a device). Open entries stay, too.
  */
-export const FEEDBACK_KEEP = { perSpec: 100, days: 180 };
-export function pruneFeedback() {
-  const before = new Date(Date.now() - FEEDBACK_KEEP.days * 86400_000).toISOString();
-  return sql(`DELETE FROM feedback WHERE rowid IN (
-    SELECT rowid FROM (SELECT rowid, resolved_at, ROW_NUMBER() OVER (PARTITION BY team_id, spec_id ORDER BY resolved_at DESC, created_at DESC) AS n
-      FROM feedback WHERE status<>'open' AND resolved_at IS NOT NULL AND (kind<>? OR status='withdrawn'))
-    WHERE n > ? AND resolved_at < ?)`)
-    .run(DECISION, FEEDBACK_KEEP.perSpec, before).changes;
+export const FEEDBACK_KEEP = { perSpec: 100 };
+export function pruneFeedback(now = Date.now()) {
+  let removed = 0;
+  for (const t of sql('SELECT id, feedback_keep_days AS days FROM teams WHERE feedback_keep_days > 0').all()) {
+    removed += sql(`DELETE FROM feedback WHERE rowid IN (
+      SELECT rowid FROM (SELECT rowid, resolved_at, ROW_NUMBER() OVER (PARTITION BY spec_id ORDER BY resolved_at DESC, created_at DESC) AS n
+        FROM feedback WHERE team_id=? AND status<>'open' AND resolved_at IS NOT NULL AND (kind<>? OR status='withdrawn'))
+      WHERE n > ? AND resolved_at < ?)`)
+      .run(t.id, DECISION, FEEDBACK_KEEP.perSpec, new Date(now - t.days * 86400_000).toISOString()).changes;
+  }
+  return removed;
 }
 
 /** An agent takes back its own open feedback or decision request (e.g. it was wrong). People's decisions are never overridden. */

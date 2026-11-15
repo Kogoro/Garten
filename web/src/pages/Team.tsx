@@ -126,6 +126,20 @@ function FeedbackMailToggle({ t, S, mailEnabled }: { t: any; S: Store; mailEnabl
   );
 }
 
+/** How long the team keeps closed feedback. Decisions and open entries are never removed; neither are the 100 most recently closed entries of a spec. */
+const KEEP_DAYS: [number, string][] = [[0, 'Forever'], [90, '3 months'], [180, '6 months'], [365, '1 year'], [730, '2 years']];
+function FeedbackKeep({ t, S }: { t: any; S: Store }) {
+  const [days, setDays] = useState<number>(t.feedbackKeepDays ?? 0);
+  useEffect(() => setDays(t.feedbackKeepDays ?? 0), [t.feedbackKeepDays]);
+  return (<>
+    <label className="check" htmlFor="fb-keep">Keep closed feedback
+      <select className="field" id="fb-keep" style={{ width: 'auto', marginLeft: 8 }} value={days} onChange={guard(async (e) => { const v = Number(e.target.value); setDays(v); await S.teamApi('PATCH', '', { feedbackKeepDays: v }); await S.refreshMe(); toast(v ? 'Older closed feedback is removed from now on' : 'Feedback is kept forever'); })}>
+        {KEEP_DAYS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+      </select></label>
+    <p className="note" style={{ marginTop: -6 }}>Applies to dismissed, done, accepted and withdrawn feedback. Decisions, open entries and the 100 most recently closed entries of each spec always stay.</p>
+  </>);
+}
+
 /** One webhook per team: starts an agent run (e.g. a Claude Code routine) when specs are released or decisions answered. */
 type HookRes = { ok: boolean; text: string; link?: string | null } | null;
 function HookForm({ h, S, reload, res, setRes }: { h: any; S: Store; reload: () => Promise<void>; res: HookRes; setRes: (r: HookRes) => void }) {
@@ -249,7 +263,8 @@ export function TeamPage() {
             <form id="teamNameForm" className="form" onSubmit={guard(async (e: FormEvent<HTMLFormElement>) => { e.preventDefault(); await S.teamApi('PATCH', '', { name: new FormData(e.currentTarget).get('name') }); await S.refreshMe(); toast('Renamed'); })}><label className="sr" htmlFor="tm-name">Team name</label><div className="btns"><input className="field" id="tm-name" name="name" defaultValue={t.name} key={t.name} maxLength={80} style={{ flex: 3 }} /><button className="btn" type="submit" disabled={!online}>Rename</button></div></form>
             <label className="check"><input type="checkbox" id="found-auto" checked={!!t.foundationAuto} onChange={guard(async (e) => { await S.teamApi('PATCH', '', { foundationAuto: e.target.checked }); await S.refreshMe(); toast(e.target.checked ? 'Foundation documents are released automatically' : 'Foundation documents now need approval'); })} /> Release foundation documents (vision, strategy, glossary …) automatically after edits</label>
             <p className="note" style={{ marginTop: -6 }}>Off: they reach agents only after an approver presses “Release now”.</p>
-            <FeedbackMailToggle t={t} S={S} mailEnabled={!!d?.mailEnabled} /></>}
+            <FeedbackMailToggle t={t} S={S} mailEnabled={!!d?.mailEnabled} />
+            <FeedbackKeep t={t} S={S} /></>}
           <div className="btns"><button className="btn small" data-act="leave-team" onClick={guard(async () => { if (!confirm(`Leave ${t.name}? You lose access to its specs and your agent tokens for it stop working.`)) return; await S.leaveTeam(); nav('/'); toast('You left the team'); })}>Leave team</button></div></section></>}
 
         {tab === 'members' && <><section className="card"><div className="card-head"><h2>Members</h2><small className="muted">{d ? d.members.length : '…'}</small></div>

@@ -105,6 +105,12 @@ describe('feedback on specs (agents leave it, people triage it)', () => {
       quiet = JSON.parse((await call(fa, 'add_feedback', { spec_id: sid, kind: 'suggestion', text: 'no mail for this one' })).text);
       await new Promise((r) => setTimeout(r, 900)); assert.equal(smtp.mails.length, nMails);
       await admin.req('PATCH', `/api/teams/${T1}`, { feedbackMail: true });
+      // how long closed feedback is kept is a team setting, too: forever unless an admin chooses a period
+      assert.equal((await admin.get(`/api/teams/${T1}`)).data.team.feedbackKeepDays, 0);
+      assert.equal((await admin.req('PATCH', `/api/teams/${T1}`, { feedbackKeepDays: 45 })).status, 400);
+      assert.equal((await admin.req('PATCH', `/api/teams/${T1}`, { feedbackKeepDays: 180 })).data.team.feedbackKeepDays, 180);
+      assert.equal((await admin.get('/api/me')).data.me.teams.find((t) => t.id === T1).feedbackKeepDays, 180);
+      await admin.req('PATCH', `/api/teams/${T1}`, { feedbackKeepDays: 0 });
     });
     // withdrawing: only your own, only while open
     step('an agent cannot withdraw feedback of someone else', async () => {

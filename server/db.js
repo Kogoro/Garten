@@ -404,6 +404,10 @@ const MIGRATIONS = [
     db.prepare(`DELETE FROM reports WHERE rowid IN (SELECT rowid FROM (
       SELECT rowid, ROW_NUMBER() OVER (PARTITION BY team_id, spec_id ORDER BY created_at DESC, rowid DESC) AS n FROM reports) WHERE n > ?)`).run(REPORTS_KEPT);
   },
+  /* 3 */ () => {
+    // how long a team keeps closed feedback (days); 0 = forever, which is what every team starts with
+    db.exec('ALTER TABLE teams ADD COLUMN feedback_keep_days INTEGER NOT NULL DEFAULT 0');
+  },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.length;
 
