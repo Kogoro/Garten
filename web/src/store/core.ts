@@ -10,6 +10,7 @@ export const state: any = {
   teamId: null as string | null, // active team
   maps: new Map<string, Map<string, Item>>(), // team id -> Map(item id -> item)
   cursors: {} as Record<string, number>,
+  fetched: {} as Record<string, string>, // per team: the newest agent read (fetched_at) this device knows; reads travel apart from the items
   authConfig: null as any,
   project: 'specs',
   feedback: {} as Record<string, Record<string, number>>, // open feedback per team and spec (from the last sync)
@@ -46,6 +47,7 @@ const forget = (item: Item) => idb.del('items', `${item.team}|${item.id}`);
 export async function init() {
   for (const rec of await idb.all('items')) mapOf(rec.team).set(rec.id, rec);
   state.cursors = (await idb.get('meta', 'cursors')) ?? {};
+  state.fetched = (await idb.get('meta', 'fetched')) ?? {};
   state.me = (await idb.get('meta', 'me')) ?? null;
   state.authConfig = (await idb.get('meta', 'authConfig')) ?? null;
   state.project = state.authConfig?.project ?? 'specs';
@@ -111,10 +113,11 @@ export async function loadAuthConfig() {
 async function wipeLocal() {
   state.maps.clear();
   state.cursors = {};
+  state.fetched = {};
   state.types = {};
   state.feedback = {}; state.garden = {}; state.fbOps = {}; state.gardenNotice = null;
   await idb.clear('items');
-  await Promise.all([meta('cursors', {}), meta('lastSync', null), meta('teamId', null), meta('types', {}), meta('garden', {}), meta('fbOps', {})]);
+  await Promise.all([meta('cursors', {}), meta('fetched', {}), meta('lastSync', null), meta('teamId', null), meta('types', {}), meta('garden', {}), meta('fbOps', {})]);
 }
 
 export async function login(email: string, password: string) {
@@ -395,7 +398,7 @@ export async function sync() {
     for (const t of [...state.me.teams]) await syncTeam(t.id);
     state.lastSync = Date.now();
     state.online = true;
-    await Promise.all([meta('cursors', state.cursors), meta('lastSync', state.lastSync), meta('types', state.types)]);
+    await Promise.all([meta('cursors', state.cursors), meta('fetched', state.fetched), meta('lastSync', state.lastSync), meta('types', state.types)]);
   } catch (e: any) {
     state.error = e.message;
     if (e instanceof TypeError) state.online = false; // network failure
@@ -417,7 +420,7 @@ async function syncTeam(tid: string) {
   const fbSent: FbOp[] = [...(state.fbOps[tid] ?? [])];
   let data: any;
   try {
-    data = await api('POST', `/api/teams/${tid}/sync`, { since: state.cursors[tid] ?? 0, changes, gardenRev: state.garden[tid]?.rev ?? -1, ...(fbSent.length ? { feedbackOps: fbSent.map(({ id, status, answer, reply }) => ({ id, status, answer, reply })) } : {}) });
+    data = await api('POST', `/api/teams/${tid}/sync`, { since: state.cursors[tid] ?? 0, fetchedSince: state.fetched[tid] ?? '', changes, gardenRev: state.garden[tid]?.rev ?? -1, ...(fbSent.length ? { feedbackOps: fbSent.map(({ id, status, answer, reply }) => ({ id, status, answer, reply })) } : {}) });
   } catch (e: any) {
     if (e.status === 401) { state.sessionExpired = true; throw new Error('Session expired – sign in again to sync'); }
     if (e.status === 404) return; // team no longer accessible; refreshMe will drop it
@@ -456,6 +459,12 @@ async function syncTeam(tid: string) {
     }
     if (map.has(r.id)) await persist(map.get(r.id)!);
   }
+  // agent reads: only the time changes, the item itself is not sent again
+  for (const [id, at] of Object.entries((data.fetched ?? {}) as Record<string, string>)) {
+    const it = map.get(id);
+    if (it && it.fetchedAt !== at) { it.fetchedAt = at; await persist(it); }
+  }
+  if (typeof data.fetchedCursor === 'string') state.fetched[tid] = data.fetchedCursor;
   if (data.specTypes) state.types[tid] = data.specTypes;
   state.feedback[tid] = data.feedbackOpen ?? {};
   await adoptGarden(tid, data, fbSent);

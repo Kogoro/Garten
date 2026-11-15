@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID, scrypt, timingSafeEqual, createHash } from 'node:crypto';
 import { promisify } from 'node:util';
-import { db } from './db.js';
+import { sql } from './db.js';
 import { ADMIN_EMAIL, ADMIN_PASSWORD, SECURE_COOKIES, SESSION_IDLE_DAYS, DEFAULT_TEAM_NAME, DEFAULT_TEAM_KEY } from './config.js';
 import { getTeam, getTeamByKey, listTeams, createTeam } from './teams.js';
 import { Limiter } from './ratelimit.js';
@@ -30,13 +30,13 @@ export const allowedScopes = (role) => MCP_SCOPES.filter((s) => (s === 'mcp:draf
 export function roleIn(user, teamId) {
   if (!user || !getTeam(teamId)) return null;
   if (user.admin) return 'admin';
-  return db.prepare('SELECT role FROM memberships WHERE team_id=? AND user_id=?').get(teamId, user.id)?.role ?? null;
+  return sql('SELECT role FROM memberships WHERE team_id=? AND user_id=?').get(teamId, user.id)?.role ?? null;
 }
 export const can = (user, teamId, perm) => perms(roleIn(user, teamId)).includes(perm);
 export function teamsFor(user) {
   const mine = user.admin
     ? listTeams().map((t) => ({ team: t, role: 'admin' }))
-    : db.prepare('SELECT team_id, role FROM memberships WHERE user_id=?').all(user.id).map((m) => ({ team: getTeam(m.team_id), role: m.role }));
+    : sql('SELECT team_id, role FROM memberships WHERE user_id=?').all(user.id).map((m) => ({ team: getTeam(m.team_id), role: m.role }));
   return mine.filter((m) => m.team).sort((a, b) => a.team.name.localeCompare(b.team.name));
 }
 export const meSummary = (u) => ({
@@ -45,22 +45,22 @@ export const meSummary = (u) => ({
 });
 
 export function members(teamId) {
-  return db.prepare('SELECT m.role, u.id, u.email, u.name, u.disabled FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.team_id=? ORDER BY u.name').all(teamId)
+  return sql('SELECT m.role, u.id, u.email, u.name, u.disabled FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.team_id=? ORDER BY u.name').all(teamId)
     .map((r) => ({ id: r.id, email: r.email, name: r.name, role: r.role, disabled: !!r.disabled }));
 }
 export function setMember(teamId, userId, role) {
   if (!ROLES.includes(role)) throw new AuthError('Unknown role');
   if (!getUser(userId)) throw new AuthError('Unknown user', 404);
-  db.prepare('INSERT INTO memberships (team_id,user_id,role) VALUES (?,?,?) ON CONFLICT(team_id,user_id) DO UPDATE SET role=excluded.role').run(teamId, userId, role);
+  sql('INSERT INTO memberships (team_id,user_id,role) VALUES (?,?,?) ON CONFLICT(team_id,user_id) DO UPDATE SET role=excluded.role').run(teamId, userId, role);
 }
 export function removeMember(teamId, userId) {
-  const cur = db.prepare('SELECT role FROM memberships WHERE team_id=? AND user_id=?').get(teamId, userId);
-  if (cur?.role === 'admin' && db.prepare("SELECT COUNT(*) AS n FROM memberships WHERE team_id=? AND role='admin'").get(teamId).n <= 1)
+  const cur = sql('SELECT role FROM memberships WHERE team_id=? AND user_id=?').get(teamId, userId);
+  if (cur?.role === 'admin' && sql("SELECT COUNT(*) AS n FROM memberships WHERE team_id=? AND role='admin'").get(teamId).n <= 1)
     throw new AuthError('A team needs at least one team admin (promote someone else first)');
-  db.prepare('DELETE FROM memberships WHERE team_id=? AND user_id=?').run(teamId, userId);
+  sql('DELETE FROM memberships WHERE team_id=? AND user_id=?').run(teamId, userId);
   // tokens of this user for this team stop working immediately
-  db.prepare('UPDATE pats SET revoked=1 WHERE team_id=? AND user_id=?').run(teamId, userId);
-  db.prepare('UPDATE oauth_tokens SET revoked=1 WHERE team_id=? AND user_id=?').run(teamId, userId);
+  sql('UPDATE pats SET revoked=1 WHERE team_id=? AND user_id=?').run(teamId, userId);
+  sql('UPDATE oauth_tokens SET revoked=1 WHERE team_id=? AND user_id=?').run(teamId, userId);
 }
 
 // ------------------------------------------------------------------ passwords
@@ -107,12 +107,12 @@ const toUser = (r) =>
     id: r.id, email: r.email, name: r.name, admin: !!r.admin, disabled: !!r.disabled,
     hasPassword: !!r.password_hash, sso: !!r.oidc_sub, createdAt: r.created_at, lastLoginAt: r.last_login_at,
   };
-export const getUser = (id) => toUser(db.prepare('SELECT * FROM users WHERE id=?').get(id));
-export const getUserByEmail = (email) => toUser(db.prepare('SELECT * FROM users WHERE email=?').get(email));
-export const getUserBySub = (sub) => toUser(db.prepare('SELECT * FROM users WHERE oidc_sub=?').get(sub));
-export const listUsers = () => db.prepare('SELECT * FROM users ORDER BY created_at').all().map(toUser);
-export const countUsers = () => db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
-const activeAdmins = () => db.prepare('SELECT COUNT(*) AS n FROM users WHERE admin=1 AND disabled=0').get().n;
+export const getUser = (id) => toUser(sql('SELECT * FROM users WHERE id=?').get(id));
+export const getUserByEmail = (email) => toUser(sql('SELECT * FROM users WHERE email=?').get(email));
+export const getUserBySub = (sub) => toUser(sql('SELECT * FROM users WHERE oidc_sub=?').get(sub));
+export const listUsers = () => sql('SELECT * FROM users ORDER BY created_at').all().map(toUser);
+export const countUsers = () => sql('SELECT COUNT(*) AS n FROM users').get().n;
+const activeAdmins = () => sql('SELECT COUNT(*) AS n FROM users WHERE admin=1 AND disabled=0').get().n;
 
 export class AuthError extends Error {
   constructor(message, status = 400) { super(message); this.status = status; }
@@ -124,7 +124,7 @@ export async function createUser({ email, name, admin = false, password, oidcSub
   if (password !== undefined && !skipPolicy) { const problem = passwordProblem(password); if (problem) throw new AuthError(problem); }
   if (getUserByEmail(email)) throw new AuthError('A user with this e-mail already exists', 409);
   const id = randomUUID();
-  db.prepare('INSERT INTO users (id,email,name,admin,password_hash,oidc_sub,created_at) VALUES (?,?,?,?,?,?,?)').run(
+  sql('INSERT INTO users (id,email,name,admin,password_hash,oidc_sub,created_at) VALUES (?,?,?,?,?,?,?)').run(
     id, email, String(name || email.split('@')[0]).trim().slice(0, 80), admin ? 1 : 0, password ? await hashPassword(password) : null, oidcSub ?? null, iso(),
   );
   return getUser(id);
@@ -137,7 +137,7 @@ export async function updateUser(id, patch, actor) {
   const losesAdmin = u.admin && !u.disabled && (!next.admin || next.disabled);
   if (losesAdmin && activeAdmins() <= 1) throw new AuthError('There must be at least one active instance admin');
   if (actor?.id === id && next.disabled) throw new AuthError('You cannot disable yourself');
-  db.prepare('UPDATE users SET admin=?, disabled=?, name=? WHERE id=?').run(next.admin ? 1 : 0, next.disabled ? 1 : 0, next.name, id);
+  sql('UPDATE users SET admin=?, disabled=?, name=? WHERE id=?').run(next.admin ? 1 : 0, next.disabled ? 1 : 0, next.name, id);
   if (patch.password !== undefined) { await setPassword(id, patch.password); revokeAllForUser(id); } // a reset by an admin ends every credential
   if (next.disabled) revokeAllForUser(id);
   return getUser(id);
@@ -145,7 +145,7 @@ export async function updateUser(id, patch, actor) {
 
 /** Teams in which this user is the only team admin (deleting them would orphan the team). */
 export const soleAdminTeams = (userId) =>
-  db.prepare("SELECT t.name FROM memberships m JOIN teams t ON t.id=m.team_id WHERE m.user_id=? AND m.role='admin' AND (SELECT COUNT(*) FROM memberships x WHERE x.team_id=m.team_id AND x.role='admin')=1").all(userId).map((r) => r.name);
+  sql("SELECT t.name FROM memberships m JOIN teams t ON t.id=m.team_id WHERE m.user_id=? AND m.role='admin' AND (SELECT COUNT(*) FROM memberships x WHERE x.team_id=m.team_id AND x.role='admin')=1").all(userId).map((r) => r.name);
 
 export function deleteUser(id, actor) {
   const u = getUser(id);
@@ -154,26 +154,26 @@ export function deleteUser(id, actor) {
   if (u.admin && !u.disabled && activeAdmins() <= 1) throw new AuthError('There must be at least one active instance admin');
   const sole = soleAdminTeams(id);
   if (sole.length) throw new AuthError(`Only team admin of: ${sole.join(', ')}. Promote someone else or delete the team first.`, 409);
-  db.prepare('DELETE FROM users WHERE id=?').run(id); // memberships, sessions, tokens, OAuth grants cascade / are removed below
-  db.prepare('DELETE FROM pats WHERE user_id=?').run(id);
-  db.prepare('DELETE FROM oauth_tokens WHERE user_id=?').run(id);
-  db.prepare('DELETE FROM oauth_codes WHERE user_id=?').run(id);
+  sql('DELETE FROM users WHERE id=?').run(id); // memberships, sessions, tokens, OAuth grants cascade / are removed below
+  sql('DELETE FROM pats WHERE user_id=?').run(id);
+  sql('DELETE FROM oauth_tokens WHERE user_id=?').run(id);
+  sql('DELETE FROM oauth_codes WHERE user_id=?').run(id);
 }
 
 /** Sets a new password and ends all sessions of the user (the caller signs the current device in again). */
 export async function setPassword(id, password, { skipPolicy = false } = {}) {
   if (!skipPolicy) { const problem = passwordProblem(password); if (problem) throw new AuthError(problem); }
-  db.prepare('UPDATE users SET password_hash=? WHERE id=?').run(await hashPassword(String(password)), id);
-  db.prepare('DELETE FROM sessions WHERE user_id=?').run(id);
+  sql('UPDATE users SET password_hash=? WHERE id=?').run(await hashPassword(String(password)), id);
+  sql('DELETE FROM sessions WHERE user_id=?').run(id);
 }
 
-export function linkOidc(id, sub) { db.prepare('UPDATE users SET oidc_sub=? WHERE id=?').run(sub, id); }
+export function linkOidc(id, sub) { sql('UPDATE users SET oidc_sub=? WHERE id=?').run(sub, id); }
 
 /** Immediately kill every credential of a user (sessions, PATs, OAuth tokens). */
 export function revokeAllForUser(id) {
-  db.prepare('DELETE FROM sessions WHERE user_id=?').run(id);
-  db.prepare('UPDATE pats SET revoked=1 WHERE user_id=?').run(id);
-  db.prepare('UPDATE oauth_tokens SET revoked=1 WHERE user_id=?').run(id);
+  sql('DELETE FROM sessions WHERE user_id=?').run(id);
+  sql('UPDATE pats SET revoked=1 WHERE user_id=?').run(id);
+  sql('UPDATE oauth_tokens SET revoked=1 WHERE user_id=?').run(id);
 }
 
 // In-memory throttles against password guessing: per IP+account, per account (whatever the IP) and per IP (whatever the account).
@@ -191,11 +191,11 @@ export function throttleUser(userId) { if (!byUser.hit(userId)) throw new AuthEr
 export async function loginWithPassword(email, password, ip = '') {
   email = String(email ?? '').trim().toLowerCase();
   throttle(ip, email);
-  const row = db.prepare('SELECT * FROM users WHERE email=?').get(email);
+  const row = sql('SELECT * FROM users WHERE email=?').get(email);
   const okPw = row?.password_hash ? await verifyPassword(String(password ?? ''), row.password_hash) : (await hashPassword('x'), false);
   if (!row || !okPw || row.disabled) throw new AuthError('Wrong e-mail or password', 401);
   byPair.reset(`${ip}|${email}`); byAccount.reset(`acct|${email}`);
-  if (needsRehash(row.password_hash)) db.prepare('UPDATE users SET password_hash=? WHERE id=?').run(await hashPassword(String(password)), row.id);
+  if (needsRehash(row.password_hash)) sql('UPDATE users SET password_hash=? WHERE id=?').run(await hashPassword(String(password)), row.id);
   return toUser(row);
 }
 
@@ -207,15 +207,15 @@ const SESSION_DAYS = 30;
 
 export function startSession(res, user, userAgent = '') {
   const raw = randomBytes(32).toString('base64url');
-  db.prepare('INSERT INTO sessions (id,user_id,expires_at,created_at,user_agent,last_seen_at) VALUES (?,?,?,?,?,?)').run(
+  sql('INSERT INTO sessions (id,user_id,expires_at,created_at,user_agent,last_seen_at) VALUES (?,?,?,?,?,?)').run(
     sha(raw), user.id, now() + SESSION_DAYS * 86400, iso(), String(userAgent ?? '').slice(0, 200), now(),
   );
-  db.prepare('UPDATE users SET last_login_at=? WHERE id=?').run(iso(), user.id);
+  sql('UPDATE users SET last_login_at=? WHERE id=?').run(iso(), user.id);
   res.cookie(COOKIE, raw, { httpOnly: true, sameSite: 'lax', secure: SECURE_COOKIES, maxAge: SESSION_DAYS * 86400_000, path: '/' });
 }
 export function endSession(req, res) {
   const raw = sessionCookie(req);
-  if (raw) db.prepare('DELETE FROM sessions WHERE id=?').run(sha(raw));
+  if (raw) sql('DELETE FROM sessions WHERE id=?').run(sha(raw));
   for (const n of COOKIE_NAMES) res.clearCookie(n, { path: '/' });
 }
 function cookie(req, name) {
@@ -232,11 +232,11 @@ export function userFromRequest(req) {
   const raw = sessionCookie(req);
   if (!raw) return null;
   const id = sha(raw);
-  const row = db.prepare('SELECT user_id, expires_at, last_seen_at FROM sessions WHERE id=?').get(id);
+  const row = sql('SELECT user_id, expires_at, last_seen_at FROM sessions WHERE id=?').get(id);
   if (!row || row.expires_at < now()) return null;
   const t = now();
-  if (row.last_seen_at && t - row.last_seen_at > SESSION_IDLE_DAYS * 86400) { db.prepare('DELETE FROM sessions WHERE id=?').run(id); return null; }
-  if (!row.last_seen_at || t - row.last_seen_at > 300) db.prepare('UPDATE sessions SET last_seen_at=? WHERE id=?').run(t, id);
+  if (row.last_seen_at && t - row.last_seen_at > SESSION_IDLE_DAYS * 86400) { sql('DELETE FROM sessions WHERE id=?').run(id); return null; }
+  if (!row.last_seen_at || t - row.last_seen_at > 300) sql('UPDATE sessions SET last_seen_at=? WHERE id=?').run(t, id);
   const u = getUser(row.user_id);
   return u && !u.disabled ? u : null;
 }
@@ -244,10 +244,10 @@ export function userFromRequest(req) {
 export function listSessions(req, userId) {
   const mine = sessionCookie(req);
   const cur = mine ? sha(mine) : null;
-  return db.prepare('SELECT id, created_at, last_seen_at, user_agent, expires_at FROM sessions WHERE user_id=? AND expires_at>? ORDER BY created_at DESC').all(userId, now())
+  return sql('SELECT id, created_at, last_seen_at, user_agent, expires_at FROM sessions WHERE user_id=? AND expires_at>? ORDER BY created_at DESC').all(userId, now())
     .map((r) => ({ id: r.id, createdAt: r.created_at, lastSeenAt: r.last_seen_at ? new Date(r.last_seen_at * 1000).toISOString() : null, userAgent: r.user_agent, current: r.id === cur }));
 }
-export const revokeSession = (userId, id) => db.prepare('DELETE FROM sessions WHERE id=? AND user_id=?').run(String(id), userId).changes > 0;
+export const revokeSession = (userId, id) => sql('DELETE FROM sessions WHERE id=? AND user_id=?').run(String(id), userId).changes > 0;
 
 /** Express middleware: cookie session + CSRF guard (custom header on mutating requests). */
 export function requireUser(req, res, next) {
@@ -280,7 +280,7 @@ export function createPat(user, { name, scopes, days = 90, teamId }) {
   const raw = `spc_${randomBytes(24).toString('base64url')}`;
   const id = randomUUID();
   const expires = now() + Math.min(Math.max(Number(days) || 90, 1), 3650) * 86400;
-  db.prepare('INSERT INTO pats (id,user_id,team_id,name,prefix,hash,scopes,created_at,expires_at) VALUES (?,?,?,?,?,?,?,?,?)').run(
+  sql('INSERT INTO pats (id,user_id,team_id,name,prefix,hash,scopes,created_at,expires_at) VALUES (?,?,?,?,?,?,?,?,?)').run(
     id, user.id, teamId, name, raw.slice(0, 10), sha(raw), scopes.join(' '), iso(), expires,
   );
   return { token: raw, pat: listPats(user.id).find((p) => p.id === id) };
@@ -289,14 +289,14 @@ const toPat = (r) => ({
   id: r.id, userId: r.user_id, teamId: r.team_id, teamName: getTeam(r.team_id)?.name ?? '?', name: r.name, prefix: r.prefix, scopes: r.scopes.split(' '), createdAt: r.created_at,
   lastUsedAt: r.last_used_at, expiresAt: r.expires_at * 1000, expired: r.expires_at < now(),
 });
-export const listPats = (userId) => db.prepare('SELECT * FROM pats WHERE user_id=? AND revoked=0 ORDER BY created_at DESC').all(userId).map(toPat);
-export function revokePat(userId, id) { return db.prepare('UPDATE pats SET revoked=1 WHERE id=? AND user_id=?').run(id, userId).changes > 0; }
+export const listPats = (userId) => sql('SELECT * FROM pats WHERE user_id=? AND revoked=0 ORDER BY created_at DESC').all(userId).map(toPat);
+export function revokePat(userId, id) { return sql('UPDATE pats SET revoked=1 WHERE id=? AND user_id=?').run(id, userId).changes > 0; }
 export function verifyPat(raw) {
-  const r = db.prepare('SELECT * FROM pats WHERE hash=? AND revoked=0').get(sha(raw));
+  const r = sql('SELECT * FROM pats WHERE hash=? AND revoked=0').get(sha(raw));
   if (!r || r.expires_at < now()) return null;
   const user = getUser(r.user_id);
   if (!user || user.disabled) return null;
-  db.prepare('UPDATE pats SET last_used_at=? WHERE id=?').run(iso(), r.id);
+  sql('UPDATE pats SET last_used_at=? WHERE id=?').run(iso(), r.id);
   // the token acts with the user's *current* role in its team: downgrades apply immediately, removal kills the token
   const role = roleIn(user, r.team_id);
   if (!role) return null;

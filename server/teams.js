@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { db } from './db.js';
+import { sql } from './db.js';
 import { encrypt } from './secrets.js';
 import { GIT_ALLOW_HTTP, GIT_ALLOW_LOCAL, GIT_ALLOW_PRIVATE } from './config.js';
 import { gitHost, isPrivateHostLiteral } from './netguard.js';
@@ -10,9 +10,9 @@ export class TeamError extends Error {
 
 const iso = () => new Date().toISOString();
 const toTeam = (r) => r && { id: r.id, key: r.key, name: r.name, createdAt: r.created_at, row: r };
-export const getTeam = (id) => toTeam(db.prepare('SELECT * FROM teams WHERE id=?').get(id));
-export const getTeamByKey = (key) => toTeam(db.prepare('SELECT * FROM teams WHERE key=?').get(String(key ?? '')));
-export const listTeams = () => db.prepare('SELECT * FROM teams ORDER BY name').all().map(toTeam);
+export const getTeam = (id) => toTeam(sql('SELECT * FROM teams WHERE id=?').get(id));
+export const getTeamByKey = (key) => toTeam(sql('SELECT * FROM teams WHERE key=?').get(String(key ?? '')));
+export const listTeams = () => sql('SELECT * FROM teams ORDER BY name').all().map(toTeam);
 
 /** Derives a short unique key (spec id prefix) from a team name: "Payments Platform" -> PAYM, PAYM2 … */
 function deriveKey(name) {
@@ -30,37 +30,37 @@ export function createTeam({ name, key, createdBy = null }) {
   if (!/^[A-Z][A-Z0-9]{1,7}$/.test(key)) throw new TeamError('Team key: 2–8 letters/digits, starting with a letter (e.g. BILL)');
   if (getTeamByKey(key)) throw new TeamError('A team with this key already exists', 409);
   const id = randomUUID();
-  db.prepare('INSERT INTO teams (id,key,name,created_at,created_by) VALUES (?,?,?,?,?)').run(id, key, name, iso(), createdBy);
+  sql('INSERT INTO teams (id,key,name,created_at,created_by) VALUES (?,?,?,?,?)').run(id, key, name, iso(), createdBy);
   return getTeam(id);
 }
-export const teamsCreatedBy = (userId) => db.prepare('SELECT COUNT(*) AS n FROM teams WHERE created_by=?').get(userId).n;
+export const teamsCreatedBy = (userId) => sql('SELECT COUNT(*) AS n FROM teams WHERE created_by=?').get(userId).n;
 export function renameTeam(id, name) {
   name = String(name ?? '').trim().slice(0, 80);
   if (!name) throw new TeamError('Give the team a name');
-  db.prepare('UPDATE teams SET name=? WHERE id=?').run(name, id);
+  sql('UPDATE teams SET name=? WHERE id=?').run(name, id);
   return getTeam(id);
 }
 export function setCiRequired(id, on) {
-  db.prepare('UPDATE teams SET ci_required=? WHERE id=?').run(on ? 1 : 0, id);
+  sql('UPDATE teams SET ci_required=? WHERE id=?').run(on ? 1 : 0, id);
   return getTeam(id);
 }
 export function setAgentPaused(id, on) {
-  db.prepare('UPDATE teams SET agent_paused=? WHERE id=?').run(on ? 1 : 0, id);
+  sql('UPDATE teams SET agent_paused=? WHERE id=?').run(on ? 1 : 0, id);
   return getTeam(id);
 }
 
 export function setFoundationAuto(id, on) {
-  db.prepare('UPDATE teams SET foundation_auto=? WHERE id=?').run(on ? 1 : 0, id);
+  sql('UPDATE teams SET foundation_auto=? WHERE id=?').run(on ? 1 : 0, id);
   return getTeam(id);
 }
 export function setFeedbackMail(id, on) {
-  db.prepare('UPDATE teams SET feedback_mail=? WHERE id=?').run(on ? 1 : 0, id);
+  sql('UPDATE teams SET feedback_mail=? WHERE id=?').run(on ? 1 : 0, id);
   return getTeam(id);
 }
 /** Removes a team and everything that belongs to it (the Git repository directory is removed by the caller). */
 export function deleteTeamRows(id) {
-  for (const t of ['items', 'feedback', 'reports', 'pats', 'oauth_tokens', 'oauth_codes', 'hook_outbox']) db.prepare(`DELETE FROM ${t} WHERE team_id=?`).run(id);
-  db.prepare('DELETE FROM teams WHERE id=?').run(id); // memberships + invites cascade
+  for (const t of ['items', 'feedback', 'reports', 'pats', 'oauth_tokens', 'oauth_codes', 'hook_outbox']) sql(`DELETE FROM ${t} WHERE team_id=?`).run(id);
+  sql('DELETE FROM teams WHERE id=?').run(id); // memberships + invites cascade
 }
 
 // ------------------------------------------------------------------ git connection (settings only; see gitremote.js for I/O)
@@ -117,14 +117,14 @@ export function saveGitSettings(teamId, s, { rootLocked }) {
   if (auth === 'none') secret = null;
   if (auth === 'ssh' && t.row.git_auth !== 'ssh') secret = null; // a token must never be reused as key
   if (auth === 'token' && t.row.git_auth === 'ssh' && !s.token) secret = null;
-  db.prepare(
+  sql(
     'UPDATE teams SET git_url=?, git_branch=?, git_root=?, git_auth=?, git_username=?, git_secret=?, git_auto_push=? WHERE id=?',
   ).run(url || null, branch, root, auth, String(s.username ?? '').trim() || null, secret, s.autoPush === false ? 0 : 1, teamId);
   return getTeam(teamId);
 }
 export function saveSshKey(teamId, privateKey, publicKey) {
-  db.prepare("UPDATE teams SET git_secret=?, git_ssh_public=?, git_auth='ssh' WHERE id=?").run(encrypt(privateKey), publicKey, teamId);
+  sql("UPDATE teams SET git_secret=?, git_ssh_public=?, git_auth='ssh' WHERE id=?").run(encrypt(privateKey), publicKey, teamId);
 }
 export function recordPush(teamId, { ok, error, sha }) {
-  db.prepare('UPDATE teams SET git_last_push_at=?, git_last_ok=?, git_last_error=?, git_last_sha=COALESCE(?, git_last_sha) WHERE id=?').run(iso(), ok ? 1 : 0, error ?? null, sha ?? null, teamId);
+  sql('UPDATE teams SET git_last_push_at=?, git_last_ok=?, git_last_error=?, git_last_sha=COALESCE(?, git_last_sha) WHERE id=?').run(iso(), ok ? 1 : 0, error ?? null, sha ?? null, teamId);
 }
