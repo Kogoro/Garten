@@ -19,7 +19,7 @@ export function agentOf(auth, user) {
     key: `${user.id}|${via}|${label}`.slice(0, 200),
     name: `${via === 'pat' ? 'token' : 'agent'}: ${label}`.slice(0, 80),
     userName: user.name,
-    tokenExpiresAt: via === 'pat' ? auth.extra.tokenExpiresAt ?? null : null,
+    tokenExpiresAt: via === 'pat' ? (auth.extra.tokenExpiresAt ?? null) : null,
   };
 }
 
@@ -29,12 +29,27 @@ export function recordActivity(teamId, agent, tool) {
   const now = iso();
   sql(`INSERT INTO agent_activity (team_id,agent,name,user_name,last_at,last_tool,calls,token_expires_at) VALUES (?,?,?,?,?,?,1,?)
     ON CONFLICT (team_id, agent) DO UPDATE SET name=excluded.name, user_name=excluded.user_name, last_at=excluded.last_at,
-      last_tool=COALESCE(excluded.last_tool, last_tool), calls=calls+1, token_expires_at=excluded.token_expires_at`)
-    .run(teamId, agent.key, agent.name, agent.userName, now, tool ?? null, agent.tokenExpiresAt);
+      last_tool=COALESCE(excluded.last_tool, last_tool), calls=calls+1, token_expires_at=excluded.token_expires_at`).run(
+    teamId,
+    agent.key,
+    agent.name,
+    agent.userName,
+    now,
+    tool ?? null,
+    agent.tokenExpiresAt,
+  );
   if (!cur || Date.now() - Date.parse(cur.last_at) > 5 * 60_000) bumpGarden(teamId);
 }
 
-const claimView = (r) => ({ specId: r.spec_id, agent: r.agent, by: r.name, note: r.note || undefined, claimedAt: r.claimed_at, heartbeatAt: r.heartbeat_at, until: r.expires_at });
+const claimView = (r) => ({
+  specId: r.spec_id,
+  agent: r.agent,
+  by: r.name,
+  note: r.note || undefined,
+  claimedAt: r.claimed_at,
+  heartbeatAt: r.heartbeat_at,
+  until: r.expires_at,
+});
 const live = (teamId) => sql('SELECT * FROM claims WHERE team_id=? AND expires_at>?').all(teamId, iso());
 
 /** { SPEC-1: claim } of the claims that have not run out. */
@@ -52,12 +67,25 @@ export function claimSpec(team, agent, { specId, minutes, note }) {
   const cur = sql('SELECT * FROM claims WHERE team_id=? AND spec_id=?').get(team.id, specId);
   const now = Date.now();
   if (cur && cur.agent !== agent.key && Date.parse(cur.expires_at) > now) {
-    throw new ApiError(`${specId} is being built by ${cur.name} until ${cur.expires_at} (unless it renews its claim). Work on another spec.`, 409);
+    throw new ApiError(
+      `${specId} is being built by ${cur.name} until ${cur.expires_at} (unless it renews its claim). Work on another spec.`,
+      409,
+    );
   }
   const mine = cur && cur.agent === agent.key && Date.parse(cur.expires_at) > now;
   sql(`INSERT INTO claims (team_id,spec_id,agent,name,note,claimed_at,heartbeat_at,expires_at) VALUES (?,?,?,?,?,?,?,?)
-    ON CONFLICT (team_id, spec_id) DO UPDATE SET agent=excluded.agent, name=excluded.name, note=excluded.note, claimed_at=excluded.claimed_at, heartbeat_at=excluded.heartbeat_at, expires_at=excluded.expires_at`)
-    .run(team.id, specId, agent.key, agent.name, String(note ?? '').trim().slice(0, 300), mine ? cur.claimed_at : iso(now), iso(now), iso(now + m * 60_000));
+    ON CONFLICT (team_id, spec_id) DO UPDATE SET agent=excluded.agent, name=excluded.name, note=excluded.note, claimed_at=excluded.claimed_at, heartbeat_at=excluded.heartbeat_at, expires_at=excluded.expires_at`).run(
+    team.id,
+    specId,
+    agent.key,
+    agent.name,
+    String(note ?? '')
+      .trim()
+      .slice(0, 300),
+    mine ? cur.claimed_at : iso(now),
+    iso(now),
+    iso(now + m * 60_000),
+  );
   bumpGarden(team.id);
   return { ...claimView(sql('SELECT * FROM claims WHERE team_id=? AND spec_id=?').get(team.id, specId)), renewed: !!mine };
 }
@@ -73,10 +101,17 @@ export function releaseClaim(teamId, agent, specId) {
 export function listAgents(teamId) {
   const claims = live(teamId).map(claimView);
   const now = Date.now();
-  return sql('SELECT * FROM agent_activity WHERE team_id=? ORDER BY last_at DESC LIMIT 30').all(teamId).map((r) => ({
-    agent: r.agent, name: r.name, user: r.user_name, lastAt: r.last_at, lastTool: r.last_tool || undefined, calls: r.calls,
-    connected: now - Date.parse(r.last_at) < ACTIVE_MS,
-    ...(r.token_expires_at ? { tokenExpiresAt: iso(r.token_expires_at * 1000) } : {}),
-    claims: claims.filter((c) => c.agent === r.agent).map((c) => ({ specId: c.specId, until: c.until, note: c.note })),
-  }));
+  return sql('SELECT * FROM agent_activity WHERE team_id=? ORDER BY last_at DESC LIMIT 30')
+    .all(teamId)
+    .map((r) => ({
+      agent: r.agent,
+      name: r.name,
+      user: r.user_name,
+      lastAt: r.last_at,
+      lastTool: r.last_tool || undefined,
+      calls: r.calls,
+      connected: now - Date.parse(r.last_at) < ACTIVE_MS,
+      ...(r.token_expires_at ? { tokenExpiresAt: iso(r.token_expires_at * 1000) } : {}),
+      claims: claims.filter((c) => c.agent === r.agent).map((c) => ({ specId: c.specId, until: c.until, note: c.note })),
+    }));
 }

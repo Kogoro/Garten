@@ -17,8 +17,10 @@ const DEF = /^: (.*)$/;
 const IMG = /^!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)\s*$/;
 const ROW = /^\s*\|/;
 const SEP = /^\s*\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)*\|?\s*$/;
-const isTableAt = (lines, i) => ROW.test(lines[i] ?? '') && SEP.test(lines[i + 1] ?? '') && (lines[i + 1] ?? '').includes('-') && (lines[i + 1] ?? '').includes('|');
-const startsBlock = (l) => IMG.test(l) || FENCE.test(l) || HEAD.test(l) || TASK.test(l) || BULLET.test(l) || REQ.test(l) || QUOTE.test(l) || HR.test(l);
+const isTableAt = (lines, i) =>
+  ROW.test(lines[i] ?? '') && SEP.test(lines[i + 1] ?? '') && (lines[i + 1] ?? '').includes('-') && (lines[i + 1] ?? '').includes('|');
+const startsBlock = (l) =>
+  IMG.test(l) || FENCE.test(l) || HEAD.test(l) || TASK.test(l) || BULLET.test(l) || REQ.test(l) || QUOTE.test(l) || HR.test(l);
 
 /** One GFM table row -> cells (a pipe inside a cell is written \\|). */
 export function splitRow(l) {
@@ -26,12 +28,21 @@ export function splitRow(l) {
   let cur = '';
   const t = l.trim().replace(/^\|/, '');
   for (let i = 0; i < t.length; i++) {
-    if (t[i] === '\\' && t[i + 1] === '|') { cur += '|'; i++; } else if (t[i] === '|') { cells.push(cur.trim()); cur = ''; } else cur += t[i];
+    if (t[i] === '\\' && t[i + 1] === '|') {
+      cur += '|';
+      i++;
+    } else if (t[i] === '|') {
+      cells.push(cur.trim());
+      cur = '';
+    } else cur += t[i];
   }
   if (cur.trim() || !/\|\s*$/.test(l)) cells.push(cur.trim());
   return cells;
 }
-const cell = (c) => String(c ?? '').replace(/\r?\n/g, ' ').replace(/\|/g, '\\|');
+const cell = (c) =>
+  String(c ?? '')
+    .replace(/\r?\n/g, ' ')
+    .replace(/\|/g, '\\|');
 export function formatTable(rows) {
   const n = Math.max(...rows.map((r) => r.length), 1);
   const fmt = (r) => `| ${Array.from({ length: n }, (_, i) => cell(r[i])).join(' | ')} |`;
@@ -39,7 +50,9 @@ export function formatTable(rows) {
 }
 
 export function parse(md) {
-  const lines = String(md ?? '').replace(/\r\n/g, '\n').split('\n');
+  const lines = String(md ?? '')
+    .replace(/\r\n/g, '\n')
+    .split('\n');
   const out = [];
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i];
@@ -69,14 +82,30 @@ export function parse(md) {
       const q = [m[1]];
       while (i + 1 < lines.length && (m = QUOTE.exec(lines[i + 1]))) (q.push(m[1]), i++);
       out.push({ id: nid(), type: 'quote', text: q.join('\n') });
-    } else if (DEF.test(lines[i + 1] ?? '')) { // definition list entry: "Term" + ": definition"
+    } else if (DEF.test(lines[i + 1] ?? '')) {
+      // definition list entry: "Term" + ": definition"
       const defs = [];
       while (DEF.test(lines[i + 1] ?? '')) defs.push(DEF.exec(lines[++i])[1]);
       const d = parseDefLines(defs);
-      out.push({ id: nid(), type: 'def', term: l.trim(), text: d.definition, aliases: d.aliases.join(', '), see: d.see.join(', '), src: d.origin ?? '' });
+      out.push({
+        id: nid(),
+        type: 'def',
+        term: l.trim(),
+        text: d.definition,
+        aliases: d.aliases.join(', '),
+        see: d.see.join(', '),
+        src: d.origin ?? '',
+      });
     } else {
       const p = [l];
-      while (i + 1 < lines.length && lines[i + 1].trim() && !startsBlock(lines[i + 1]) && !ROW.test(lines[i + 1]) && !DEF.test(lines[i + 2] ?? '')) p.push(lines[++i]);
+      while (
+        i + 1 < lines.length &&
+        lines[i + 1].trim() &&
+        !startsBlock(lines[i + 1]) &&
+        !ROW.test(lines[i + 1]) &&
+        !DEF.test(lines[i + 2] ?? '')
+      )
+        p.push(lines[++i]);
       out.push({ id: nid(), type: 'p', text: p.join('\n') });
     }
   }
@@ -96,29 +125,60 @@ export function parseEndpoint(info, body) {
     else parts[cur].push(l);
   }
   const j = (a) => a.join('\n').trim();
-  return { method: isMethod ? first.toUpperCase() : 'GET', path: isMethod ? rest.join(' ') : info, text: j(parts.text), req: j(parts.req), res: j(parts.res) };
+  return {
+    method: isMethod ? first.toUpperCase() : 'GET',
+    path: isMethod ? rest.join(' ') : info,
+    text: j(parts.text),
+    req: j(parts.req),
+    res: j(parts.res),
+  };
 }
 export const fenceSafe = (t) => String(t ?? '').replace(/```/g, "'''");
 const LISTY = new Set(['task', 'li', 'req']);
 const line = (b) => {
   switch (b.type) {
-    case 'h': return `${'#'.repeat(b.level || 2)} ${b.text}`;
-    case 'task': return `- [${b.checked ? 'x' : ' '}] ${b.text}`;
-    case 'li': return `- ${b.text}`;
-    case 'req': return `${b.label} ${b.text}`.trimEnd();
-    case 'quote': return b.text.split('\n').map((t) => `> ${t}`).join('\n');
-    case 'hr': return '---';
-    case 'table': return formatTable(b.rows);
-    case 'img': return `![${String(b.text ?? '').replace(/[\[\]\n]/g, ' ')}](${b.src})`;
-    case 'def': return formatDefinition(b.term, b.text, { aliases: splitList(b.aliases), see: splitList(b.see), origin: b.src || null });
-    case 'code': return `\`\`\`${b.lang ?? ''}${b.info ? ' ' + b.info : ''}\n${b.text}\n\`\`\``;
-    case 'endpoint': return `\`\`\`endpoint ${b.method} ${fenceSafe(b.path).trim()}\n${fenceSafe(b.text).trim()}${b.req?.trim() ? `\n\nRequest:\n${fenceSafe(b.req).trim()}` : ''}${b.res?.trim() ? `\n\nResponses:\n${fenceSafe(b.res).trim()}` : ''}\n\`\`\``;
-    case 'diagram': return `\`\`\`mermaid\n${b.text}\n\`\`\``;
-    default: return b.text;
+    case 'h':
+      return `${'#'.repeat(b.level || 2)} ${b.text}`;
+    case 'task':
+      return `- [${b.checked ? 'x' : ' '}] ${b.text}`;
+    case 'li':
+      return `- ${b.text}`;
+    case 'req':
+      return `${b.label} ${b.text}`.trimEnd();
+    case 'quote':
+      return b.text
+        .split('\n')
+        .map((t) => `> ${t}`)
+        .join('\n');
+    case 'hr':
+      return '---';
+    case 'table':
+      return formatTable(b.rows);
+    case 'img':
+      return `![${String(b.text ?? '').replace(/[\[\]\n]/g, ' ')}](${b.src})`;
+    case 'def':
+      return formatDefinition(b.term, b.text, { aliases: splitList(b.aliases), see: splitList(b.see), origin: b.src || null });
+    case 'code':
+      return `\`\`\`${b.lang ?? ''}${b.info ? ' ' + b.info : ''}\n${b.text}\n\`\`\``;
+    case 'endpoint':
+      return `\`\`\`endpoint ${b.method} ${fenceSafe(b.path).trim()}\n${fenceSafe(b.text).trim()}${b.req?.trim() ? `\n\nRequest:\n${fenceSafe(b.req).trim()}` : ''}${b.res?.trim() ? `\n\nResponses:\n${fenceSafe(b.res).trim()}` : ''}\n\`\`\``;
+    case 'diagram':
+      return `\`\`\`mermaid\n${b.text}\n\`\`\``;
+    default:
+      return b.text;
   }
 };
 export function serialize(blocks) {
-  const kept = blocks.filter((b) => b.type === 'hr' || (b.type === 'table' ? b.rows?.length : false) || (b.type === 'img' ? b.src?.trim() : false) || b.type === 'diagram' || b.type === 'code' || (b.type === 'endpoint' ? b.path.trim() : false) || (b.type === 'def' ? b.term.trim() && b.text.trim() : b.text.trim()));
+  const kept = blocks.filter(
+    (b) =>
+      b.type === 'hr' ||
+      (b.type === 'table' ? b.rows?.length : false) ||
+      (b.type === 'img' ? b.src?.trim() : false) ||
+      b.type === 'diagram' ||
+      b.type === 'code' ||
+      (b.type === 'endpoint' ? b.path.trim() : false) ||
+      (b.type === 'def' ? b.term.trim() && b.text.trim() : b.text.trim()),
+  );
   let s = '';
   kept.forEach((b, i) => {
     if (i) s += LISTY.has(b.type) && LISTY.has(kept[i - 1].type) ? '\n' : '\n\n';
@@ -126,4 +186,3 @@ export function serialize(blocks) {
   });
   return s ? s + '\n' : '';
 }
-

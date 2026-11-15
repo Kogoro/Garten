@@ -3,7 +3,20 @@ import { idb } from './idb';
 import type { Item, Me, SpecType, TeamInfo } from './types';
 import { BUILTIN_TYPES, DEFAULT_TYPE, typeFrom } from '@shared/spectypes.js';
 import { parse as parseBlocks, serialize as serializeBlocks } from '@shared/blocksModel.js';
-import { parseTermFile, formatTermFile, isTermPath, isProposedPath, isGlossaryPath, termPath, termFolder, slugify, folderSegment, rewriteRefsIn, refsIn, GLOSSARY_DIR } from '@shared/glossaryFiles.js';
+import {
+  parseTermFile,
+  formatTermFile,
+  isTermPath,
+  isProposedPath,
+  isGlossaryPath,
+  termPath,
+  termFolder,
+  slugify,
+  folderSegment,
+  rewriteRefsIn,
+  refsIn,
+  GLOSSARY_DIR,
+} from '@shared/glossaryFiles.js';
 
 export const state: any = {
   me: null as Me | null, // cached so the app opens offline
@@ -26,9 +39,21 @@ export const state: any = {
 };
 export type FbPatch = { status?: string; answer?: number; reply?: string };
 export type FbOp = FbPatch & { id: string; n: number };
-export type Garden = { rev: number; feedback: any[]; reports: Record<string, any>; checks?: Record<string, any[]>; agents?: any[]; claims?: Record<string, any>; steering?: Record<string, Steering>; guardrailDrift?: Record<string, string[]> };
+export type Garden = {
+  rev: number;
+  feedback: any[];
+  reports: Record<string, any>;
+  checks?: Record<string, any[]>;
+  agents?: any[];
+  claims?: Record<string, any>;
+  steering?: Record<string, Steering>;
+  guardrailDrift?: Record<string, string[]>;
+};
 export type Steering = { priority: 'high' | 'normal' | 'low'; hold: boolean; holdNote?: string; depends: string[] };
-const mapOf = (tid: string): Map<string, Item> => { if (!state.maps.has(tid)) state.maps.set(tid, new Map()); return state.maps.get(tid); };
+const mapOf = (tid: string): Map<string, Item> => {
+  if (!state.maps.has(tid)) state.maps.set(tid, new Map());
+  return state.maps.get(tid);
+};
 Object.defineProperty(state, 'items', { get: (): Map<string, Item> => mapOf(state.teamId) });
 
 /** Never-synced items the user removed locally. A push that was already in flight may still create them on the
@@ -38,7 +63,10 @@ const listeners = new Set<() => void>();
 export const subscribe = (fn: () => void) => (listeners.add(fn), () => listeners.delete(fn));
 export let version = 0;
 export const getVersion = () => version;
-export const emit = () => { version++; listeners.forEach((fn) => fn()); };
+export const emit = () => {
+  version++;
+  listeners.forEach((fn) => fn());
+};
 
 const meta = (key: string, value: unknown) => idb.put('meta', value, key);
 const persist = (item: Item) => idb.put('items', { ...JSON.parse(JSON.stringify(item)), key: `${item.team}|${item.id}` });
@@ -65,7 +93,9 @@ export async function init() {
     try {
       const res = await fetch('/api/me', { credentials: 'same-origin', headers: { 'x-specs': '1' } });
       if (res.ok) await adoptLogin((await res.json()).me);
-    } catch { /* offline or no session: the login page stays */ }
+    } catch {
+      /* offline or no session: the login page stays */
+    }
   }
   addEventListener('online', () => ((state.online = true), emit(), sync()));
   addEventListener('offline', () => ((state.online = false), emit()));
@@ -77,24 +107,39 @@ export async function init() {
 
 function pickTeam(preferred: string | null | undefined) {
   const teams = state.me?.teams ?? [];
-  state.teamId = teams.find((t: TeamInfo) => t.id === preferred)?.id ?? teams.find((t: TeamInfo) => t.id === state.teamId)?.id ?? teams[0]?.id ?? null;
+  state.teamId =
+    teams.find((t: TeamInfo) => t.id === preferred)?.id ?? teams.find((t: TeamInfo) => t.id === state.teamId)?.id ?? teams[0]?.id ?? null;
   meta('teamId', state.teamId);
 }
 export const team = () => state.me?.teams.find((t: TeamInfo) => t.id === state.teamId) ?? null;
 export const can = (perm: string) => !!team()?.perms.includes(perm);
 export const isInstanceAdmin = () => !!state.me?.admin;
-export function switchTeam(id: string) { pickTeam(id); emit(); }
+export function switchTeam(id: string) {
+  pickTeam(id);
+  emit();
+}
 /** pending work of the other teams (shown next to the switcher) */
-export const otherTeams = () => (state.me?.teams ?? [] as TeamInfo[]).filter((t: TeamInfo) => t.id !== state.teamId).map((t: TeamInfo) => ({ ...t, pending: [...mapOf(t.id).values()].filter(isPending).length, conflicts: [...mapOf(t.id).values()].filter((i) => i.conflict).length }));
+export const otherTeams = () =>
+  (state.me?.teams ?? ([] as TeamInfo[]))
+    .filter((t: TeamInfo) => t.id !== state.teamId)
+    .map((t: TeamInfo) => ({
+      ...t,
+      pending: [...mapOf(t.id).values()].filter(isPending).length,
+      conflicts: [...mapOf(t.id).values()].filter((i) => i.conflict).length,
+    }));
 
 // ------------------------------------------------------------ api + auth
 export async function api(method: string, url: string, body?: unknown): Promise<any> {
   const res = await fetch(url, {
-    method, credentials: 'same-origin',
+    method,
+    credentials: 'same-origin',
     headers: { 'x-specs': '1', ...(body ? { 'content-type': 'application/json' } : {}) },
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (res.status === 401 && !url.startsWith('/api/auth/')) { state.sessionExpired = true; emit(); }
+  if (res.status === 401 && !url.startsWith('/api/auth/')) {
+    state.sessionExpired = true;
+    emit();
+  }
   const data = res.headers.get('content-type')?.includes('json') ? await res.json() : null;
   if (!res.ok) throw Object.assign(new Error(data?.error ?? `Server error ${res.status}`), { status: res.status });
   return data;
@@ -107,7 +152,9 @@ export async function loadAuthConfig() {
     state.project = state.authConfig.project;
     await meta('authConfig', state.authConfig);
     emit();
-  } catch { /* offline: use cached */ }
+  } catch {
+    /* offline: use cached */
+  }
 }
 
 async function wipeLocal() {
@@ -115,9 +162,20 @@ async function wipeLocal() {
   state.cursors = {};
   state.fetched = {};
   state.types = {};
-  state.feedback = {}; state.garden = {}; state.fbOps = {}; state.gardenNotice = null;
+  state.feedback = {};
+  state.garden = {};
+  state.fbOps = {};
+  state.gardenNotice = null;
   await idb.clear('items');
-  await Promise.all([meta('cursors', {}), meta('fetched', {}), meta('lastSync', null), meta('teamId', null), meta('types', {}), meta('garden', {}), meta('fbOps', {})]);
+  await Promise.all([
+    meta('cursors', {}),
+    meta('fetched', {}),
+    meta('lastSync', null),
+    meta('teamId', null),
+    meta('types', {}),
+    meta('garden', {}),
+    meta('fbOps', {}),
+  ]);
 }
 
 export async function login(email: string, password: string) {
@@ -136,7 +194,11 @@ export async function adoptLogin(me: Me) {
 }
 
 export async function logout() {
-  try { await api('POST', '/api/auth/logout'); } catch { /* offline: cookie stays but local state is wiped */ }
+  try {
+    await api('POST', '/api/auth/logout');
+  } catch {
+    /* offline: cookie stays but local state is wiped */
+  }
   await wipeLocal();
   state.me = null;
   state.teamId = null;
@@ -154,7 +216,10 @@ export async function refreshMe(teamId?: string | null) {
 // ------------------------------------------------------------ queries
 const visible = (i: Item) => !i.del;
 export const all = (kind: string): Item[] => [...state.items.values()].filter((i) => i.kind === kind && visible(i));
-export const get = (id: string): Item | undefined => { const i = state.items.get(id); return i && visible(i) ? i : undefined; };
+export const get = (id: string): Item | undefined => {
+  const i = state.items.get(id);
+  return i && visible(i) ? i : undefined;
+};
 export const isPending = (i: Item) => !!(i.dirty || i.approve || i.revoke || i.del);
 export const hasUnreleased = (i: Item) => i.dirty || i.rev > i.releasedRev;
 
@@ -164,7 +229,15 @@ export function queue() {
     .map((i) => {
       const noun = ({ spec: 'spec', doc: 'document', folder: 'folder' } as Record<string, string>)[i.kind];
       const base = i.baseRev === 0 ? `${i.kind === 'doc' ? 'Added' : 'Created'} ${noun}` : i.dirty ? `Edited ${noun}` : '';
-      const what = i.del ? `Delete ${noun}` : i.revoke ? 'Revoke release' : i.approve ? (base ? `${base} + approve` : 'Approve for release') : base;
+      const what = i.del
+        ? `Delete ${noun}`
+        : i.revoke
+          ? 'Revoke release'
+          : i.approve
+            ? base
+              ? `${base} + approve`
+              : 'Approve for release'
+            : base;
       return { id: i.id, what, at: i.editedAt, error: i.syncError };
     })
     .sort((a: any, b: any) => (b.at ?? 0) - (a.at ?? 0));
@@ -189,9 +262,31 @@ export const baseName = (id: string) => id.slice(id.lastIndexOf('/') + 1);
 
 // ------------------------------------------------------------ mutations
 const blank = (id: string, kind: Item['kind'], extra: Partial<Item> = {}): Item => ({
-  id, team: state.teamId, kind, title: '', body: '', links: [], pinned: false, core: false, specType: DEFAULT_TYPE, rev: 0, status: 'draft', version: 0, releasedRev: 0,
-  releasedAt: null, fetchedAt: null, createdAt: null, updatedAt: null,
-  dirty: true, baseRev: 0, approve: false, revoke: false, del: false, conflict: null, localSeq: 1, editedAt: Date.now(),
+  id,
+  team: state.teamId,
+  kind,
+  title: '',
+  body: '',
+  links: [],
+  pinned: false,
+  core: false,
+  specType: DEFAULT_TYPE,
+  rev: 0,
+  status: 'draft',
+  version: 0,
+  releasedRev: 0,
+  releasedAt: null,
+  fetchedAt: null,
+  createdAt: null,
+  updatedAt: null,
+  dirty: true,
+  baseRev: 0,
+  approve: false,
+  revoke: false,
+  del: false,
+  conflict: null,
+  localSeq: 1,
+  editedAt: Date.now(),
   ...extra,
 });
 
@@ -199,9 +294,18 @@ const SPEC_TEMPLATE = '## GOAL\n\n## REQUIREMENTS\n\n## ACCEPTANCE CRITERIA\n';
 
 export function createSpec(typeKey: string = DEFAULT_TYPE) {
   const key = team()!.key;
-  const n = Math.max(0, ...([...state.items.values()] as Item[]).filter((s) => s.kind === 'spec' && s.team === state.teamId && s.id.startsWith(`${key}-`)).map((s) => Number(/(\d+)$/.exec(s.id)?.[1] ?? 0))) + 1;
+  const n =
+    Math.max(
+      0,
+      ...([...state.items.values()] as Item[])
+        .filter((s) => s.kind === 'spec' && s.team === state.teamId && s.id.startsWith(`${key}-`))
+        .map((s) => Number(/(\d+)$/.exec(s.id)?.[1] ?? 0)),
+    ) + 1;
   const type = specType(typeKey);
-  const item = blank(`${key}-${String(n).padStart(3, '0')}`, 'spec', { body: type.template || SPEC_TEMPLATE, specType: type.missing ? DEFAULT_TYPE : type.key });
+  const item = blank(`${key}-${String(n).padStart(3, '0')}`, 'spec', {
+    body: type.template || SPEC_TEMPLATE,
+    specType: type.missing ? DEFAULT_TYPE : type.key,
+  });
   dropped.delete(item.id);
   state.items.set(item.id, item);
   persist(item);
@@ -209,7 +313,8 @@ export function createSpec(typeKey: string = DEFAULT_TYPE) {
   return item;
 }
 
-export const DOC_PATH = /^(?!.*\.\.)(?=.{3,120}$)[A-Za-z0-9_][A-Za-z0-9_.-]*(?:\/[A-Za-z0-9_][A-Za-z0-9_.-]*){0,7}\.(?:md|yaml|yml|json|txt)$/;
+export const DOC_PATH =
+  /^(?!.*\.\.)(?=.{3,120}$)[A-Za-z0-9_][A-Za-z0-9_.-]*(?:\/[A-Za-z0-9_][A-Za-z0-9_.-]*){0,7}\.(?:md|yaml|yml|json|txt)$/;
 function checkDocPath(path: string) {
   path = path.trim().replace(/^\/+/, '');
   if (!DOC_PATH.test(path)) throw new Error('Use a path like adr/ADR-008.md (folders allowed; md, yaml, yml, json or txt)');
@@ -220,7 +325,10 @@ function checkDocPath(path: string) {
 export function createDoc(path: string, body?: string) {
   path = checkDocPath(path);
   dropped.delete(path);
-  const item = blank(path, 'doc', { title: path, body: body ?? (path.endsWith('.md') ? `# ${baseName(path).replace(/\.md$/, '')}\n\n` : '') });
+  const item = blank(path, 'doc', {
+    title: path,
+    body: body ?? (path.endsWith('.md') ? `# ${baseName(path).replace(/\.md$/, '')}\n\n` : ''),
+  });
   state.items.set(path, item);
   persist(item);
   emit();
@@ -259,8 +367,15 @@ export function toggleLink(specId: string, docId: string) {
 export function deleteItem(id: string) {
   const it = state.items.get(id);
   if (!it) return;
-  if (it.kind === 'doc') for (const s of all('spec').filter((x: Item) => x.links.includes(id))) edit(s.id, { links: s.links.filter((l) => l !== id) });
-  if (it.baseRev === 0) { state.items.delete(id); forget(it); dropped.add(id); emit(); return; }
+  if (it.kind === 'doc')
+    for (const s of all('spec').filter((x: Item) => x.links.includes(id))) edit(s.id, { links: s.links.filter((l) => l !== id) });
+  if (it.baseRev === 0) {
+    state.items.delete(id);
+    forget(it);
+    dropped.add(id);
+    emit();
+    return;
+  }
   Object.assign(it, { del: true, dirty: false, approve: false, revoke: false, editedAt: Date.now(), syncError: null });
   persist(it);
   emit();
@@ -276,21 +391,33 @@ export function moveDoc(oldId: string, newPath: string) {
   const item = blank(path, 'doc', { title: path, body: old.body });
   state.items.set(path, item);
   persist(item);
-  for (const s of all('spec').filter((x: Item) => x.links.includes(oldId))) edit(s.id, { links: s.links.map((l) => (l === oldId ? path : l)) });
-  if (old.baseRev === 0) { state.items.delete(oldId); forget(old); dropped.add(oldId); }
-  else { Object.assign(old, { del: true, dirty: false, editedAt: Date.now(), syncError: null }); persist(old); }
+  for (const s of all('spec').filter((x: Item) => x.links.includes(oldId)))
+    edit(s.id, { links: s.links.map((l) => (l === oldId ? path : l)) });
+  if (old.baseRev === 0) {
+    state.items.delete(oldId);
+    forget(old);
+    dropped.add(oldId);
+  } else {
+    Object.assign(old, { del: true, dirty: false, editedAt: Date.now(), syncError: null });
+    persist(old);
+  }
   emit();
   sync();
   return item;
 }
 
-
 // ------------------------------------------------------------ folders, foundation documents
 /** All folder paths of the team: explicit folder items plus every parent implied by a document path. */
 export function folderPaths() {
   const set = new Set(all('folder').map((f) => f.id));
-  for (const d of all('doc')) { const parts = d.id.split('/').slice(0, -1); parts.forEach((_, i) => set.add(parts.slice(0, i + 1).join('/'))); }
-  for (const f of [...set]) { const parts = f.split('/'); parts.forEach((_, i) => set.add(parts.slice(0, i + 1).join('/'))); }
+  for (const d of all('doc')) {
+    const parts = d.id.split('/').slice(0, -1);
+    parts.forEach((_, i) => set.add(parts.slice(0, i + 1).join('/')));
+  }
+  for (const f of [...set]) {
+    const parts = f.split('/');
+    parts.forEach((_, i) => set.add(parts.slice(0, i + 1).join('/')));
+  }
   return [...set].sort();
 }
 export const folderEmpty = (path: string) => ![...all('doc'), ...all('folder')].some((x: Item) => x.id.startsWith(`${path}/`));
@@ -312,8 +439,14 @@ export function createFolder(path: string) {
 
 function dropItem(it?: Item) {
   if (!it) return;
-  if (it.baseRev === 0) { state.items.delete(it.id); forget(it); dropped.add(it.id); }
-  else { Object.assign(it, { del: true, dirty: false, approve: false, revoke: false, editedAt: Date.now(), syncError: null }); persist(it); }
+  if (it.baseRev === 0) {
+    state.items.delete(it.id);
+    forget(it);
+    dropped.add(it.id);
+  } else {
+    Object.assign(it, { del: true, dirty: false, approve: false, revoke: false, editedAt: Date.now(), syncError: null });
+    persist(it);
+  }
 }
 export function deleteFolder(path: string) {
   if (!folderEmpty(path)) throw new Error('Move or delete the documents in this folder first');
@@ -331,10 +464,18 @@ export function moveFolder(oldPath: string, newPath: string) {
   const re = (id: string) => newPath + id.slice(oldPath.length);
   for (const f of folderPaths().filter((p) => p === oldPath || p.startsWith(`${oldPath}/`))) {
     const target = re(f);
-    if (!state.items.get(target)) { dropped.delete(target); const it = blank(target, 'folder'); state.items.set(target, it); persist(it); }
+    if (!state.items.get(target)) {
+      dropped.delete(target);
+      const it = blank(target, 'folder');
+      state.items.set(target, it);
+      persist(it);
+    }
   }
   for (const d of all('doc').filter((x: Item) => x.id.startsWith(`${oldPath}/`))) moveDoc(d.id, re(d.id));
-  for (const f of all('folder').filter((x: Item) => x.id === oldPath || x.id.startsWith(`${oldPath}/`)).sort((a: any, b: any) => b.id.length - a.id.length)) dropItem(f);
+  for (const f of all('folder')
+    .filter((x: Item) => x.id === oldPath || x.id.startsWith(`${oldPath}/`))
+    .sort((a: any, b: any) => b.id.length - a.id.length))
+    dropItem(f);
   emit();
   sync();
 }
@@ -342,7 +483,13 @@ export function moveFolder(oldPath: string, newPath: string) {
 /** Foundation documents are always available to agents (vision, strategy, glossary, anything pinned). */
 export const foundationDocs = () => {
   const order = ['vision.md', 'strategy.md', 'guardrails.md'];
-  return all('doc').filter((d) => d.pinned && !isGlossaryPath(d.id)).sort((a: any, b: any) => (order.indexOf(a.id) < 0 ? 9 : order.indexOf(a.id)) - (order.indexOf(b.id) < 0 ? 9 : order.indexOf(b.id)) || a.id.localeCompare(b.id));
+  return all('doc')
+    .filter((d) => d.pinned && !isGlossaryPath(d.id))
+    .sort(
+      (a: any, b: any) =>
+        (order.indexOf(a.id) < 0 ? 9 : order.indexOf(a.id)) - (order.indexOf(b.id) < 0 ? 9 : order.indexOf(b.id)) ||
+        a.id.localeCompare(b.id),
+    );
 };
 export const setPinned = (id: string, on: boolean) => edit(id, { pinned: !!on });
 
@@ -359,16 +506,33 @@ export async function createTeam(name: string) {
   await adoptMe(res.me, res.team.id);
   return res.team;
 }
-export async function acceptInvite(id: string) { const r = await api('POST', `/api/me/invites/${id}/accept`); await adoptMe(r.me, r.teamId); }
-export async function declineInvite(id: string) { const r = await api('POST', `/api/me/invites/${id}/decline`); await adoptMe(r.me); }
-export async function leaveTeam() { const r = await teamApi('POST', '/leave'); state.maps.delete(state.teamId); await adoptMe(r.me, null); }
+export async function acceptInvite(id: string) {
+  const r = await api('POST', `/api/me/invites/${id}/accept`);
+  await adoptMe(r.me, r.teamId);
+}
+export async function declineInvite(id: string) {
+  const r = await api('POST', `/api/me/invites/${id}/decline`);
+  await adoptMe(r.me);
+}
+export async function leaveTeam() {
+  const r = await teamApi('POST', '/leave');
+  state.maps.delete(state.teamId);
+  await adoptMe(r.me, null);
+}
 
 export function resolveConflict(id: string, choice: 'server' | 'mine') {
   const it = state.items.get(id)!;
   const srv = it.conflict;
   if (!srv) return;
   if (choice === 'server') {
-    if (srv.deleted) { state.items.delete(id); forget(it); } else { const next = fromServer(srv, it.team); state.items.set(id, next); persist(next); }
+    if (srv.deleted) {
+      state.items.delete(id);
+      forget(it);
+    } else {
+      const next = fromServer(srv, it.team);
+      state.items.set(id, next);
+      persist(next);
+    }
   } else {
     Object.assign(it, { baseRev: srv.rev, conflict: null, dirty: true, localSeq: it.localSeq + 1 }, serverMeta(srv));
     persist(it);
@@ -379,12 +543,37 @@ export function resolveConflict(id: string, choice: 'server' | 'mine') {
 
 // ------------------------------------------------------------ sync engine
 const serverMeta = (s: any) => ({
-  core: !!s.core, rev: s.rev, status: s.status, version: s.version, releasedRev: s.releasedRev,
-  releasedAt: s.releasedAt, releasedBy: s.releasedBy, updatedBy: s.updatedBy, updatedVia: s.updatedVia ?? null, fetchedAt: s.fetchedAt, createdAt: s.createdAt, updatedAt: s.updatedAt,
+  core: !!s.core,
+  rev: s.rev,
+  status: s.status,
+  version: s.version,
+  releasedRev: s.releasedRev,
+  releasedAt: s.releasedAt,
+  releasedBy: s.releasedBy,
+  updatedBy: s.updatedBy,
+  updatedVia: s.updatedVia ?? null,
+  fetchedAt: s.fetchedAt,
+  createdAt: s.createdAt,
+  updatedAt: s.updatedAt,
 });
 const fromServer = (s: any, tid: string): Item => ({
-  id: s.id, team: tid, kind: s.kind, title: s.title, body: s.body, links: s.links, pinned: !!s.pinned, specType: s.specType ?? DEFAULT_TYPE, ...serverMeta(s),
-  dirty: false, baseRev: s.rev, approve: false, revoke: false, del: false, conflict: null, localSeq: 1, editedAt: null,
+  id: s.id,
+  team: tid,
+  kind: s.kind,
+  title: s.title,
+  body: s.body,
+  links: s.links,
+  pinned: !!s.pinned,
+  specType: s.specType ?? DEFAULT_TYPE,
+  ...serverMeta(s),
+  dirty: false,
+  baseRev: s.rev,
+  approve: false,
+  revoke: false,
+  del: false,
+  conflict: null,
+  localSeq: 1,
+  editedAt: null,
 });
 
 let again = false;
@@ -398,14 +587,22 @@ export async function sync() {
     for (const t of [...state.me.teams]) await syncTeam(t.id);
     state.lastSync = Date.now();
     state.online = true;
-    await Promise.all([meta('cursors', state.cursors), meta('fetched', state.fetched), meta('lastSync', state.lastSync), meta('types', state.types)]);
+    await Promise.all([
+      meta('cursors', state.cursors),
+      meta('fetched', state.fetched),
+      meta('lastSync', state.lastSync),
+      meta('types', state.types),
+    ]);
   } catch (e: any) {
     state.error = e.message;
     if (e instanceof TypeError) state.online = false; // network failure
   } finally {
     state.syncing = false;
     emit();
-    if (again) { again = false; sync(); }
+    if (again) {
+      again = false;
+      sync();
+    }
   }
 }
 
@@ -413,16 +610,35 @@ async function syncTeam(tid: string) {
   const map = mapOf(tid);
   const sent = [...map.values()].filter((i) => isPending(i) && !i.conflict);
   const changes = sent.map((i): any => ({
-    id: i.id, kind: i.kind, baseRev: i.baseRev, approve: i.approve, revoke: i.revoke, delete: i.del || undefined,
-    fields: i.dirty && !i.del ? (i.kind === 'doc' ? { title: i.title, body: i.body, links: i.links, pinned: !!i.pinned } : { title: i.title, body: i.body, links: i.links, specType: i.specType }) : {},
+    id: i.id,
+    kind: i.kind,
+    baseRev: i.baseRev,
+    approve: i.approve,
+    revoke: i.revoke,
+    delete: i.del || undefined,
+    fields:
+      i.dirty && !i.del
+        ? i.kind === 'doc'
+          ? { title: i.title, body: i.body, links: i.links, pinned: !!i.pinned }
+          : { title: i.title, body: i.body, links: i.links, specType: i.specType }
+        : {},
     ls: i.localSeq,
   }));
   const fbSent: FbOp[] = [...(state.fbOps[tid] ?? [])];
   let data: any;
   try {
-    data = await api('POST', `/api/teams/${tid}/sync`, { since: state.cursors[tid] ?? 0, fetchedSince: state.fetched[tid] ?? '', changes, gardenRev: state.garden[tid]?.rev ?? -1, ...(fbSent.length ? { feedbackOps: fbSent.map(({ id, status, answer, reply }) => ({ id, status, answer, reply })) } : {}) });
+    data = await api('POST', `/api/teams/${tid}/sync`, {
+      since: state.cursors[tid] ?? 0,
+      fetchedSince: state.fetched[tid] ?? '',
+      changes,
+      gardenRev: state.garden[tid]?.rev ?? -1,
+      ...(fbSent.length ? { feedbackOps: fbSent.map(({ id, status, answer, reply }) => ({ id, status, answer, reply })) } : {}),
+    });
   } catch (e: any) {
-    if (e.status === 401) { state.sessionExpired = true; throw new Error('Session expired – sign in again to sync'); }
+    if (e.status === 401) {
+      state.sessionExpired = true;
+      throw new Error('Session expired – sign in again to sync');
+    }
     if (e.status === 404) return; // team no longer accessible; refreshMe will drop it
     throw e;
   }
@@ -432,7 +648,13 @@ async function syncTeam(tid: string) {
   for (const srv of data.items) {
     const local = map.get(srv.id);
     if (local && isPending(local)) continue;
-    if (srv.deleted) { if (local) { map.delete(srv.id); await forget(local); } continue; }
+    if (srv.deleted) {
+      if (local) {
+        map.delete(srv.id);
+        await forget(local);
+      }
+      continue;
+    }
     const next = fromServer(srv, tid);
     if (dropped.has(srv.id)) next.del = true; // the user already removed it while the push was in flight
     map.set(srv.id, next);
@@ -442,61 +664,110 @@ async function syncTeam(tid: string) {
   for (const r of data.results) {
     const local = map.get(r.id);
     const ch = changes.find((c) => c.id === r.id);
-    if (!local && r.status === 'applied' && r.item && dropped.has(r.id)) { // created on the server after the user removed it locally
-      const back = fromServer(r.item, tid); back.del = true; map.set(r.id, back); await persist(back); continue;
+    if (!local && r.status === 'applied' && r.item && dropped.has(r.id)) {
+      // created on the server after the user removed it locally
+      const back = fromServer(r.item, tid);
+      back.del = true;
+      map.set(r.id, back);
+      await persist(back);
+      continue;
     }
     if (!local || !ch) continue;
     if (r.status === 'applied') {
-      if (r.deleted) { dropped.delete(r.id); map.delete(r.id); await forget(local); continue; }
-      if (local.localSeq === ch.ls) { map.set(r.id, fromServer(r.item, tid)); if (dropped.has(r.id)) map.get(r.id)!.del = true; }
-      else Object.assign(local, serverMeta(r.item), { baseRev: r.item.rev, approve: false, revoke: false }); // edited meanwhile
+      if (r.deleted) {
+        dropped.delete(r.id);
+        map.delete(r.id);
+        await forget(local);
+        continue;
+      }
+      if (local.localSeq === ch.ls) {
+        map.set(r.id, fromServer(r.item, tid));
+        if (dropped.has(r.id)) map.get(r.id)!.del = true;
+      } else Object.assign(local, serverMeta(r.item), { baseRev: r.item.rev, approve: false, revoke: false }); // edited meanwhile
     } else if (r.status === 'conflict') {
       local.conflict = r.server ?? { ...local, rev: 0, deleted: true };
     } else {
       local.syncError = r.message;
       if (local.del) local.del = false; // refused deletion: bring the item back
-      if (r.forbidden) { local.approve = false; local.revoke = false; }
+      if (r.forbidden) {
+        local.approve = false;
+        local.revoke = false;
+      }
     }
     if (map.has(r.id)) await persist(map.get(r.id)!);
   }
   // agent reads: only the time changes, the item itself is not sent again
   for (const [id, at] of Object.entries((data.fetched ?? {}) as Record<string, string>)) {
     const it = map.get(id);
-    if (it && it.fetchedAt !== at) { it.fetchedAt = at; await persist(it); }
+    if (it && it.fetchedAt !== at) {
+      it.fetchedAt = at;
+      await persist(it);
+    }
   }
   if (typeof data.fetchedCursor === 'string') state.fetched[tid] = data.fetchedCursor;
   if (data.specTypes) state.types[tid] = data.specTypes;
   state.feedback[tid] = data.feedbackOpen ?? {};
   await adoptGarden(tid, data, fbSent);
   state.cursors[tid] = data.cursor;
-  if (data.me) { state.me = data.me; await meta('me', data.me); }
+  if (data.me) {
+    state.me = data.me;
+    await meta('me', data.me);
+  }
   state.project = data.project;
   state.mcpUrl = data.mcpUrl;
   if (!state.me.teams.some((t: TeamInfo) => t.id === state.teamId)) pickTeam(null);
 }
 
-
 // ------------------------------------------------------------ glossary: global terms + term files
 export async function loadGlobalGlossary() {
   try {
     const { terms } = await api('GET', '/api/glossary/global');
-    if (JSON.stringify(terms) !== JSON.stringify(state.globalTerms)) { state.globalTerms = terms; await meta('globalTerms', terms); emit(); }
-  } catch { /* offline: keep the cached list */ }
+    if (JSON.stringify(terms) !== JSON.stringify(state.globalTerms)) {
+      state.globalTerms = terms;
+      await meta('globalTerms', terms);
+      emit();
+    }
+  } catch {
+    /* offline: keep the cached list */
+  }
   return state.globalTerms;
 }
-export const parseOrigin = (o?: string | null) => { const m = /^global:([\w-]+)@(\d+)$/i.exec(o ?? ''); return m ? { id: m[1], rev: Number(m[2]) } : null; };
+export const parseOrigin = (o?: string | null) => {
+  const m = /^global:([\w-]+)@(\d+)$/i.exec(o ?? '');
+  return m ? { id: m[1], rev: Number(m[2]) } : null;
+};
 
 // The glossary is a folder of term files (docs/glossary/<folder>/<term>.md, shared/glossaryFiles.js). Sub-folders group terms;
 // glossary/_proposed/ holds terms agents proposed until an approver accepts them.
 export const termItems = (): Item[] => all('doc').filter((d) => isTermPath(d.id) && !!parseTermFile(d.body));
 export const proposedItems = (): Item[] => all('doc').filter((d) => isProposedPath(d.id) && !!parseTermFile(d.body));
 /** Folder paths of the glossary relative to glossary/ ("Billing", "Billing/Invoices"), sorted. */
-export const glossaryFolders = (): string[] => folderPaths().filter((p) => p.startsWith(`${GLOSSARY_DIR}/`) && !isProposedPath(p)).map((p) => p.slice(GLOSSARY_DIR.length + 1)).sort((a, b) => a.localeCompare(b));
-const findTerm = (name: string, except?: string) => termItems().find((d) => d.id !== except && parseTermFile(d.body)!.term.toLowerCase() === name.trim().toLowerCase());
+export const glossaryFolders = (): string[] =>
+  folderPaths()
+    .filter((p) => p.startsWith(`${GLOSSARY_DIR}/`) && !isProposedPath(p))
+    .map((p) => p.slice(GLOSSARY_DIR.length + 1))
+    .sort((a, b) => a.localeCompare(b));
+const findTerm = (name: string, except?: string) =>
+  termItems().find((d) => d.id !== except && parseTermFile(d.body)!.term.toLowerCase() === name.trim().toLowerCase());
 export const termByName = (name: string) => findTerm(name);
-const cleanFolder = (f: string) => String(f ?? '').split('/').map((x) => x.trim()).filter(Boolean).map(folderSegment).join('/');
+const cleanFolder = (f: string) =>
+  String(f ?? '')
+    .split('/')
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .map(folderSegment)
+    .join('/');
 
-export interface TermInput { term: string; body: string; aliases?: string[]; avoid?: string[]; distinct?: string[]; see?: string[]; folder?: string; origin?: string | null }
+export interface TermInput {
+  term: string;
+  body: string;
+  aliases?: string[];
+  avoid?: string[];
+  distinct?: string[];
+  see?: string[];
+  folder?: string;
+  origin?: string | null;
+}
 function checkTerm(t: TermInput, except?: string) {
   const term = t.term.trim();
   if (!term) throw new Error('Enter a term');
@@ -508,7 +779,10 @@ function checkTerm(t: TermInput, except?: string) {
 
 /** Every item that references `name` ([[name]], #[name], See also …) except `skip`, with the number of references. */
 export function referencesTo(name: string, skip?: string): { item: Item; n: number }[] {
-  return [...all('spec'), ...all('doc')].filter((i) => i.id !== skip && !isProposedPath(i.id)).map((item) => ({ item, n: refsIn(item.id, item.body, name) })).filter((x) => x.n > 0);
+  return [...all('spec'), ...all('doc')]
+    .filter((i) => i.id !== skip && !isProposedPath(i.id))
+    .map((item) => ({ item, n: refsIn(item.id, item.body, name) }))
+    .filter((x) => x.n > 0);
 }
 function rewriteAll(from: string, to: string | null, skip?: string) {
   for (const { item } of referencesTo(from, skip)) {
@@ -526,14 +800,39 @@ export function saveTerm(t: TermInput, opts: { path?: string; updateRefs?: boole
   const term = t.term.trim();
   const folder = cleanFolder(t.folder ?? (old ? termFolder(old.id) : ''));
   const renamed = !!prev && prev.term !== term;
-  const aliases = [...new Set([...(t.aliases ?? []), ...(renamed && opts.keepAlias && prev!.term.toLowerCase() !== term.toLowerCase() ? [prev!.term] : [])])].filter((a) => a.toLowerCase() !== term.toLowerCase());
-  const body = formatTermFile({ term, body: t.body, aliases, avoid: t.avoid ?? [], distinct: t.distinct ?? [], see: t.see ?? [], origin: t.origin !== undefined ? t.origin : prev?.origin ?? null });
-  const sameName = old && slugify(term) === old.id.split('/').pop()!.replace(/(-\d+)?\.md$/, '');
-  const target = old && sameName && termFolder(old.id) === folder ? old.id : termPath(folder, term, (p: string) => p !== old?.id && !!get(p));
-  if (!old) { createDoc(target, body); edit(target, { pinned: true }); }
-  else {
+  const aliases = [
+    ...new Set([
+      ...(t.aliases ?? []),
+      ...(renamed && opts.keepAlias && prev!.term.toLowerCase() !== term.toLowerCase() ? [prev!.term] : []),
+    ]),
+  ].filter((a) => a.toLowerCase() !== term.toLowerCase());
+  const body = formatTermFile({
+    term,
+    body: t.body,
+    aliases,
+    avoid: t.avoid ?? [],
+    distinct: t.distinct ?? [],
+    see: t.see ?? [],
+    origin: t.origin !== undefined ? t.origin : (prev?.origin ?? null),
+  });
+  const sameName =
+    old &&
+    slugify(term) ===
+      old.id
+        .split('/')
+        .pop()!
+        .replace(/(-\d+)?\.md$/, '');
+  const target =
+    old && sameName && termFolder(old.id) === folder ? old.id : termPath(folder, term, (p: string) => p !== old?.id && !!get(p));
+  if (!old) {
+    createDoc(target, body);
+    edit(target, { pinned: true });
+  } else {
     if (body !== old.body) edit(old.id, { body });
-    if (target !== old.id) { moveDoc(old.id, target); edit(target, { pinned: true }); }
+    if (target !== old.id) {
+      moveDoc(old.id, target);
+      edit(target, { pinned: true });
+    }
   }
   if (renamed && opts.updateRefs) rewriteAll(prev!.term, term, target);
   return target;
@@ -541,7 +840,8 @@ export function saveTerm(t: TermInput, opts: { path?: string; updateRefs?: boole
 
 /** Removes a term. References become plain text, or (merge) point to another term which takes over the name as a synonym. */
 export function deleteTerm(path: string, mode: 'unlink' | 'merge' = 'unlink', into?: string) {
-  const it = get(path); const t = it && parseTermFile(it.body);
+  const it = get(path);
+  const t = it && parseTermFile(it.body);
   if (!it || !t) return;
   if (mode === 'merge' && into) {
     const target = termByName(into);
@@ -566,9 +866,11 @@ export function renameGlossaryFolder(from: string, to: string) {
   const p = cleanFolder(to);
   if (!p) throw new Error('Give the folder a name');
   if (p.split('/')[0].startsWith('_')) throw new Error('Folder names cannot start with _');
-  if (p.toLowerCase() !== from.toLowerCase() && glossaryFolders().some((f) => f.toLowerCase() === p.toLowerCase())) throw new Error(`“${p}” already exists`);
+  if (p.toLowerCase() !== from.toLowerCase() && glossaryFolders().some((f) => f.toLowerCase() === p.toLowerCase()))
+    throw new Error(`“${p}” already exists`);
   moveFolder(`${GLOSSARY_DIR}/${from}`, `${GLOSSARY_DIR}/${p}`);
-  for (const d of all('doc').filter((x) => x.id.startsWith(`${GLOSSARY_DIR}/${p}/`) && isTermPath(x.id))) if (!d.pinned) edit(d.id, { pinned: true });
+  for (const d of all('doc').filter((x) => x.id.startsWith(`${GLOSSARY_DIR}/${p}/`) && isTermPath(x.id)))
+    if (!d.pinned) edit(d.id, { pinned: true });
   return p;
 }
 export function deleteGlossaryFolder(path: string) {
@@ -578,40 +880,76 @@ export function deleteGlossaryFolder(path: string) {
 
 /** Adds terms (import from the global glossary or a file). mode: skip terms that exist, or overwrite them. */
 export function importTerms(list: (TermInput & { origin?: string | null })[], mode: 'skip' | 'overwrite' = 'skip') {
-  let added = 0, updated = 0, skipped = 0;
+  let added = 0,
+    updated = 0,
+    skipped = 0;
   for (const t of list) {
     const cur = findTerm(t.term);
-    if (cur && mode === 'skip') { skipped++; continue; }
+    if (cur && mode === 'skip') {
+      skipped++;
+      continue;
+    }
     try {
       const prev = cur ? parseTermFile(cur.body)! : null;
-      saveTerm({ ...t, folder: t.folder ?? (cur ? termFolder(cur.id) : ''), avoid: t.avoid ?? prev?.avoid, distinct: t.distinct ?? prev?.distinct }, { path: cur?.id });
+      saveTerm(
+        {
+          ...t,
+          folder: t.folder ?? (cur ? termFolder(cur.id) : ''),
+          avoid: t.avoid ?? prev?.avoid,
+          distinct: t.distinct ?? prev?.distinct,
+        },
+        { path: cur?.id },
+      );
       cur ? updated++ : added++;
-    } catch { skipped++; }
+    } catch {
+      skipped++;
+    }
   }
   return { added, updated, skipped };
 }
 export function importGlobalTerms(ids: string[], folder = '') {
   const picked = state.globalTerms.filter((g: any) => ids.includes(g.id));
-  return importTerms(picked.map((g: any) => ({ term: g.term, body: g.definition, aliases: g.aliases, see: g.see, folder, origin: `global:${g.id}@${g.rev}` }))).added;
+  return importTerms(
+    picked.map((g: any) => ({
+      term: g.term,
+      body: g.definition,
+      aliases: g.aliases,
+      see: g.see,
+      folder,
+      origin: `global:${g.id}@${g.rev}`,
+    })),
+  ).added;
 }
 /** Replace a term's text with the newer revision from the global glossary (words to avoid, folder and distinctions stay). */
 export function updateFromGlobal(path: string, g: any) {
-  const it = get(path); const t = it && parseTermFile(it.body);
+  const it = get(path);
+  const t = it && parseTermFile(it.body);
   if (!it || !t) return;
   edit(path, { body: formatTermFile({ ...t, body: g.definition, aliases: g.aliases, see: g.see, origin: `global:${g.id}@${g.rev}` }) });
 }
 /** Keep the local text but stop offering this revision of the global term. */
 export function keepLocalVersion(path: string, g: any) {
-  const it = get(path); const t = it && parseTermFile(it.body);
+  const it = get(path);
+  const t = it && parseTermFile(it.body);
   if (it && t) edit(path, { body: formatTermFile({ ...t, origin: `global:${g.id}@${g.rev}` }) });
 }
 
 /** Accepting a proposed term (approvers): it moves into a folder of the glossary and goes live like any term. */
 export function acceptProposed(path: string, folder: string, patch: Partial<TermInput> = {}) {
   if (!can('approve')) throw new Error('Only approvers accept proposed terms');
-  const it = get(path); const t = it && parseTermFile(it.body);
+  const it = get(path);
+  const t = it && parseTermFile(it.body);
   if (!it || !t) throw new Error('This proposal no longer exists');
-  const target = saveTerm({ term: t.term, body: t.body, aliases: t.aliases, avoid: t.avoid, distinct: t.distinct, see: t.see, ...patch, folder });
+  const target = saveTerm({
+    term: t.term,
+    body: t.body,
+    aliases: t.aliases,
+    avoid: t.avoid,
+    distinct: t.distinct,
+    see: t.see,
+    ...patch,
+    folder,
+  });
   deleteItem(path);
   return target;
 }
@@ -621,7 +959,11 @@ export function dropDefinition(body: string, term: string) {
   return serializeBlocks(blocks);
 }
 export function renameDefinition(body: string, term: string, name: string) {
-  return serializeBlocks(parseBlocks(body).map((b: any) => (b.type === 'def' && b.term.trim().toLowerCase() === term.trim().toLowerCase() ? { ...b, term: name.trim() } : b)));
+  return serializeBlocks(
+    parseBlocks(body).map((b: any) =>
+      b.type === 'def' && b.term.trim().toLowerCase() === term.trim().toLowerCase() ? { ...b, term: name.trim() } : b,
+    ),
+  );
 }
 export function declineProposed(path: string) {
   if (!can('approve')) throw new Error('Only approvers decline proposed terms');
@@ -633,10 +975,20 @@ export function declineProposed(path: string) {
 export function applyOp(f: any, op: FbPatch, by?: string | null): any {
   const n = { ...f };
   if (op.reply !== undefined) n.reply = op.reply;
-  if (op.answer !== undefined && op.answer !== null) { n.answer = op.answer; n.status = 'answered'; }
-  else if (op.status) { n.status = op.status; if (op.status === 'open' && f.kind === 'decision') n.answer = null; }
-  if (n.status === 'open') { n.resolvedBy = null; n.resolvedAt = null; }
-  else if (n.status !== f.status || !n.resolvedAt) { n.resolvedBy = by ?? n.resolvedBy ?? null; n.resolvedAt = new Date().toISOString(); }
+  if (op.answer !== undefined && op.answer !== null) {
+    n.answer = op.answer;
+    n.status = 'answered';
+  } else if (op.status) {
+    n.status = op.status;
+    if (op.status === 'open' && f.kind === 'decision') n.answer = null;
+  }
+  if (n.status === 'open') {
+    n.resolvedBy = null;
+    n.resolvedAt = null;
+  } else if (n.status !== f.status || !n.resolvedAt) {
+    n.resolvedBy = by ?? n.resolvedBy ?? null;
+    n.resolvedAt = new Date().toISOString();
+  }
   return n;
 }
 let opSeq = Date.now();
@@ -649,13 +1001,20 @@ export function fbAct(entry: any, patch: FbPatch) {
   const ops: FbOp[] = state.fbOps[tid] ?? (state.fbOps[tid] = []);
   const prev = ops.find((o) => o.id === entry.id);
   const merged: FbOp = {
-    id: entry.id, n: ++opSeq, reply: patch.reply ?? prev?.reply,
-    ...(patch.answer !== undefined && patch.answer !== null ? { answer: patch.answer } : patch.status ? { status: patch.status } : { status: prev?.status, answer: prev?.answer }),
+    id: entry.id,
+    n: ++opSeq,
+    reply: patch.reply ?? prev?.reply,
+    ...(patch.answer !== undefined && patch.answer !== null
+      ? { answer: patch.answer }
+      : patch.status
+        ? { status: patch.status }
+        : { status: prev?.status, answer: prev?.answer }),
   };
   state.fbOps[tid] = [...ops.filter((o) => o.id !== entry.id), merged];
   const next = applyOp(g.feedback.find((f) => f.id === entry.id) ?? entry, patch, state.me?.name);
   g.feedback = g.feedback.some((f) => f.id === entry.id) ? g.feedback.map((f) => (f.id === entry.id ? next : f)) : [next, ...g.feedback];
-  meta('garden', state.garden); meta('fbOps', state.fbOps);
+  meta('garden', state.garden);
+  meta('fbOps', state.fbOps);
   emit();
   sync();
   return next;
@@ -665,23 +1024,44 @@ async function adoptGarden(tid: string, data: any, sent: FbOp[]) {
   const done = new Set(sent.map((o) => o.n));
   const left: FbOp[] = (state.fbOps[tid] ?? []).filter((o: FbOp) => !done.has(o.n)); // made while the request was on its way
   const refused = (data.fbResults ?? []).filter((r: any) => !r.ok);
-  if (refused.length) state.gardenNotice = `${refused.length === 1 ? 'One answer was' : `${refused.length} answers were`} not accepted: ${refused[0].error}`;
-  if (sent.length || left.length !== (state.fbOps[tid] ?? []).length) { state.fbOps[tid] = left; await meta('fbOps', state.fbOps); }
+  if (refused.length)
+    state.gardenNotice = `${refused.length === 1 ? 'One answer was' : `${refused.length} answers were`} not accepted: ${refused[0].error}`;
+  if (sent.length || left.length !== (state.fbOps[tid] ?? []).length) {
+    state.fbOps[tid] = left;
+    await meta('fbOps', state.fbOps);
+  }
   if (data.garden) {
-    const g: Garden = { rev: data.garden.rev, feedback: data.garden.feedback ?? [], reports: data.garden.reports ?? {}, checks: data.garden.checks ?? {}, agents: data.garden.agents, claims: data.garden.claims ?? {}, steering: data.garden.steering ?? {}, guardrailDrift: data.garden.guardrailDrift ?? {} };
+    const g: Garden = {
+      rev: data.garden.rev,
+      feedback: data.garden.feedback ?? [],
+      reports: data.garden.reports ?? {},
+      checks: data.garden.checks ?? {},
+      agents: data.garden.agents,
+      claims: data.garden.claims ?? {},
+      steering: data.garden.steering ?? {},
+      guardrailDrift: data.garden.guardrailDrift ?? {},
+    };
     for (const op of left) g.feedback = g.feedback.map((f) => (f.id === op.id ? applyOp(f, op, state.me?.name) : f));
     state.garden[tid] = g;
     await meta('garden', state.garden);
-  } else if (refused.length && state.garden[tid]) { state.garden[tid].rev = -1; again = true; } // what the device shows is wrong: fetch it again
+  } else if (refused.length && state.garden[tid]) {
+    state.garden[tid].rev = -1;
+    again = true;
+  } // what the device shows is wrong: fetch it again
 }
 
 const gardenFb = (): any[] | null => state.garden[state.teamId]?.feedback ?? null;
 /** Everything that waits for a person, oldest first; decisions that block an agent come first. */
-export const openDecisions = (): any[] => (gardenFb() ?? []).filter((f) => f.kind === 'decision' && f.status === 'open')
-  .sort((a, b) => Number(b.blocking) - Number(a.blocking) || a.createdAt.localeCompare(b.createdAt));
-export const answeredDecisions = (): any[] => (gardenFb() ?? []).filter((f) => f.kind === 'decision' && f.status === 'answered')
-  .sort((a, b) => String(b.resolvedAt).localeCompare(String(a.resolvedAt)));
-export const openFeedback = (): any[] => (gardenFb() ?? []).filter((f) => f.kind !== 'decision' && f.status === 'open').sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+export const openDecisions = (): any[] =>
+  (gardenFb() ?? [])
+    .filter((f) => f.kind === 'decision' && f.status === 'open')
+    .sort((a, b) => Number(b.blocking) - Number(a.blocking) || a.createdAt.localeCompare(b.createdAt));
+export const answeredDecisions = (): any[] =>
+  (gardenFb() ?? [])
+    .filter((f) => f.kind === 'decision' && f.status === 'answered')
+    .sort((a, b) => String(b.resolvedAt).localeCompare(String(a.resolvedAt)));
+export const openFeedback = (): any[] =>
+  (gardenFb() ?? []).filter((f) => f.kind !== 'decision' && f.status === 'open').sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 export const specFeedback = (specId: string): any[] => (gardenFb() ?? []).filter((f) => f.specId === specId);
 export const fbPending = (id?: string): number => (state.fbOps[state.teamId] ?? []).filter((o: FbOp) => !id || o.id === id).length;
 export const latestReport = (specId: string): any | null => state.garden[state.teamId]?.reports?.[specId] ?? null;
@@ -690,22 +1070,40 @@ export const specChecks = (specId: string): any[] => state.garden[state.teamId]?
 /** The agents the server has seen (last MCP call, open claims), or null before the first sync with a server that reports them. */
 export const gardenAgents = (): any[] | null => state.garden[state.teamId]?.agents ?? null;
 /** The live claim on a spec: which agent builds it, until when. A claim that ran out since the last sync no longer counts. */
-export const specClaim = (specId: string): any | null => { const c = state.garden[state.teamId]?.claims?.[specId]; return c && Date.parse(c.until) > Date.now() ? c : null; };
+export const specClaim = (specId: string): any | null => {
+  const c = state.garden[state.teamId]?.claims?.[specId];
+  return c && Date.parse(c.until) > Date.now() ? c : null;
+};
 /** Guardrail ids added or reworded since the spec's implemented report (the agent has to check its code against them). */
 export const specDrift = (specId: string): string[] => state.garden[state.teamId]?.guardrailDrift?.[specId] ?? [];
 /** Priority, hold and dependencies a person set for a spec (defaults when nobody did). */
-export const specSteering = (specId: string): Steering => state.garden[state.teamId]?.steering?.[specId] ?? { priority: 'normal', hold: false, depends: [] };
+export const specSteering = (specId: string): Steering =>
+  state.garden[state.teamId]?.steering?.[specId] ?? { priority: 'normal', hold: false, depends: [] };
 /** Saves steering on the server (needs a connection) and keeps the answer for offline use. */
 export async function steer(specId: string, patch: Partial<Steering>) {
   const tid = state.teamId;
   const r: any = await api('PATCH', `/api/teams/${tid}/steering/${encodeURIComponent(specId)}`, patch);
   const g = state.garden[tid];
-  if (g) { g.steering = r.all; await meta('garden', state.garden); }
+  if (g) {
+    g.steering = r.all;
+    await meta('garden', state.garden);
+  }
   emit();
   return r.steering as Steering;
 }
-export const dismissGardenNotice = () => { state.gardenNotice = null; emit(); };
+export const dismissGardenNotice = () => {
+  state.gardenNotice = null;
+  emit();
+};
 
 /** Open entries on a spec (feedback and decisions). From the offline copy, so it follows what was done on this device. */
-export const feedbackCount = (specId: string): number => { const g = gardenFb(); return g ? g.filter((f) => f.specId === specId && f.status === 'open').length : state.feedback?.[state.teamId]?.[specId] ?? 0; };
-export const feedbackTotal = (): number => { const g = gardenFb(); return g ? g.filter((f) => f.status === 'open').length : Object.values<number>(state.feedback?.[state.teamId] ?? {}).reduce((a, b) => a + b, 0); };
+export const feedbackCount = (specId: string): number => {
+  const g = gardenFb();
+  return g ? g.filter((f) => f.specId === specId && f.status === 'open').length : (state.feedback?.[state.teamId]?.[specId] ?? 0);
+};
+export const feedbackTotal = (): number => {
+  const g = gardenFb();
+  return g
+    ? g.filter((f) => f.status === 'open').length
+    : Object.values<number>(state.feedback?.[state.teamId] ?? {}).reduce((a, b) => a + b, 0);
+};

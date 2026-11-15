@@ -5,7 +5,10 @@ import { GIT_ALLOW_HTTP, GIT_ALLOW_LOCAL, GIT_ALLOW_PRIVATE } from './config.js'
 import { gitHost, isPrivateHostLiteral } from './netguard.js';
 
 export class TeamError extends Error {
-  constructor(message, status = 400) { super(message); this.status = status; }
+  constructor(message, status = 400) {
+    super(message);
+    this.status = status;
+  }
 }
 
 const iso = () => new Date().toISOString();
@@ -16,16 +19,31 @@ export const listTeams = () => sql('SELECT * FROM teams ORDER BY name').all().ma
 
 /** Derives a short unique key (spec id prefix) from a team name: "Payments Platform" -> PAYM, PAYM2 … */
 function deriveKey(name) {
-  const base = (name.toUpperCase().replace(/[^A-Z0-9 ]/g, '').split(/\s+/).filter(Boolean).map((w, _, a) => (a.length > 1 ? w.slice(0, 3) : w.slice(0, 4))).join('').replace(/^[0-9]+/, '') || 'TEAM').slice(0, 6).padEnd(2, 'X');
+  const base = (
+    name
+      .toUpperCase()
+      .replace(/[^A-Z0-9 ]/g, '')
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((w, _, a) => (a.length > 1 ? w.slice(0, 3) : w.slice(0, 4)))
+      .join('')
+      .replace(/^[0-9]+/, '') || 'TEAM'
+  )
+    .slice(0, 6)
+    .padEnd(2, 'X');
   let key = base;
   for (let i = 2; getTeamByKey(key); i++) key = `${base.slice(0, 7 - String(i).length)}${i}`;
   return key;
 }
 
 export function createTeam({ name, key, createdBy = null }) {
-  name = String(name ?? '').trim().slice(0, 80);
+  name = String(name ?? '')
+    .trim()
+    .slice(0, 80);
   if (!name) throw new TeamError('Give the team a name');
-  key = String(key ?? '').trim().toUpperCase();
+  key = String(key ?? '')
+    .trim()
+    .toUpperCase();
   if (!key) key = deriveKey(name);
   if (!/^[A-Z][A-Z0-9]{1,7}$/.test(key)) throw new TeamError('Team key: 2–8 letters/digits, starting with a letter (e.g. BILL)');
   if (getTeamByKey(key)) throw new TeamError('A team with this key already exists', 409);
@@ -35,7 +53,9 @@ export function createTeam({ name, key, createdBy = null }) {
 }
 export const teamsCreatedBy = (userId) => sql('SELECT COUNT(*) AS n FROM teams WHERE created_by=?').get(userId).n;
 export function renameTeam(id, name) {
-  name = String(name ?? '').trim().slice(0, 80);
+  name = String(name ?? '')
+    .trim()
+    .slice(0, 80);
   if (!name) throw new TeamError('Give the team a name');
   sql('UPDATE teams SET name=? WHERE id=?').run(name, id);
   return getTeam(id);
@@ -61,13 +81,15 @@ export function setFeedbackMail(id, on) {
 export const FEEDBACK_KEEP_DAYS = [0, 90, 180, 365, 730];
 export function setFeedbackKeepDays(id, days) {
   const n = Number(days);
-  if (!FEEDBACK_KEEP_DAYS.includes(n)) throw new TeamError(`feedbackKeepDays must be one of: ${FEEDBACK_KEEP_DAYS.join(', ')} (0 = keep forever)`);
+  if (!FEEDBACK_KEEP_DAYS.includes(n))
+    throw new TeamError(`feedbackKeepDays must be one of: ${FEEDBACK_KEEP_DAYS.join(', ')} (0 = keep forever)`);
   sql('UPDATE teams SET feedback_keep_days=? WHERE id=?').run(n, id);
   return getTeam(id);
 }
 /** Removes a team and everything that belongs to it (the Git repository directory is removed by the caller). */
 export function deleteTeamRows(id) {
-  for (const t of ['items', 'feedback', 'reports', 'pats', 'oauth_tokens', 'oauth_codes', 'hook_outbox']) sql(`DELETE FROM ${t} WHERE team_id=?`).run(id);
+  for (const t of ['items', 'feedback', 'reports', 'pats', 'oauth_tokens', 'oauth_codes', 'hook_outbox'])
+    sql(`DELETE FROM ${t} WHERE team_id=?`).run(id);
   sql('DELETE FROM teams WHERE id=?').run(id); // memberships + invites cascade
 }
 
@@ -82,9 +104,16 @@ export function validateGitUrl(url) {
   if (/[\s\0]/.test(url) || url.startsWith('-')) throw new TeamError('Invalid repository URL');
   // The server must not be turned into a scanner of its own network: loopback, private and link-local targets are refused
   // (names are resolved again right before every connection, see gitremote.js).
-  const publicHost = () => { if (!GIT_ALLOW_PRIVATE && isPrivateHostLiteral(gitHost(url))) throw new TeamError('This address points into a private or local network (set GIT_ALLOW_PRIVATE=1 on the server to allow that)'); return url; };
+  const publicHost = () => {
+    if (!GIT_ALLOW_PRIVATE && isPrivateHostLiteral(gitHost(url)))
+      throw new TeamError('This address points into a private or local network (set GIT_ALLOW_PRIVATE=1 on the server to allow that)');
+    return url;
+  };
   if (/^https:\/\/[^/]+\/.+/.test(url)) return publicHost();
-  if (/^http:\/\/[^/]+\/.+/.test(url)) { if (GIT_ALLOW_HTTP) return publicHost(); throw new TeamError('Plain http:// remotes are disabled (set GIT_ALLOW_HTTP=1 on the server to allow them)'); }
+  if (/^http:\/\/[^/]+\/.+/.test(url)) {
+    if (GIT_ALLOW_HTTP) return publicHost();
+    throw new TeamError('Plain http:// remotes are disabled (set GIT_ALLOW_HTTP=1 on the server to allow them)');
+  }
   if (/^ssh:\/\/[\w.-]+@[\w.-]+(:\d+)?\/.+/.test(url) || /^[\w.-]+@[\w.-]+:[^\s:][^\s]*$/.test(url)) return publicHost();
   if (url.startsWith('/') && GIT_ALLOW_LOCAL) return url;
   throw new TeamError('Use an https:// or SSH (git@host:org/repo.git) repository URL');
@@ -93,7 +122,14 @@ export function validateGitUrl(url) {
 /** scheme://host:port of a remote – what a stored credential is bound to. */
 export function remoteOrigin(url) {
   const u = String(url ?? '').trim();
-  try { if (/^[a-z][a-z0-9+.-]*:\/\//i.test(u)) { const x = new URL(u); return `${x.protocol}//${x.hostname.toLowerCase()}:${x.port || ''}`; } } catch { /* fall through */ }
+  try {
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(u)) {
+      const x = new URL(u);
+      return `${x.protocol}//${x.hostname.toLowerCase()}:${x.port || ''}`;
+    }
+  } catch {
+    /* fall through */
+  }
   const m = /^[\w.-]+@([\w.-]+):/.exec(u);
   return m ? `ssh://${m[1].toLowerCase()}:` : u;
 }
@@ -101,9 +137,18 @@ export function remoteOrigin(url) {
 export const publicGit = (t) => {
   const r = t.row;
   return {
-    url: r.git_url ?? '', branch: r.git_branch, root: r.git_root, auth: r.git_auth, username: r.git_username ?? '',
-    hasSecret: !!r.git_secret, sshPublicKey: r.git_ssh_public ?? '', autoPush: !!r.git_auto_push,
-    lastPushAt: r.git_last_push_at, lastOk: r.git_last_ok === null ? null : !!r.git_last_ok, lastError: r.git_last_error, lastSha: r.git_last_sha,
+    url: r.git_url ?? '',
+    branch: r.git_branch,
+    root: r.git_root,
+    auth: r.git_auth,
+    username: r.git_username ?? '',
+    hasSecret: !!r.git_secret,
+    sshPublicKey: r.git_ssh_public ?? '',
+    autoPush: !!r.git_auto_push,
+    lastPushAt: r.git_last_push_at,
+    lastOk: r.git_last_ok === null ? null : !!r.git_last_ok,
+    lastError: r.git_last_error,
+    lastSha: r.git_last_sha,
   };
 };
 
@@ -111,7 +156,9 @@ export function saveGitSettings(teamId, s, { rootLocked }) {
   const t = getTeam(teamId);
   const url = validateGitUrl(s.url);
   const branch = String(s.branch ?? t.row.git_branch).trim();
-  const root = String(s.root ?? t.row.git_root).trim().replace(/^\/+|\/+$/g, '');
+  const root = String(s.root ?? t.row.git_root)
+    .trim()
+    .replace(/^\/+|\/+$/g, '');
   const auth = ['none', 'token', 'ssh'].includes(s.auth) ? s.auth : t.row.git_auth;
   if (!BRANCH.test(branch)) throw new TeamError('Invalid branch name');
   if (!ROOT.test(root)) throw new TeamError('Invalid folder (letters, digits, . _ - and / only)');
@@ -125,9 +172,16 @@ export function saveGitSettings(teamId, s, { rootLocked }) {
   if (auth === 'none') secret = null;
   if (auth === 'ssh' && t.row.git_auth !== 'ssh') secret = null; // a token must never be reused as key
   if (auth === 'token' && t.row.git_auth === 'ssh' && !s.token) secret = null;
-  sql(
-    'UPDATE teams SET git_url=?, git_branch=?, git_root=?, git_auth=?, git_username=?, git_secret=?, git_auto_push=? WHERE id=?',
-  ).run(url || null, branch, root, auth, String(s.username ?? '').trim() || null, secret, s.autoPush === false ? 0 : 1, teamId);
+  sql('UPDATE teams SET git_url=?, git_branch=?, git_root=?, git_auth=?, git_username=?, git_secret=?, git_auto_push=? WHERE id=?').run(
+    url || null,
+    branch,
+    root,
+    auth,
+    String(s.username ?? '').trim() || null,
+    secret,
+    s.autoPush === false ? 0 : 1,
+    teamId,
+  );
   return getTeam(teamId);
 }
 export function saveSshKey(teamId, privateKey, publicKey) {
@@ -135,5 +189,11 @@ export function saveSshKey(teamId, privateKey, publicKey) {
 }
 /** @param {string} teamId @param {{ ok: boolean, error?: string, sha?: string }} result */
 export function recordPush(teamId, { ok, error, sha }) {
-  sql('UPDATE teams SET git_last_push_at=?, git_last_ok=?, git_last_error=?, git_last_sha=COALESCE(?, git_last_sha) WHERE id=?').run(iso(), ok ? 1 : 0, error ?? null, sha ?? null, teamId);
+  sql('UPDATE teams SET git_last_push_at=?, git_last_ok=?, git_last_error=?, git_last_sha=COALESCE(?, git_last_sha) WHERE id=?').run(
+    iso(),
+    ok ? 1 : 0,
+    error ?? null,
+    sha ?? null,
+    teamId,
+  );
 }

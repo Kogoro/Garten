@@ -24,7 +24,11 @@ const defaultTeam = await bootstrapAdmin();
 store.ensureFoundation(defaultTeam);
 initAutoPush();
 initHooks();
-if (SEED_DEMO && store.allSpecs(defaultTeam.id).length === 0 && store.allDocs(defaultTeam.id).every((d) => store.isCoreDoc(d.id) && !store.hasContentDoc(d))) {
+if (
+  SEED_DEMO &&
+  store.allSpecs(defaultTeam.id).length === 0 &&
+  store.allDocs(defaultTeam.id).every((d) => store.isCoreDoc(d.id) && !store.hasContentDoc(d))
+) {
   await seedDemo(defaultTeam);
   console.log('seeded demo data');
 }
@@ -38,8 +42,19 @@ app.disable('x-powered-by');
 app.set('trust proxy', TRUST_PROXY);
 // Security headers. The CSP allows only this origin's scripts (no inline script, no eval); styles may be inline (Mermaid, the editor).
 // /oauth has no form-action: its consent form ends in a redirect to the agent's own callback address.
-const CSP_BASE = ["default-src 'self'", "script-src 'self'", "style-src 'self' 'unsafe-inline'", "img-src 'self' data: blob: https:", "font-src 'self' data:", "connect-src 'self'",
-  "worker-src 'self' blob:", "manifest-src 'self'", "object-src 'none'", "base-uri 'none'", "frame-ancestors 'none'"];
+const CSP_BASE = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https:",
+  "font-src 'self' data:",
+  "connect-src 'self'",
+  "worker-src 'self' blob:",
+  "manifest-src 'self'",
+  "object-src 'none'",
+  "base-uri 'none'",
+  "frame-ancestors 'none'",
+];
 const CSP_APP = [...CSP_BASE, "form-action 'self'"].join('; ');
 const CSP_OAUTH = CSP_BASE.join('; ');
 app.use((req, res, next) => {
@@ -54,7 +69,13 @@ app.use((req, res, next) => {
 });
 app.use(compression({ threshold: 1024, filter: (req, res) => (req.path === '/mcp' ? false : compression.filter(req, res)) }));
 app.get('/healthz', (_req, res) => {
-  try { db.prepare('SELECT 1').get(); res.json({ ok: true }); } catch (e) { console.error('healthz:', e); res.status(503).json({ ok: false }); }
+  try {
+    db.prepare('SELECT 1').get();
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('healthz:', e);
+    res.status(503).json({ ok: false });
+  }
 });
 
 // ---- web app API + browser sign-in
@@ -87,19 +108,28 @@ app.all('/mcp', (_req, res) =>
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const webDir = [process.env.WEB_DIR, path.join(root, 'web/dist')].filter(Boolean).find((d) => existsSync(path.join(d, 'index.html')));
 const cacheHeaders = (res, file) => {
-  if (/(^|\/)(sw\.js|index\.html|workbox-[^/]*\.js|manifest\.webmanifest|theme-init\.js|warmup\.json)$/.test(file)) res.setHeader('Cache-Control', 'no-cache');
-  else if (/\/assets\//.test(file)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable'); // file names carry a content hash
+  if (/(^|\/)(sw\.js|index\.html|workbox-[^/]*\.js|manifest\.webmanifest|theme-init\.js|warmup\.json)$/.test(file))
+    res.setHeader('Cache-Control', 'no-cache');
+  else if (/\/assets\//.test(file))
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable'); // file names carry a content hash
   else res.setHeader('Cache-Control', 'public, max-age=86400');
 };
 // The build writes .br / .gz next to compressible files (web/vite.config.ts): serve those to clients that accept them instead of
 // compressing on every request. Files without a precompressed variant (or clients without br/gzip) go on to express.static + compression.
-const PRECOMPRESSED = [['br', '.br'], ['gzip', '.gz']];
+const PRECOMPRESSED = [
+  ['br', '.br'],
+  ['gzip', '.gz'],
+];
 function precompressed(dir) {
   const base = path.resolve(dir);
   return (req, res, next) => {
     if (req.method !== 'GET' && req.method !== 'HEAD') return next();
     let rel;
-    try { rel = decodeURIComponent(req.path); } catch { return next(); }
+    try {
+      rel = decodeURIComponent(req.path);
+    } catch {
+      return next();
+    }
     if (rel.endsWith('/')) rel += 'index.html';
     const file = path.join(base, rel);
     if (!file.startsWith(base + path.sep) || /\0|(^|\/)\./.test(rel) || !isFile(file)) return next(); // as express.static: no dotfiles
@@ -111,18 +141,26 @@ function precompressed(dir) {
     cacheHeaders(res, file);
     res.sendFile(file + ext, { cacheControl: false, dotfiles: 'allow' }, (err) => {
       if (!err || res.headersSent) return;
-      res.removeHeader('Content-Encoding'); res.removeHeader('Content-Type');
-      next(err.code === 'ENOENT' ? undefined : err);                    // gone since the check (rebuild): serve the plain file
+      res.removeHeader('Content-Encoding');
+      res.removeHeader('Content-Type');
+      next(err.code === 'ENOENT' ? undefined : err); // gone since the check (rebuild): serve the plain file
     });
   };
 }
-const isFile = (f) => { try { return statSync(f).isFile(); } catch { return false; } };
+const isFile = (f) => {
+  try {
+    return statSync(f).isFile();
+  } catch {
+    return false;
+  }
+};
 if (!webDir) console.warn('No web build found – run "npm run build" (web/dist) or set WEB_DIR.');
 else app.use(precompressed(webDir), express.static(webDir, { setHeaders: cacheHeaders }));
 
 app.use((err, _req, res, _next) => {
   const status = Number(err?.status ?? err?.statusCode);
-  if (status >= 400 && status < 500) {          // body-parser: malformed JSON (400), body too large (413) …
+  if (status >= 400 && status < 500) {
+    // body-parser: malformed JSON (400), body too large (413) …
     return res.status(status).json({ error: status === 413 ? 'request too large' : status === 400 ? 'bad request' : 'rejected' });
   }
   console.error(err);
@@ -131,7 +169,9 @@ app.use((err, _req, res, _next) => {
 
 // @ts-expect-error -- the optional host is spread in, which the listen() overloads cannot express
 const server = app.listen(PORT, ...(HOST ? [HOST] : []), () => {
-  console.log(`specs listening on ${HOST || ''}:${PORT}  (data: ${DATA_DIR}, public url: ${PUBLIC_URL}${OIDC ? ', sso: ' + OIDC.name : ''})`);
+  console.log(
+    `specs listening on ${HOST || ''}:${PORT}  (data: ${DATA_DIR}, public url: ${PUBLIC_URL}${OIDC ? ', sso: ' + OIDC.name : ''})`,
+  );
 });
 
 // docker stop / systemctl stop: finish running requests, then leave the database in a clean state.
@@ -139,7 +179,14 @@ for (const sig of ['SIGTERM', 'SIGINT']) {
   process.on(sig, () => {
     console.log(`${sig}: shutting down`);
     setTimeout(() => process.exit(1), 8000).unref();
-    server.close(() => { try { db.close(); } catch { /* already closed */ } process.exit(0); });
+    server.close(() => {
+      try {
+        db.close();
+      } catch {
+        /* already closed */
+      }
+      process.exit(0);
+    });
     server.closeIdleConnections?.();
   });
 }

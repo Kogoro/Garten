@@ -9,7 +9,11 @@ function loadKeys() {
   if (SECRET_KEY) return { v1: createHash('sha256').update(SECRET_KEY).digest(), v2: scryptSync(SECRET_KEY, 'garten/secrets/v2', 32) };
   const file = path.join(DATA_DIR, 'secret.key');
   if (!existsSync(file)) writeFileSync(file, randomBytes(32).toString('base64'), { mode: 0o600 });
-  try { chmodSync(file, 0o600); } catch { /* not ours to change */ }
+  try {
+    chmodSync(file, 0o600);
+  } catch {
+    /* not ours to change */
+  }
   const raw = Buffer.from(readFileSync(file, 'utf8').trim(), 'base64'); // already 32 random bytes: no derivation needed
   return { v1: raw, v2: raw };
 }

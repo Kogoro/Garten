@@ -15,15 +15,30 @@ export class Repo {
   }
 
   raw(env, ...args) {
-    return run('git', args, { cwd: this.dir, maxBuffer: 32 * 1024 * 1024, timeout: 120000, killSignal: 'SIGKILL', env: childEnv(env ?? {}) }).then((r) => r.stdout);
+    return run('git', args, {
+      cwd: this.dir,
+      maxBuffer: 32 * 1024 * 1024,
+      timeout: 120000,
+      killSignal: 'SIGKILL',
+      env: childEnv(env ?? {}),
+    }).then((r) => r.stdout);
   }
 
   /** git in the repo; initialises it on first use. */
-  async git(...args) { await this.ensure(); return this.raw(null, ...args); }
-  async gitWith(env, ...args) { await this.ensure(); return this.raw(env, ...args); }
+  async git(...args) {
+    await this.ensure();
+    return this.raw(null, ...args);
+  }
+  async gitWith(env, ...args) {
+    await this.ensure();
+    return this.raw(env, ...args);
+  }
   ensure() {
     // A failed init is not cached: the next call tries again.
-    return (this.ready ??= this.init().catch((e) => { this.ready = null; throw e; }));
+    return (this.ready ??= this.init().catch((e) => {
+      this.ready = null;
+      throw e;
+    }));
   }
   /** Run `fn` while no other mutation (commit, push) is in flight. */
   lock(fn) {
@@ -44,23 +59,43 @@ export class Repo {
     for (const [i, part] of parts.entries()) {
       cur = path.join(cur, part);
       let st;
-      try { st = lstatSync(cur); } catch (e) { if (e.code === 'ENOENT' || e.code === 'ENOTDIR') break; throw e; }
+      try {
+        st = lstatSync(cur);
+      } catch (e) {
+        if (e.code === 'ENOENT' || e.code === 'ENOTDIR') break;
+        throw e;
+      }
       if (st.isSymbolicLink() && !(allowLeaf && i === parts.length - 1)) throw new Error(`unsafe path (symbolic link): ${rel}`);
     }
-    try { // belt and braces: the real location of the deepest existing ancestor must be inside the real repository
+    try {
+      // belt and braces: the real location of the deepest existing ancestor must be inside the real repository
       let probe = allowLeaf ? path.dirname(abs) : abs;
-      while (probe !== this.dir) { try { realpathSync(probe); break; } catch { probe = path.dirname(probe); } }
+      while (probe !== this.dir) {
+        try {
+          realpathSync(probe);
+          break;
+        } catch {
+          probe = path.dirname(probe);
+        }
+      }
       const real = realpathSync(probe);
       const base = realpathSync(this.dir);
       if (real !== base && !real.startsWith(base + path.sep)) throw new Error(`unsafe path: ${rel}`);
-    } catch (e) { if (/^unsafe path/.test(e.message)) throw e; }
+    } catch (e) {
+      if (/^unsafe path/.test(e.message)) throw e;
+    }
     return abs;
   }
 
   /** Symbolic links and submodules never belong into the working tree: remove them from index and disk. Returns the removed paths. */
   async dropLinks() {
     const out = await this.raw(null, 'ls-files', '-s', '-z');
-    const bad = out.split('\0').filter(Boolean).map((l) => /^(\d+) \S+ \d\t([\s\S]*)$/.exec(l)).filter((m) => m && (m[1] === '120000' || m[1] === '160000')).map((m) => m[2]);
+    const bad = out
+      .split('\0')
+      .filter(Boolean)
+      .map((l) => /^(\d+) \S+ \d\t([\s\S]*)$/.exec(l))
+      .filter((m) => m && (m[1] === '120000' || m[1] === '160000'))
+      .map((m) => m[2]);
     for (const f of bad) await this.raw(null, 'rm', '-q', '-f', '--cached', '--', f).catch(() => {});
     for (const f of bad) await rm(path.join(this.dir, f), { recursive: true, force: true }).catch(() => {});
     await rm(path.join(this.dir, '.gitmodules'), { force: true }).catch(() => {});
@@ -109,9 +144,8 @@ export class Repo {
       await this.git('add', '-A');
       const status = (await this.git('status', '--porcelain')).trim();
       if (!status) return null;
-      const who = author?.name && author?.email
-        ? ['--author', `${author.name.replace(/[<>\n]/g, '')} <${author.email.replace(/[<>\n]/g, '')}>`]
-        : [];
+      const who =
+        author?.name && author?.email ? ['--author', `${author.name.replace(/[<>\n]/g, '')} <${author.email.replace(/[<>\n]/g, '')}>`] : [];
       await this.git('commit', '-m', message, ...who);
       const sha = (await this.git('rev-parse', 'HEAD')).trim();
       if (tag) await this.git('tag', '-f', tag);
@@ -121,8 +155,14 @@ export class Repo {
   }
 
   /** For use inside a `post` hook: write / remove a file in the working tree before it is committed. */
-  async commitWrite(rel, content) { const abs = this.safe(rel); await mkdir(path.dirname(abs), { recursive: true }); await writeFile(abs, content); }
-  async commitRemove(rel) { await rm(this.safe(rel, true), { force: true }); }
+  async commitWrite(rel, content) {
+    const abs = this.safe(rel);
+    await mkdir(path.dirname(abs), { recursive: true });
+    await writeFile(abs, content);
+  }
+  async commitRemove(rel) {
+    await rm(this.safe(rel, true), { force: true });
+  }
 
   /** Tag a commit without creating a new one (used when an approval changes nothing in the tree). */
   tag(name) {
@@ -156,8 +196,15 @@ export class Repo {
     const out = [];
     const rec = async (r) => {
       let ents = [];
-      try { ents = await readdir(this.safe(r), { withFileTypes: true }); } catch { return; }
-      for (const e of ents) { if (e.isSymbolicLink()) continue; e.isDirectory() ? await rec(`${r}/${e.name}`) : out.push(`${r}/${e.name}`); }
+      try {
+        ents = await readdir(this.safe(r), { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const e of ents) {
+        if (e.isSymbolicLink()) continue;
+        e.isDirectory() ? await rec(`${r}/${e.name}`) : out.push(`${r}/${e.name}`);
+      }
     };
     await rec(rel);
     return out;

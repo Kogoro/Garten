@@ -33,31 +33,64 @@ async function authEnv(team) {
     cleanup = () => rm(dir, { recursive: true, force: true });
   }
   env.GIT_CONFIG_COUNT = String(cfg.length);
-  cfg.forEach(([k, v], i) => { env[`GIT_CONFIG_KEY_${i}`] = k; env[`GIT_CONFIG_VALUE_${i}`] = v; });
+  cfg.forEach(([k, v], i) => {
+    env[`GIT_CONFIG_KEY_${i}`] = k;
+    env[`GIT_CONFIG_VALUE_${i}`] = v;
+  });
   return { env, cleanup };
 }
 
 const scrub = (team, msg) => {
   let s = String(msg ?? '');
-  if (team.row.git_secret) { try { s = s.split(decrypt(team.row.git_secret)).join('***'); } catch { /* ignore */ } }
-  s = s.replace(/(https?:\/\/)[^@/\s]+@/g, '$1***@').trim().split('\n').filter((l) => !/^\s*$/.test(l)).slice(0, 6).join('\n');
+  if (team.row.git_secret) {
+    try {
+      s = s.split(decrypt(team.row.git_secret)).join('***');
+    } catch {
+      /* ignore */
+    }
+  }
+  s = s
+    .replace(/(https?:\/\/)[^@/\s]+@/g, '$1***@')
+    .trim()
+    .split('\n')
+    .filter((l) => !/^\s*$/.test(l))
+    .slice(0, 6)
+    .join('\n');
   // no address or port of the internal network in the message
-  if (/Failed to connect|Could not resolve|Connection (refused|timed out|reset)|No route to host|Network is unreachable|Operation timed out|ssh: connect to host/i.test(s)) return 'The repository server could not be reached.';
+  if (
+    /Failed to connect|Could not resolve|Connection (refused|timed out|reset)|No route to host|Network is unreachable|Operation timed out|ssh: connect to host/i.test(
+      s,
+    )
+  )
+    return 'The repository server could not be reached.';
   return s;
 };
 const fail = (team, e) => new TeamError(scrub(team, e.stderr || e.message) || 'git failed', 502);
 
 /** Refuses remotes in private networks right before every network operation (the DNS answer may have changed since the URL was saved). */
 async function guardRemote(url) {
-  try { await assertPublicRemote(url, GIT_ALLOW_PRIVATE); } catch (e) { throw new TeamError(e.message, 400); }
+  try {
+    await assertPublicRemote(url, GIT_ALLOW_PRIVATE);
+  } catch (e) {
+    throw new TeamError(e.message, 400);
+  }
 }
 
 /** SHA256 fingerprints of the host keys this server has learned for the team's remote. */
 async function hostKeys(teamId) {
-  try { return (await run('ssh-keygen', ['-l', '-f', knownHostsFile(teamId)], { env: childEnv(), timeout: 5000 })).stdout.split('\n').filter(Boolean).map((l) => l.trim()); } catch { return []; }
+  try {
+    return (await run('ssh-keygen', ['-l', '-f', knownHostsFile(teamId)], { env: childEnv(), timeout: 5000 })).stdout
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => l.trim());
+  } catch {
+    return [];
+  }
 }
 /** Forget the learned SSH host key (after the remote server really changed its key). */
-export async function forgetHostKey(teamId) { await rm(knownHostsFile(teamId), { force: true }); }
+export async function forgetHostKey(teamId) {
+  await rm(knownHostsFile(teamId), { force: true });
+}
 
 export async function testRemote(teamId) {
   const team = getTeam(teamId);
@@ -67,10 +100,16 @@ export async function testRemote(teamId) {
   try {
     const out = (await run('git', ['ls-remote', '--heads', '--', team.row.git_url], { env: childEnv(env), timeout: 30000 })).stdout;
     const branch = team.row.git_branch;
-    return { ok: true, branchExists: out.split('\n').some((l) => l.endsWith(`refs/heads/${branch}`)), ...(team.row.git_auth === 'ssh' ? { hostKeys: await hostKeys(teamId) } : {}) };
+    return {
+      ok: true,
+      branchExists: out.split('\n').some((l) => l.endsWith(`refs/heads/${branch}`)),
+      ...(team.row.git_auth === 'ssh' ? { hostKeys: await hostKeys(teamId) } : {}),
+    };
   } catch (e) {
     throw fail(team, e);
-  } finally { await cleanup(); }
+  } finally {
+    await cleanup();
+  }
 }
 
 // Pushes of one team run one after the other, but only the local merge holds the repository lock: the network steps (fetch, push) can be slow or
@@ -97,21 +136,50 @@ async function pushNow(teamId) {
       await repo.raw(null, 'remote', 'add', 'origin', '--', team.row.git_url);
     });
     let remoteExists = true;
-    try { await g('fetch', '--no-tags', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`); } // network, no lock
-    catch (e) { if (/couldn't find remote ref/i.test(e.stderr ?? '')) remoteExists = false; else throw e; }
-    const sha = await repo.lock(async () => { // local only: merge what the remote has, then name the commit that gets pushed
+    try {
+      await g('fetch', '--no-tags', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`);
+    } catch (e) {
+      // network, no lock
+      if (/couldn't find remote ref/i.test(e.stderr ?? '')) remoteExists = false;
+      else throw e;
+    }
+    const sha = await repo.lock(async () => {
+      // local only: merge what the remote has, then name the commit that gets pushed
       if (remoteExists) {
-        const anc = await repo.raw(null, 'merge-base', '--is-ancestor', `origin/${branch}`, 'HEAD').then(() => true, () => false);
-        if (!anc) { // remote has work we do not have: merge it in, the Specs app wins conflicts on files it manages
-          try { await repo.raw(null, 'merge', '--no-ff', '--allow-unrelated-histories', '-X', 'ours', '--no-edit', '-m', `Merge ${branch} from remote`, `origin/${branch}`); }
-          catch (e) { await repo.raw(null, 'merge', '--abort').catch(() => {}); throw e; }
+        const anc = await repo.raw(null, 'merge-base', '--is-ancestor', `origin/${branch}`, 'HEAD').then(
+          () => true,
+          () => false,
+        );
+        if (!anc) {
+          // remote has work we do not have: merge it in, the Specs app wins conflicts on files it manages
+          try {
+            await repo.raw(
+              null,
+              'merge',
+              '--no-ff',
+              '--allow-unrelated-histories',
+              '-X',
+              'ours',
+              '--no-edit',
+              '-m',
+              `Merge ${branch} from remote`,
+              `origin/${branch}`,
+            );
+          } catch (e) {
+            await repo.raw(null, 'merge', '--abort').catch(() => {});
+            throw e;
+          }
           // Text below the managed folder only counts when it was approved here: undo what the merge took from the remote there.
           const root = team.row.git_root;
           const changed = (await repo.raw(null, 'diff', '--name-only', 'HEAD^1', 'HEAD', '--', root)).split('\n').filter(Boolean);
           if (changed.length) {
             for (const f of changed) {
-              const had = await repo.raw(null, 'cat-file', '-e', `HEAD^1:${f}`).then(() => true, () => false);
-              if (had) await repo.raw(null, 'checkout', 'HEAD^1', '--', f); else await repo.raw(null, 'rm', '-q', '-f', '--', f);
+              const had = await repo.raw(null, 'cat-file', '-e', `HEAD^1:${f}`).then(
+                () => true,
+                () => false,
+              );
+              if (had) await repo.raw(null, 'checkout', 'HEAD^1', '--', f);
+              else await repo.raw(null, 'rm', '-q', '-f', '--', f);
             }
           }
           const dropped = await repo.dropLinks(); // symbolic links / submodules from the remote never enter the working tree
@@ -122,7 +190,11 @@ async function pushNow(teamId) {
     });
     await g('push', 'origin', `${sha}:refs/heads/${branch}`); // network, no lock; a commit made meanwhile is pushed by the next run
     let warning;
-    try { await g('push', 'origin', '--tags'); } catch (e) { warning = `Pushed, but some tags were rejected: ${scrub(team, e.stderr || e.message).split('\n')[0]}`; }
+    try {
+      await g('push', 'origin', '--tags');
+    } catch (e) {
+      warning = `Pushed, but some tags were rejected: ${scrub(team, e.stderr || e.message).split('\n')[0]}`;
+    }
     const result = { sha, warning };
     recordPush(teamId, { ok: true, sha: result.sha, error: result.warning });
     return result;
@@ -130,7 +202,9 @@ async function pushNow(teamId) {
     const err = e instanceof TeamError ? e : fail(team, e);
     recordPush(teamId, { ok: false, error: err.message });
     throw err;
-  } finally { await cleanup(); }
+  } finally {
+    await cleanup();
+  }
 }
 
 export async function generateSshKey(teamId) {
@@ -144,7 +218,9 @@ export async function generateSshKey(teamId) {
     return pub;
   } catch (e) {
     throw new TeamError(e.code === 'ENOENT' ? 'ssh-keygen is not installed on the server' : 'Could not generate a key', 500);
-  } finally { await rm(dir, { recursive: true, force: true }); }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 }
 
 // ---- auto push after every release/revoke (debounced, never blocks the request that caused it)
@@ -176,8 +252,14 @@ export async function catchUpPushes(teams) {
   for (const team of teams) {
     if (!team.row.git_url || !team.row.git_auto_push) continue;
     try {
-      const head = (await repoFor(team).git('rev-parse', 'HEAD').catch(() => '')).trim();
+      const head = (
+        await repoFor(team)
+          .git('rev-parse', 'HEAD')
+          .catch(() => '')
+      ).trim();
       if (head && head !== team.row.git_last_sha) schedulePush(team.id, 5000);
-    } catch (e) { console.error(`catch-up ${team.key}:`, e.message); }
+    } catch (e) {
+      console.error(`catch-up ${team.key}:`, e.message);
+    }
   }
 }

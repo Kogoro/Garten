@@ -10,8 +10,16 @@ describe('OAuth 2.1 for MCP (DCR + PKCE + consent with team choice)', () => {
   const step = chain();
   const mcp = (token) => mcpClient(ctx.base, token);
   const redirect = 'http://localhost:9876/callback';
-  const pkce = () => { const verifier = randomBytes(32).toString('base64url'); return { verifier, challenge: createHash('sha256').update(verifier).digest('base64url') }; };
-  const tokenReq = (body) => fetch(asm.token_endpoint, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(body) });
+  const pkce = () => {
+    const verifier = randomBytes(32).toString('base64url');
+    return { verifier, challenge: createHash('sha256').update(verifier).digest('base64url') };
+  };
+  const tokenReq = (body) =>
+    fetch(asm.token_endpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams(body),
+    });
   let BASE, T1, t2, asm, reg, oauthUser, tok, rt;
   before(async () => {
     ({ base: BASE, T1 } = ctx);
@@ -20,7 +28,16 @@ describe('OAuth 2.1 for MCP (DCR + PKCE + consent with team choice)', () => {
   async function authorize(decision, { scope = 'mcp:read mcp:drafts', who = oauthUser.c, team = T1 } = {}) {
     const p = pkce();
     const u = new URL(asm.authorization_endpoint);
-    Object.entries({ response_type: 'code', client_id: reg.client_id, redirect_uri: redirect, code_challenge: p.challenge, code_challenge_method: 'S256', scope, state: 'xyz', resource: `${BASE}/mcp` }).forEach(([k, v]) => u.searchParams.set(k, v));
+    Object.entries({
+      response_type: 'code',
+      client_id: reg.client_id,
+      redirect_uri: redirect,
+      code_challenge: p.challenge,
+      code_challenge_method: 'S256',
+      scope,
+      state: 'xyz',
+      resource: `${BASE}/mcp`,
+    }).forEach(([k, v]) => u.searchParams.set(k, v));
     const a = await fetch(u, { redirect: 'manual' });
     const consentUrl = new URL(a.headers.get('location'), BASE);
     const page = await who.req('GET', consentUrl.pathname + consentUrl.search);
@@ -33,14 +50,27 @@ describe('OAuth 2.1 for MCP (DCR + PKCE + consent with team choice)', () => {
 
   step('unauthenticated MCP call points to OAuth metadata', async () => {
     const un = await fetch(`${BASE}/mcp`, { method: 'POST' });
-    assert.equal(un.status, 401); assert.match(un.headers.get('www-authenticate'), /resource_metadata="[^"]+oauth-protected-resource/);
+    assert.equal(un.status, 401);
+    assert.match(un.headers.get('www-authenticate'), /resource_metadata="[^"]+oauth-protected-resource/);
   });
   step('discovery metadata is served', async () => {
     asm = await (await fetch(`${BASE}/.well-known/oauth-authorization-server`)).json();
     assert.ok(asm.registration_endpoint && asm.code_challenge_methods_supported.includes('S256'));
   });
   step('dynamic client registration', async () => {
-    reg = await (await fetch(asm.registration_endpoint, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ client_name: 'Test Agent', redirect_uris: [redirect], token_endpoint_auth_method: 'none', grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'] }) })).json();
+    reg = await (
+      await fetch(asm.registration_endpoint, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          client_name: 'Test Agent',
+          redirect_uris: [redirect],
+          token_endpoint_auth_method: 'none',
+          grant_types: ['authorization_code', 'refresh_token'],
+          response_types: ['code'],
+        }),
+      })
+    ).json();
     assert.ok(reg.client_id);
   });
   step('user can deny access', async () => {
@@ -50,21 +80,46 @@ describe('OAuth 2.1 for MCP (DCR + PKCE + consent with team choice)', () => {
   });
   step('wrong PKCE verifier rejected', async () => {
     const g1 = await authorize('allow');
-    assert.ok((await tokenReq({ grant_type: 'authorization_code', code: g1.loc.searchParams.get('code'), client_id: reg.client_id, redirect_uri: redirect, code_verifier: randomBytes(32).toString('base64url') })).status >= 400);
+    assert.ok(
+      (
+        await tokenReq({
+          grant_type: 'authorization_code',
+          code: g1.loc.searchParams.get('code'),
+          client_id: reg.client_id,
+          redirect_uri: redirect,
+          code_verifier: randomBytes(32).toString('base64url'),
+        })
+      ).status >= 400,
+    );
   });
   step('authorization code + PKCE → tokens', async () => {
     const g2 = await authorize('allow');
-    tok = await (await tokenReq({ grant_type: 'authorization_code', code: g2.loc.searchParams.get('code'), client_id: reg.client_id, redirect_uri: redirect, code_verifier: g2.p.verifier })).json();
+    tok = await (
+      await tokenReq({
+        grant_type: 'authorization_code',
+        code: g2.loc.searchParams.get('code'),
+        client_id: reg.client_id,
+        redirect_uri: redirect,
+        code_verifier: g2.p.verifier,
+      })
+    ).json();
     assert.ok(tok.access_token && tok.refresh_token);
   });
   step('MCP works with an OAuth access token (team-bound, drafts scope)', async () => {
     const c = await mcp(tok.access_token);
-    assert.equal(await hasParam(c, 'get_spec', 'draft'), true); assert.ok(JSON.parse((await call(c, 'list_specs')).text).length > 0); await c.close();
+    assert.equal(await hasParam(c, 'get_spec', 'draft'), true);
+    assert.ok(JSON.parse((await call(c, 'list_specs')).text).length > 0);
+    await c.close();
   });
-  step('OAuth connection is listed with its team', async () => { assert.ok((await oauthUser.c.get('/api/me/tokens')).data.connections.find((x) => x.clientName === 'Test Agent' && x.teamName === 'specs')); });
+  step('OAuth connection is listed with its team', async () => {
+    assert.ok(
+      (await oauthUser.c.get('/api/me/tokens')).data.connections.find((x) => x.clientName === 'Test Agent' && x.teamName === 'specs'),
+    );
+  });
   step('consent refuses a team the user does not belong to', async () => {
     const nonMember = await authorize('allow', { team: t2.id });
-    assert.equal(nonMember.status, 400); assert.equal(nonMember.loc, null);
+    assert.equal(nonMember.status, 400);
+    assert.equal(nonMember.loc, null);
   });
   step('refresh token rotation', async () => {
     rt = await (await tokenReq({ grant_type: 'refresh_token', refresh_token: tok.refresh_token, client_id: reg.client_id })).json();
@@ -78,7 +133,15 @@ describe('OAuth 2.1 for MCP (DCR + PKCE + consent with team choice)', () => {
   // SEC-17: a refresh token that was already exchanged is a stolen one – the whole grant ends
   step('SEC-17: showing an already used refresh token again revokes the whole grant', async () => {
     const g = await authorize('allow');
-    const t0 = await (await tokenReq({ grant_type: 'authorization_code', code: g.loc.searchParams.get('code'), client_id: reg.client_id, redirect_uri: redirect, code_verifier: g.p.verifier })).json();
+    const t0 = await (
+      await tokenReq({
+        grant_type: 'authorization_code',
+        code: g.loc.searchParams.get('code'),
+        client_id: reg.client_id,
+        redirect_uri: redirect,
+        code_verifier: g.p.verifier,
+      })
+    ).json();
     const t1 = await (await tokenReq({ grant_type: 'refresh_token', refresh_token: t0.refresh_token, client_id: reg.client_id })).json();
     assert.ok(t1.refresh_token && t1.refresh_token !== t0.refresh_token);
     assert.ok((await tokenReq({ grant_type: 'refresh_token', refresh_token: t0.refresh_token, client_id: reg.client_id })).status >= 400);
@@ -87,10 +150,23 @@ describe('OAuth 2.1 for MCP (DCR + PKCE + consent with team choice)', () => {
   });
   // the consent form only accepts posts from this server's own origin
   step('SEC-17: the consent form refuses a foreign Origin', async () => {
-    const p2 = pkce(); const u2 = new URL(asm.authorization_endpoint);
-    Object.entries({ response_type: 'code', client_id: reg.client_id, redirect_uri: redirect, code_challenge: p2.challenge, code_challenge_method: 'S256', scope: 'mcp:read', state: 'q' }).forEach(([k, v]) => u2.searchParams.set(k, v));
-    const a2 = await fetch(u2, { redirect: 'manual' }); const rid = new URL(a2.headers.get('location'), BASE).searchParams.get('request');
-    const foreign = await oauthUser.c.req('POST', '/oauth/consent', new URLSearchParams({ request: rid, decision: 'allow', team: T1 }), { 'content-type': 'application/x-www-form-urlencoded', origin: 'https://evil.example' });
+    const p2 = pkce();
+    const u2 = new URL(asm.authorization_endpoint);
+    Object.entries({
+      response_type: 'code',
+      client_id: reg.client_id,
+      redirect_uri: redirect,
+      code_challenge: p2.challenge,
+      code_challenge_method: 'S256',
+      scope: 'mcp:read',
+      state: 'q',
+    }).forEach(([k, v]) => u2.searchParams.set(k, v));
+    const a2 = await fetch(u2, { redirect: 'manual' });
+    const rid = new URL(a2.headers.get('location'), BASE).searchParams.get('request');
+    const foreign = await oauthUser.c.req('POST', '/oauth/consent', new URLSearchParams({ request: rid, decision: 'allow', team: T1 }), {
+      'content-type': 'application/x-www-form-urlencoded',
+      origin: 'https://evil.example',
+    });
     assert.equal(foreign.status, 400);
   });
 });

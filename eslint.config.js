@@ -50,7 +50,10 @@ export default defineConfig(
       sourceType: 'module',
       parser: tseslint.parser, // for the type-aware rules; the files stay plain JavaScript
       parserOptions: {
-        projectService: { allowDefaultProject: ['tests/*.mjs', 'tests/*/*.mjs', 'scripts/*.mjs'], maximumDefaultProjectFileMatchCount_THIS_WILL_SLOW_DOWN_LINTING: 40 },
+        projectService: {
+          allowDefaultProject: ['tests/*.mjs', 'tests/*/*.mjs', 'scripts/*.mjs'],
+          maximumDefaultProjectFileMatchCount_THIS_WILL_SLOW_DOWN_LINTING: 40,
+        },
         tsconfigRootDir: import.meta.dirname,
       },
       globals: { ...globals.node },
@@ -69,7 +72,10 @@ export default defineConfig(
     languageOptions: { globals: { ...globals.node, ...globals.browser, axe: 'readonly' } },
     rules: {
       // node:test's test()/describe() return promises the runner itself awaits
-      '@typescript-eslint/no-floating-promises': ['error', { allowForKnownSafeCalls: [{ from: 'package', package: 'node:test', name: ['test', 'describe', 'it', 'suite'] }] }],
+      '@typescript-eslint/no-floating-promises': [
+        'error',
+        { allowForKnownSafeCalls: [{ from: 'package', package: 'node:test', name: ['test', 'describe', 'it', 'suite'] }] },
+      ],
     },
   },
 

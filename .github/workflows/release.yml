@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
-      packages: write   # push to ghcr.io
+      packages: write # push to ghcr.io
     steps:
       - uses: actions/checkout@v7
       - name: Image name and tags
@@ -62,7 +62,7 @@ jobs:
     needs: [checks, version, image]
     runs-on: ubuntu-24.04
     permissions:
-      contents: write   # create the release
+      contents: write # create the release
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7

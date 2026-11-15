@@ -23,10 +23,16 @@ const getJson = async (url) => {
 };
 async function meta() {
   discovery ??= getJson(`${OIDC.issuer}/.well-known/openid-configuration`).then((m) => {
-    if (String(m.issuer ?? '').replace(/\/$/, '') !== OIDC.issuer) throw new Error('the provider announces a different issuer than OIDC_ISSUER');
+    if (String(m.issuer ?? '').replace(/\/$/, '') !== OIDC.issuer)
+      throw new Error('the provider announces a different issuer than OIDC_ISSUER');
     return m;
   });
-  try { return await discovery; } catch (e) { discovery = undefined; throw e; }
+  try {
+    return await discovery;
+  } catch (e) {
+    discovery = undefined;
+    throw e;
+  }
 }
 async function keyFor(m, kid, alg, refresh = false) {
   if (!m.jwks_uri) throw new Error('the provider publishes no signing keys (jwks_uri)');
@@ -55,7 +61,8 @@ export async function verifyIdToken(token, m, { nonce }) {
   if (!aud.includes(OIDC.clientId) || (aud.length > 1 && c.azp !== OIDC.clientId)) throw new Error('ID token audience mismatch');
   if (typeof c.exp !== 'number' || c.exp < now - 60) throw new Error('ID token expired');
   if (typeof c.iat === 'number' && c.iat > now + 300) throw new Error('ID token issued in the future');
-  const a = Buffer.from(String(c.nonce ?? '')); const b = Buffer.from(nonce);
+  const a = Buffer.from(String(c.nonce ?? ''));
+  const b = Buffer.from(nonce);
   if (a.length !== b.length || !timingSafeEqual(a, b)) throw new Error('ID token nonce mismatch');
   if (!c.sub) throw new Error('ID token has no subject');
   return c;
@@ -68,11 +75,16 @@ export function safeNext(n) {
     const base = new URL(PUBLIC_URL);
     const u = new URL(n, base);
     return u.origin === base.origin ? `${u.pathname}${u.search}${u.hash}` : '/';
-  } catch { return '/'; }
+  } catch {
+    return '/';
+  }
 }
 const fail = (res, msg) => res.redirect(`/?login_error=${encodeURIComponent(msg)}`);
 const readCookie = (req, name) => {
-  for (const part of (req.headers.cookie ?? '').split(';')) { const i = part.indexOf('='); if (i > 0 && part.slice(0, i).trim() === name) return part.slice(i + 1).trim(); }
+  for (const part of (req.headers.cookie ?? '').split(';')) {
+    const i = part.indexOf('=');
+    if (i > 0 && part.slice(0, i).trim() === name) return part.slice(i + 1).trim();
+  }
   return null;
 };
 const confirmed = (v) => v === true || v === 'true';
@@ -92,8 +104,14 @@ export function oidcRouter() {
       res.cookie(STATE_COOKIE, state, { httpOnly: true, sameSite: 'lax', secure: SECURE_COOKIES, maxAge: 10 * 60_000, path: '/' });
       const u = new URL(m.authorization_endpoint);
       u.search = new URLSearchParams({
-        response_type: 'code', client_id: OIDC.clientId, redirect_uri: REDIRECT, scope: 'openid email profile', state, nonce,
-        code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256',
+        response_type: 'code',
+        client_id: OIDC.clientId,
+        redirect_uri: REDIRECT,
+        scope: 'openid email profile',
+        state,
+        nonce,
+        code_challenge: createHash('sha256').update(verifier).digest('base64url'),
+        code_challenge_method: 'S256',
       }).toString();
       res.redirect(u.href);
     } catch (e) {
@@ -117,22 +135,29 @@ export function oidcRouter() {
         headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
         signal: AbortSignal.timeout(10_000),
         body: new URLSearchParams({
-          grant_type: 'authorization_code', code: String(req.query.code), redirect_uri: REDIRECT,
-          client_id: OIDC.clientId, ...(OIDC.clientSecret ? { client_secret: OIDC.clientSecret } : {}), code_verifier: st.verifier,
+          grant_type: 'authorization_code',
+          code: String(req.query.code),
+          redirect_uri: REDIRECT,
+          client_id: OIDC.clientId,
+          ...(OIDC.clientSecret ? { client_secret: OIDC.clientSecret } : {}),
+          code_verifier: st.verifier,
         }),
       });
       const tok = await tokenRes.json();
       if (!tokenRes.ok || !tok.access_token) throw new Error(`token exchange failed: ${tok.error ?? tokenRes.status}`);
       const claims = await verifyIdToken(tok.id_token, m, { nonce: st.nonce });
       // profile and e-mail come from the provider's userinfo endpoint (TLS, fresh access token); it must describe the same person as the ID token
-      const info = await (await fetch(m.userinfo_endpoint, { headers: { authorization: `Bearer ${tok.access_token}` }, signal: AbortSignal.timeout(10_000) })).json();
+      const info = await (
+        await fetch(m.userinfo_endpoint, { headers: { authorization: `Bearer ${tok.access_token}` }, signal: AbortSignal.timeout(10_000) })
+      ).json();
       if (!info.sub) throw new Error('provider returned no sub');
       if (info.sub !== claims.sub) throw new Error('userinfo and ID token describe different subjects');
       const rawEmail = info.email ?? claims.email; // some providers put the e-mail claims only into the (verified) ID token
       if (!rawEmail) throw new Error('provider returned no e-mail address');
       const email = String(rawEmail).trim().toLowerCase();
       if (!isEmail(email)) throw new Error('provider returned an invalid e-mail address');
-      if (!confirmed(info.email_verified ?? claims.email_verified) && !OIDC.trustUnverifiedEmail) return fail(res, 'Your e-mail address is not verified at the identity provider');
+      if (!confirmed(info.email_verified ?? claims.email_verified) && !OIDC.trustUnverifiedEmail)
+        return fail(res, 'Your e-mail address is not verified at the identity provider');
 
       let user = getUserBySub(info.sub);
       if (!user) {
@@ -142,18 +167,21 @@ export function oidcRouter() {
           // and accounts already tied to another identity stay as they are.
           if (existing.sso || existing.hasPassword || existing.admin) {
             audit(req, 'auth.sso.link.refused', { target: email, actor: existing });
-            return fail(res, 'An account with this e-mail address already exists and is not linked to single sign-on. Sign in with your password.');
+            return fail(
+              res,
+              'An account with this e-mail address already exists and is not linked to single sign-on. Sign in with your password.',
+            );
           }
-          linkOidc(existing.id, info.sub); user = existing;
+          linkOidc(existing.id, info.sub);
+          user = existing;
           audit(req, 'auth.sso.link', { target: email, actor: existing });
-        }
-        else if ((user = await adoptInvitesForSso({ email, name: info.name, oidcSub: info.sub }))) { /* invited: account created, invitations accepted */ }
-        else if (OIDC.autoCreate) {
+        } else if ((user = await adoptInvitesForSso({ email, name: info.name, oidcSub: info.sub }))) {
+          /* invited: account created, invitations accepted */
+        } else if (OIDC.autoCreate) {
           user = await createUser({ email, name: info.name, oidcSub: info.sub });
           const team = getTeamByKey(OIDC.defaultTeam) ?? listTeams()[0];
           if (team) setMember(team.id, user.id, OIDC.defaultRole);
-        }
-        else return fail(res, `No account for ${email}. Ask an admin to invite you.`);
+        } else return fail(res, `No account for ${email}. Ask an admin to invite you.`);
       }
       if (user.disabled) return fail(res, 'This account is disabled');
       startSession(res, user, req.get('user-agent'));

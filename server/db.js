@@ -6,11 +6,20 @@ import { DATA_DIR } from './config.js';
 const DB_FILE = path.join(DATA_DIR, 'specs.db');
 export const db = new DatabaseSync(DB_FILE);
 // databases of earlier versions were created world-readable
-for (const f of [DB_FILE, `${DB_FILE}-wal`, `${DB_FILE}-shm`]) { try { chmodSync(f, 0o600); } catch { /* does not exist (yet) */ } }
+for (const f of [DB_FILE, `${DB_FILE}-wal`, `${DB_FILE}-shm`]) {
+  try {
+    chmodSync(f, 0o600);
+  } catch {
+    /* does not exist (yet) */
+  }
+}
 {
   const hasUsers = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='users'").get();
   const old = hasUsers && db.prepare("SELECT 1 FROM pragma_table_info('users') WHERE name='role'").get();
-  if (old) throw new Error('This data directory was created by Specs v0.2 (no teams). v0.3 changes the schema – start with a fresh volume (docker compose down -v) or export your repo first.');
+  if (old)
+    throw new Error(
+      'This data directory was created by Specs v0.2 (no teams). v0.3 changes the schema – start with a fresh volume (docker compose down -v) or export your repo first.',
+    );
 }
 // both are no-ops inside a transaction, so they come before the migrations
 db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
@@ -49,7 +58,9 @@ const ITEMS_SQL = (name) => `CREATE TABLE IF NOT EXISTS ${name} (
   );`;
 const hasTable = (table) => !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table);
 const hasCol = (table, col) => !!db.prepare(`SELECT 1 FROM pragma_table_info('${table}') WHERE name=?`).get(col);
-const addColumn = (table, col, ddl) => { if (!hasCol(table, col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${ddl}`); };
+const addColumn = (table, col, ddl) => {
+  if (!hasCol(table, col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${ddl}`);
+};
 
 /**
  * The schema up to 0.11.0. Databases of those versions record no schema version, so every step here checks what is
@@ -259,18 +270,18 @@ function baseline() {
   CREATE INDEX IF NOT EXISTS reports_spec ON reports(team_id, spec_id, created_at);
   `);
   addColumn('feedback', 'blocking', 'INTEGER NOT NULL DEFAULT 0'); // decision requests: the agent waits for the answer
-  addColumn('feedback', 'options', 'TEXT');                         // decision requests: JSON [{label, detail}]
-  addColumn('feedback', 'recommended', 'INTEGER');                  // index into options
-  addColumn('feedback', 'answer', 'INTEGER');                       // index of the chosen option, -1 = answered in the reply only
+  addColumn('feedback', 'options', 'TEXT'); // decision requests: JSON [{label, detail}]
+  addColumn('feedback', 'recommended', 'INTEGER'); // index into options
+  addColumn('feedback', 'answer', 'INTEGER'); // index of the chosen option, -1 = answered in the reply only
   addColumn('teams', 'hook_url', 'TEXT');
-  addColumn('teams', 'hook_secret', 'TEXT');                        // encrypted bearer token
-  addColumn('teams', 'hook_headers', 'TEXT');                       // encrypted "Name: value" lines
+  addColumn('teams', 'hook_secret', 'TEXT'); // encrypted bearer token
+  addColumn('teams', 'hook_headers', 'TEXT'); // encrypted "Name: value" lines
   addColumn('teams', 'hook_events', "TEXT NOT NULL DEFAULT 'release,answer'");
   addColumn('teams', 'hook_format', "TEXT NOT NULL DEFAULT 'full'"); // full | text (only {"text": …})
   addColumn('teams', 'hook_last_at', 'TEXT');
   addColumn('teams', 'hook_last_ok', 'INTEGER');
   addColumn('teams', 'hook_last_info', 'TEXT');
-  addColumn('teams', 'garden_rev', 'INTEGER NOT NULL DEFAULT 0');   // bumped whenever feedback, decisions or reports change
+  addColumn('teams', 'garden_rev', 'INTEGER NOT NULL DEFAULT 0'); // bumped whenever feedback, decisions or reports change
 
   // Events for a team's webhook wait here until they were delivered, so a restart or a receiver that is briefly down loses nothing.
   db.exec(`CREATE TABLE IF NOT EXISTS hook_outbox (
@@ -281,7 +292,7 @@ function baseline() {
     created_at TEXT NOT NULL,
     PRIMARY KEY (team_id, kind, key)
   )`);
-  addColumn('teams', 'agent_paused', 'INTEGER NOT NULL DEFAULT 0');   // a person paused the agents: empty work list, no webhook calls
+  addColumn('teams', 'agent_paused', 'INTEGER NOT NULL DEFAULT 0'); // a person paused the agents: empty work list, no webhook calls
 
   // 0.11: re-runnable evidence. A check says how a claim of an agent can be verified again (a test, a CI job, a metric, a command);
   // its runs are kept (the newest 50). Checks belong to a spec and survive new versions, so they can be run after every change.
@@ -364,7 +375,7 @@ function baseline() {
       PRIMARY KEY (team_id, spec_id)
     );
   `);
-  addColumn('checks', 'stale_notified', 'TEXT');   // id of the last run the agent trigger was told is stale (once per run)
+  addColumn('checks', 'stale_notified', 'TEXT'); // id of the last run the agent trigger was told is stale (once per run)
 
   // 0.11: only results reported by CI prove a check (an agent's own "pass" then leaves it unverified)
   addColumn('teams', 'ci_required', 'INTEGER NOT NULL DEFAULT 0');
@@ -401,8 +412,10 @@ const MIGRATIONS = [
     // fetched_at no longer moves an item in the sync sequence: clients ask for the changes since the newest fetched_at they know
     db.exec('CREATE INDEX IF NOT EXISTS items_fetched ON items(team_id, fetched_at)');
     // the report history is bounded per spec from now on; trim what grew before (reports_spec serves "newest per spec")
-    db.prepare(`DELETE FROM reports WHERE rowid IN (SELECT rowid FROM (
-      SELECT rowid, ROW_NUMBER() OVER (PARTITION BY team_id, spec_id ORDER BY created_at DESC, rowid DESC) AS n FROM reports) WHERE n > ?)`).run(REPORTS_KEPT);
+    db.prepare(
+      `DELETE FROM reports WHERE rowid IN (SELECT rowid FROM (
+      SELECT rowid, ROW_NUMBER() OVER (PARTITION BY team_id, spec_id ORDER BY created_at DESC, rowid DESC) AS n FROM reports) WHERE n > ?)`,
+    ).run(REPORTS_KEPT);
   },
   /* 3 */ () => {
     // how long a team keeps closed feedback (days); 0 = forever, which is what every team starts with
@@ -413,14 +426,26 @@ export const SCHEMA_VERSION = MIGRATIONS.length;
 
 {
   const have = db.prepare('PRAGMA user_version').get().user_version;
-  if (have > SCHEMA_VERSION) throw new Error(`This data directory was written by a newer version of Specs (schema ${have}, this server knows ${SCHEMA_VERSION}). Update the server, or restore a backup.`);
+  if (have > SCHEMA_VERSION)
+    throw new Error(
+      `This data directory was written by a newer version of Specs (schema ${have}, this server knows ${SCHEMA_VERSION}). Update the server, or restore a backup.`,
+    );
   for (let v = have; v < SCHEMA_VERSION; v++) {
     db.exec('BEGIN IMMEDIATE');
     try {
       MIGRATIONS[v]();
       db.exec(`PRAGMA user_version = ${v + 1}`);
       db.exec('COMMIT');
-    } catch (e) { db.exec('ROLLBACK'); throw new Error(`database migration ${v + 1} failed: ${e.message}`, { cause: e }); }
+    } catch (e) {
+      db.exec('ROLLBACK');
+      throw new Error(`database migration ${v + 1} failed: ${e.message}`, { cause: e });
+    }
   }
 }
-for (const f of [`${DB_FILE}-wal`, `${DB_FILE}-shm`]) { try { chmodSync(f, 0o600); } catch { /* no WAL file */ } }
+for (const f of [`${DB_FILE}-wal`, `${DB_FILE}-shm`]) {
+  try {
+    chmodSync(f, 0o600);
+  } catch {
+    /* no WAL file */
+  }
+}
