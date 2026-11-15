@@ -241,6 +241,8 @@ export async function releaseDocs(team, ids, by = null, message) {
       .run(d.version + 1, d.rev, at, by?.name ?? null, nextSeq(t), t, d.id);
   }
   events.emit('committed', t);
+  const g = docs.find((d) => d.id === 'guardrails.md');
+  if (g) events.emit('guardrails', { teamId: t, version: g.version + 1, by: by?.name ?? null });
   return docs.map((d) => d.id);
 }
 
