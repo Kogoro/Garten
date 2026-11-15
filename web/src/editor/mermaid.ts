@@ -8,9 +8,9 @@ let mm: Promise<typeof import('mermaid').default> | undefined;
 let n = 0;
 let queue: Promise<unknown> = Promise.resolve();
 
-/** Mermaid is bundled as lazy chunks. The service worker caches them on first use (not at install – they are most of the
- *  app's weight), so diagrams work offline once Mermaid has run on this device. A failed load (offline before that) is not
- *  remembered: the next diagram tries again. */
+/** Mermaid is bundled as lazy chunks. They are not part of the install (they are most of the app's weight); the page
+ *  downloads them in the background after start (warmup.ts) and the service worker keeps them, so diagrams work offline.
+ *  A failed load (offline before that download finished) is not remembered: the next diagram tries again. */
 export function loadMermaid() {
   mm ??= import('mermaid').then((m) => m.default, (e) => { mm = undefined; throw e; });
   return mm;
@@ -30,7 +30,7 @@ export function renderMermaid(src: string): Promise<{ svg?: string; error?: stri
     } catch (e: any) {
       document.getElementById(`dmm${n}`)?.remove();
       const msg = String(e?.message ?? e);
-      if (CHUNK_FAILED.test(msg)) return { error: navigator.onLine ? 'Could not load the diagram renderer – try again.' : 'Offline: this kind of diagram renders once it has been shown online on this device.' };
+      if (CHUNK_FAILED.test(msg)) return { error: navigator.onLine ? 'Could not load the diagram renderer – try again.' : 'Offline: the diagram renderer was not downloaded yet – it loads by itself the next time this device is online.' };
       return { error: msg.split('\n')[0] };
     }
   };

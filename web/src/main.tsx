@@ -7,6 +7,7 @@ import { ErrorBoundary } from './ErrorBoundary';
 import * as S from './store/core';
 import { applyTheme } from './ui';
 import { applyDensity } from './prefs';
+import { warmUp } from './warmup';
 
 applyTheme();
 applyDensity();
@@ -25,6 +26,7 @@ if ('serviceWorker' in navigator) {
     // a long-lived installed app never navigates, so ask for a new version when it comes back to the foreground
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); });
     setInterval(() => reg.update().catch(() => {}), 60 * 60 * 1000);
+    warmUp();
   }).catch(() => {});
 }
 S.init().finally(() => {

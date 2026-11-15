@@ -87,7 +87,7 @@ app.all('/mcp', (_req, res) =>
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const webDir = [process.env.WEB_DIR, path.join(root, 'web/dist')].filter(Boolean).find((d) => existsSync(path.join(d, 'index.html')));
 const cacheHeaders = (res, file) => {
-  if (/(^|\/)(sw\.js|index\.html|workbox-[^/]*\.js|manifest\.webmanifest|theme-init\.js)$/.test(file)) res.setHeader('Cache-Control', 'no-cache');
+  if (/(^|\/)(sw\.js|index\.html|workbox-[^/]*\.js|manifest\.webmanifest|theme-init\.js|warmup\.json)$/.test(file)) res.setHeader('Cache-Control', 'no-cache');
   else if (/\/assets\//.test(file)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable'); // file names carry a content hash
   else res.setHeader('Cache-Control', 'public, max-age=86400');
 };

@@ -10,10 +10,13 @@ import { VitePWA } from 'vite-plugin-pwa';
 const api = 'http://localhost:3000';
 
 /** Chunks that only Mermaid reaches (the core and every diagram engine: elk, cytoscape, katex …). They stay out of the
- *  precache and are cached on first use instead (see runtimeCaching). Found from the chunk graph, not from file names:
+ *  precache, so installing the app does not wait for them; the page fetches them in the background once it is idle
+ *  (src/warmup.ts reads the list written here, warmup.json) and the service worker keeps them (see runtimeCaching).
+ *  Found from the chunk graph, not from file names:
  *  everything reachable from the entry without entering Mermaid's dynamic import is precached; a chunk Mermaid shares
  *  with the editor is reachable that way and stays in. */
 const onDemand = new Set<string>();
+const WARMUP_LIST = 'warmup.json';
 const MERMAID = /[\\/]node_modules[\\/]mermaid[\\/]/;
 function mermaidOnDemand(): Plugin {
   return {
@@ -32,6 +35,7 @@ function mermaidOnDemand(): Plugin {
       const css = (c: (typeof chunks)[number]) => [...(c.viteMetadata?.importedCss ?? [])];
       const keptCss = new Set(chunks.filter((c) => seen.has(c.fileName)).flatMap(css));
       for (const c of chunks) if (!seen.has(c.fileName)) { onDemand.add(c.fileName); css(c).filter((f) => !keptCss.has(f)).forEach((f) => onDemand.add(f)); }
+      this.emitFile({ type: 'asset', fileName: WARMUP_LIST, source: JSON.stringify([...onDemand].sort().map((f) => `/${f}`)) });
     },
   };
 }
@@ -71,12 +75,10 @@ export default defineConfig({
       registerType: 'autoUpdate', manifest: false, injectRegister: false,
       workbox: {
         // Precache = what it takes to open, edit and sync specs offline: the app shell, every page (lazy route chunks
-        // included), the editor (BlockNote) and the form editor. Mermaid with its diagram engines is most of the build
-        // (~4 MB of 7) and only needed for diagrams, so it is not downloaded at install but cached on first use (runtimeCaching
-        // below). Trade-off: a kind of diagram that was never shown on this device while online cannot render offline – the
-        // block then says so and keeps its source editable. Diagrams once seen keep working offline. The alternatives were
-        // precaching everything (7 MB on every install, on every release, mostly unused) or a background warm-up of all
-        // diagram engines after start (the same bytes, only later) – both cost every device what only diagram users need.
+        // included), the editor (BlockNote) and the form editor. Installing the app waits for exactly that. Mermaid with its
+        // diagram engines is most of the build (~5 MB of 7), so it is not part of the install: the page loads it in the
+        // background right after start (src/warmup.ts) and the runtime cache below keeps it. Offline-first is kept – every
+        // kind of diagram renders offline once that download has finished – without making the first visit wait for it.
         // BlockNote's other UI languages and the emoji data are fetched (and then cached) on demand as well.
         globPatterns: ['**/*.{js,css,html,svg,png,webmanifest}'],
         globIgnores: ['**/*.{br,gz}', '**/assets/{ar,de,en,es,fa,fr,he,hr,is,it,ja,ko,nb,nl,pl,pt,ru,sk,tr,uk,uz,vi,zh}-*.js', '**/assets/emoji-data-*.js'],
