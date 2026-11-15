@@ -6,3 +6,4 @@ data
 *.log
 tests
 web/e2e
+dist
