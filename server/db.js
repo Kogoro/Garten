@@ -360,3 +360,18 @@ db.exec(`
   );
 `);
 addColumn('checks', 'stale_notified', 'TEXT');   // id of the last run the agent trigger was told is stale (once per run)
+
+// v0.13: people steer the agents per spec: priority, hold (do not start or continue), dependencies (build after these specs)
+db.exec(`
+  CREATE TABLE IF NOT EXISTS spec_steering (
+    team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    spec_id TEXT NOT NULL,
+    priority TEXT NOT NULL DEFAULT 'normal',   -- high | normal | low
+    hold INTEGER NOT NULL DEFAULT 0,
+    hold_note TEXT NOT NULL DEFAULT '',
+    depends TEXT NOT NULL DEFAULT '[]',        -- JSON list of spec ids that must be implemented first
+    updated_by TEXT,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (team_id, spec_id)
+  );
+`);

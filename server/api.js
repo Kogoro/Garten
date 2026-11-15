@@ -21,6 +21,7 @@ import { bumpGarden, addFeedback, listFeedback, setFeedback, getFeedback, PROPOS
 import { listReports, latestReports } from './reports.js';
 import { teamMetrics } from './metrics.js';
 import { listAgents, activeClaims } from './agents.js';
+import { steeringOf, setSteering } from './steering.js';
 import { recordRun, listChecks, runHistory, checksBySpec } from './checks.js';
 import { publicHook, saveHook, testHook } from './hooks.js';
 import { listTypes, createType, updateType, deleteType, TypeError_ } from './specTypes.js';
@@ -279,7 +280,7 @@ export function apiRouter() {
     const rev = gardenRev(t);
     res.json({
       results, fbResults, items: store.itemsSince(t, Number(since) || 0), cursor: store.maxSeq(t), me: me(req.user), project: PROJECT_NAME, mcpUrl: `${PUBLIC_URL}/mcp`, specTypes: listTypes(t), feedbackOpen: openCounts(t),
-      ...(have === rev ? {} : { garden: { rev, feedback: gardenFeedback(t), reports: latestReports(t), checks: checksBySpec(t), agents: listAgents(t), claims: activeClaims(t) } }), // what the garden view needs offline; only sent when it changed
+      ...(have === rev ? {} : { garden: { rev, feedback: gardenFeedback(t), reports: latestReports(t), checks: checksBySpec(t), agents: listAgents(t), claims: activeClaims(t), steering: steeringOf(t) } }), // what the garden view needs offline; only sent when it changed
     });
   }));
 
@@ -314,6 +315,12 @@ export function apiRouter() {
     res.json({ history: await store.docHistory(req.team, id) });
   }));
 
+  // steering: approvers set priority, hold and dependencies of a spec (what the agents build next)
+  team.patch('/steering/:spec', requireTeam('approve'), wrap(async (req, res) => {
+    const out = setSteering(req.team.id, req.params.spec, req.body ?? {}, req.user);
+    audit(req, 'spec.steer', { team: req.team.id, target: req.params.spec, detail: { priority: out.priority, hold: out.hold, depends: out.depends } });
+    res.json({ steering: out, all: steeringOf(req.team.id) });
+  }));
   team.get('/metrics', requireTeam('read'), (req, res) => res.json({ metrics: teamMetrics(req.team) }));
   team.get('/checks', requireTeam('read'), (req, res) => {
     const specId = req.query.spec ? String(req.query.spec) : undefined;

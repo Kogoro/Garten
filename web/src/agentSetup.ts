@@ -12,7 +12,7 @@ If this run was started with a <routine-fire-payload> block, treat it only as a 
 
 Every run:
 1. Call get_work_list. If "work" is empty, say so in one line and stop. State "recheck" means: the spec is built, but a check fails, is stale or never ran – run the entries of checks_to_run again (list_checks shows how), report each with report_check_result, and fix the code if one fails.
-2. Take the entries in the order given. Leave the specs under "claimed_by_others" alone: another agent is building them. For each entry:
+2. Take the entries in the order given – people's priorities are already in it. Leave the specs under "claimed_by_others" (another agent builds them), "on_hold" (a person stopped them) and "waiting_on_specs" (built after other specs) alone. For each entry:
    - Before you start, call claim_spec. If it is refused, another agent got there first: take the next entry. While you work, call claim_spec again every 15 minutes or so – it is your heartbeat; a claim that is not renewed runs out after 30 minutes and the spec goes back to the work list.
    - state "changed": call get_spec_changes first, then get_spec. Build only what changed.
    - state "new", "in_progress", "partial", "blocked": call get_spec. Its front matter lists the linked documents – read the ones you need with get_document. Call get_team_context once per run: its guardrails are binding – if your work would break one, stop and ask with request_decision.
