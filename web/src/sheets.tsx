@@ -5,6 +5,7 @@ import { Icon, toast, useStore } from './ui';
 import { useUi } from './state';
 import { useMedia } from './prefs';
 import type { SpecType } from './store/types';
+import { isGlossaryPath } from '@shared/glossaryFiles.js';
 import { specBody, titleOf } from './derive';
 
 type Done = () => void;
@@ -204,7 +205,7 @@ export function LinkSheet({ specId, onClose, onPick }: { specId: string; onClose
   if (!spec) return null;
   if (newDoc) return <PathSheet kind="newdoc" linkTo={specId} onClose={onClose} />;
   const ref = !!onPick;
-  const docs = S.all('doc').filter((d) => !d.pinned || ref || spec.links.includes(d.id)).sort((a, b) => a.id.localeCompare(b.id));
+  const docs = S.all('doc').filter((d) => !isGlossaryPath(d.id) && (!d.pinned || ref || spec.links.includes(d.id))).sort((a, b) => a.id.localeCompare(b.id));
   return (
     <Sheet onClose={onClose}>
       <h2>{ref ? 'Reference a document' : 'Linked documents'}</h2>

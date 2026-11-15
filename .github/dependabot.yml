@@ -1,11 +1,16 @@
 version: 2
 updates:
+  # npm: one pull request per directory for all minor and patch bumps; each major update still gets its own.
   - package-ecosystem: npm
     directory: /
     schedule: { interval: weekly }
+    groups:
+      server-minor-patch: { patterns: ["*"], update-types: ["minor", "patch"] }
   - package-ecosystem: npm
     directory: /web
     schedule: { interval: weekly }
+    groups:
+      web-minor-patch: { patterns: ["*"], update-types: ["minor", "patch"] }
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }

@@ -42,28 +42,33 @@ function SpecList({ selected }: { selected?: string }) {
   const n = (f: (s: Item) => boolean) => all.filter(f).length;
   const [newSpec, setNewSpec] = useState(false);
   const create = () => setNewSpec(true);
+  // The first sync has not finished (lastSync is only set when it has): what is on the device may be a part of the team's specs, and the rest would be
+  // inserted above it. Show the shape of the list until then, not a partial list and not "No specs yet". Offline, the cache is all there is.
+  const firstLoad = !S.state.lastSync && S.state.online && !S.state.error;
   return (
     <>
       <Bar title="Specs">{S.can('write') && <button className="btn primary only-desktop" data-act="new-spec" onClick={create}><Icon name="plus" size={14} /> New</button>}</Bar>
       <div className="listtools">
         <div className="toolrow"><div className="search"><Icon name="search" /><label className="sr" htmlFor="search">Search specs</label><input id="search" type="search" placeholder="Search specs" value={q} onChange={(e) => setQ(e.target.value)} /></div>
           <button type="button" className="icon-btn filterbtn only-mobile" data-act="filters" aria-label={`Sort and filter${active ? `, ${active} active` : ''}`} onClick={() => setSheet(true)}><Icon name="filter" />{active > 0 && <span className="badge-dot" />}</button></div>
-        <div className="filters">
+        <div className="filters seg seg-fill" role="group" aria-label="Status filter">
           {([['all', 'All', all.length], ...(S.can('approve') ? [['pending', 'To approve', n(isPending)] as const] : []), ['draft', 'Draft', n((s) => s.status !== 'approved')], ['approved', 'Approved', n((s) => s.status === 'approved')]] as const).map(([k, l, c]) => <button key={k} className="filter" type="button" aria-pressed={filter === k} onClick={() => setFilter(k)}>{l} {c}</button>)}
-          <select id="sortBy" className="filter sel only-desktop" aria-label="Sort by" value={sort} onChange={(e) => setSort(e.target.value as typeof sort)}><option value="updated">Recently edited</option><option value="id">ID</option><option value="title">Title A–Z</option><option value="status">Approved first</option><option value="impl">Needs attention first</option></select>
-          <select id="typeFilter" className="filter sel only-desktop" aria-label="Filter by type" value={type} onChange={(e) => setType(e.target.value)}><option value="">All types</option>{S.specTypes().map((t) => <option key={t.key} value={t.key}>{t.label}{all.some((x) => x.specType === t.key) ? '' : ' (none)'}</option>)}</select>
+        </div>
+        <div className="sortrow only-desktop">
+          <select id="sortBy" className="filter sel" aria-label="Sort by" value={sort} onChange={(e) => setSort(e.target.value as typeof sort)}><option value="updated">Recently edited</option><option value="id">ID</option><option value="title">Title A–Z</option><option value="status">Approved first</option><option value="impl">Needs attention first</option></select>
+          <select id="typeFilter" className="filter sel" aria-label="Filter by type" value={type} onChange={(e) => setType(e.target.value)}><option value="">All types</option>{S.specTypes().map((t) => <option key={t.key} value={t.key}>{t.label}{all.some((x) => x.specType === t.key) ? '' : ' (none)'}</option>)}</select>
         </div>
       </div>
       {!q && <Onboarding />}
-      <Hint id="palette" fineOnly>Press <kbd>Ctrl</kbd>/<kbd>⌘</kbd> <kbd>K</kbd> to jump to any spec, document or term, and <kbd>?</kbd> for all shortcuts.</Hint>
       <div className="list" id="list">
-        {!specs.length && <div className="empty">{all.length ? 'No specs match.' : S.can('write') ? 'No specs yet. Create your first one — it works offline.' : 'No specs yet.'}</div>}
-        {specs.map((s) => (
+        {firstLoad && <div className="list-card" aria-busy="true" aria-label="Loading specs">{[0, 1, 2].map((i) => <div className="row skel" key={i}><i /><i /></div>)}</div>}
+        {!firstLoad && !specs.length && <div className="empty">{all.length ? 'No specs match.' : S.can('write') ? 'No specs yet. Create your first one — it works offline.' : 'No specs yet.'}</div>}
+        {!firstLoad && specs.length > 0 && <div className="list-card">{specs.map((s) => (
           <Link key={s.id} className={`row ${selected === s.id ? 'active' : ''}`} to={`/spec/${encodeURIComponent(s.id)}`}>
             <div className="row-title">{s.title || <span className="muted">Untitled spec</span>}</div>
             <div className="row-meta"><span className="row-id">{s.id}</span><TypeChip s={s} S={S} /><StatusChip i={s} S={S} /><AgentChip s={s} S={S} /><ImplChip spec={s} />{S.feedbackCount(s.id) > 0 && <span className="chip warn" title="Open feedback">{S.feedbackCount(s.id)} feedback</span>}<ItemSync i={s} S={S} quiet /><span className="row-when">{s.links.length > 0 && <span className="row-docs">{s.links.length} document{s.links.length === 1 ? '' : 's'}</span>}<span>{s.fetchedAt && !S.hasUnreleased(s) ? <>Agent fetched {ago(Date.parse(s.fetchedAt))}</> : <><span className="row-word">Edited </span>{ago(touched(s))}</>}</span></span></div>
           </Link>
-        ))}
+        ))}</div>}
       </div>
       {S.can('write') && <Fab label="New spec" act="new-spec" onClick={create} />}
       {newSpec && <NewSpecSheet onClose={() => setNewSpec(false)} />}

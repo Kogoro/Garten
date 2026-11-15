@@ -3,7 +3,7 @@
 import { randomUUID } from 'node:crypto';
 import { sql } from './db.js';
 import * as store from './store.js';
-import { ApiError } from './store.js';
+import { ApiError, events } from './store.js';
 import { bumpGarden } from './feedback.js';
 
 export const CHECK_KINDS = ['test', 'ci', 'metric', 'command', 'url', 'manual'];
@@ -11,16 +11,20 @@ export const RUN_STATUSES = ['pass', 'fail', 'error'];
 const clip = (s, n) => String(s ?? '').trim().slice(0, n);
 const NAME = /^[\w][\w .:/@#()+-]{0,79}$/;
 
-const checkView = (c, run, specVersion) => {
+const ciRequired = (teamId) => !!sql('SELECT ci_required AS v FROM teams WHERE id=?').get(teamId)?.v;
+/** state: passing · failing · stale (too old, or for an older spec version) · unverified (never ran – or, where the team requires CI, only the agent says it passes) */
+const checkView = (c, run, specVersion, needCi = false) => {
   let state = 'unverified';
   if (run) {
     const ageDays = (Date.now() - Date.parse(run.at)) / 86400000;
     if (run.status !== 'pass') state = 'failing';
     else if (ageDays > c.max_age_days || (specVersion && run.spec_version < specVersion)) state = 'stale';
+    else if (needCi && run.source !== 'ci') state = 'unverified';
     else state = 'passing';
   }
   return {
     id: c.id, specId: c.spec_id, name: c.name, kind: c.kind, how: c.how, expect: c.expect, criterion: c.criterion, maxAgeDays: c.max_age_days, retired: !!c.retired, state,
+    ...(needCi && run?.status === 'pass' && run.source !== 'ci' && state === 'unverified' ? { needsCi: true } : {}),
     last: run ? { status: run.status, value: run.value || undefined, detail: run.detail || undefined, ref: run.ref || undefined, commit: run.commit_sha || undefined, specVersion: run.spec_version, source: run.source, by: run.run_by, at: run.at } : null,
   };
 };
@@ -61,11 +65,11 @@ export function retireCheck(team, specId, name) {
 export function getCheck(teamId, specId, name) {
   const c = sql('SELECT * FROM checks WHERE team_id=? AND spec_id=? AND name=?').get(teamId, specId, name);
   if (!c) return null;
-  return checkView(c, lastRun(c.id), store.getItem(teamId, specId)?.version);
+  return checkView(c, lastRun(c.id), store.getItem(teamId, specId)?.version, ciRequired(teamId));
 }
 
 /** Record the outcome of running a check. source: "agent" (MCP) or "ci" (pipeline token). */
-export function recordRun(team, { specId, name, status, value, detail, ref, commit }, by, source = 'agent') {
+export function recordRun(team, { specId, name, status, value, detail, ref, commit, specVersion }, by, source = 'agent') {
   const spec = store.getItem(team.id, specId);
   if (!spec || spec.kind !== 'spec') throw new ApiError(`No spec "${specId}".`, 404);
   if (spec.version < 1) throw new ApiError(`${specId} is not released – checks run against released versions.`);
@@ -73,22 +77,28 @@ export function recordRun(team, { specId, name, status, value, detail, ref, comm
   if (!c) throw new ApiError(`${specId} has no check "${name}". Register it first (register_check).`, 404);
   if (!RUN_STATUSES.includes(status)) throw new ApiError(`status must be one of: ${RUN_STATUSES.join(', ')}`);
   if (c.retired) sql('UPDATE checks SET retired=0 WHERE id=?').run(c.id);
+  // the version the tested code implements: a pipeline that tests an older commit says so, and the result counts for that version only
+  const v = specVersion === undefined || specVersion === null ? spec.version : Number(specVersion);
+  if (!Number.isInteger(v) || v < 1 || v > spec.version) throw new ApiError(`spec_version must be a released version of ${specId} (1–${spec.version}).`);
   if (ref && !/^[\w+.-]+:\/\/\S+$|^[\w./#@-]{1,200}$/.test(String(ref).trim())) throw new ApiError('ref must be a URL or a short reference (run id, file path).');
   const id = randomUUID();
   sql('INSERT INTO check_runs (id,check_id,team_id,spec_id,spec_version,status,value,detail,ref,commit_sha,source,run_by,at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
-    .run(id, c.id, team.id, specId, spec.version, status, clip(value, 200), clip(detail, 2000), clip(ref, 400), clip(commit, 80), source, by?.via ? `${by.via}${by.name ? ` (${by.name})` : ''}` : by?.name ?? null, new Date().toISOString());
+    .run(id, c.id, team.id, specId, v, status, clip(value, 200), clip(detail, 2000), clip(ref, 400), clip(commit, 80), source, by?.via ? `${by.via}${by.name ? ` (${by.name})` : ''}` : by?.name ?? null, new Date().toISOString());
   // keep the history bounded: the 50 newest runs per check
   sql('DELETE FROM check_runs WHERE check_id=? AND rowid NOT IN (SELECT rowid FROM check_runs WHERE check_id=? ORDER BY at DESC, rowid DESC LIMIT 50)').run(c.id, c.id);
   bumpGarden(team.id);
-  return getCheck(team.id, specId, c.name);
+  const out = getCheck(team.id, specId, c.name);
+  events.emit('check', { teamId: team.id, check: out, source });
+  return out;
 }
 
 export function listChecks(teamId, { specId, includeRetired = false } = {}) {
   const rows = specId
     ? sql('SELECT * FROM checks WHERE team_id=? AND spec_id=? ORDER BY name').all(teamId, specId)
     : sql('SELECT * FROM checks WHERE team_id=? ORDER BY spec_id, name').all(teamId);
-  const versions = store.specVersions(teamId);
-  return rows.filter((c) => includeRetired || !c.retired).map((c) => checkView(c, lastRun(c.id), versions.get(c.spec_id)));
+  const needCi = ciRequired(teamId);
+  const versions = store.currentVersions(teamId);
+  return rows.filter((c) => includeRetired || !c.retired).map((c) => checkView(c, lastRun(c.id), versions.get(c.spec_id), needCi));
 }
 
 export function runHistory(teamId, specId, name, limit = 20) {

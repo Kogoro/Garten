@@ -3,6 +3,7 @@ import { idb } from './idb';
 import type { Item, Me, SpecType, TeamInfo } from './types';
 import { BUILTIN_TYPES, DEFAULT_TYPE, typeFrom } from '@shared/spectypes.js';
 import { parse as parseBlocks, serialize as serializeBlocks } from '@shared/blocksModel.js';
+import { parseTermFile, formatTermFile, isTermPath, isProposedPath, isGlossaryPath, termPath, termFolder, slugify, folderSegment, rewriteRefsIn, refsIn, GLOSSARY_DIR } from '@shared/glossaryFiles.js';
 
 export const state: any = {
   me: null as Me | null, // cached so the app opens offline
@@ -25,7 +26,8 @@ export const state: any = {
 };
 export type FbPatch = { status?: string; answer?: number; reply?: string };
 export type FbOp = FbPatch & { id: string; n: number };
-export type Garden = { rev: number; feedback: any[]; reports: Record<string, any>; checks?: Record<string, any[]> };
+export type Garden = { rev: number; feedback: any[]; reports: Record<string, any>; checks?: Record<string, any[]>; agents?: any[]; claims?: Record<string, any>; steering?: Record<string, Steering>; guardrailDrift?: Record<string, string[]> };
+export type Steering = { priority: 'high' | 'normal' | 'low'; hold: boolean; holdNote?: string; depends: string[] };
 const mapOf = (tid: string): Map<string, Item> => { if (!state.maps.has(tid)) state.maps.set(tid, new Map()); return state.maps.get(tid); };
 Object.defineProperty(state, 'items', { get: (): Map<string, Item> => mapOf(state.teamId) });
 
@@ -207,7 +209,7 @@ export function createSpec(typeKey: string = DEFAULT_TYPE) {
   return item;
 }
 
-export const DOC_PATH = /^(?!.*\.\.)(?=.{3,120}$)[A-Za-z0-9][A-Za-z0-9_.-]*(?:\/[A-Za-z0-9][A-Za-z0-9_.-]*){0,4}\.(?:md|yaml|yml|json|txt)$/;
+export const DOC_PATH = /^(?!.*\.\.)(?=.{3,120}$)[A-Za-z0-9_][A-Za-z0-9_.-]*(?:\/[A-Za-z0-9_][A-Za-z0-9_.-]*){0,7}\.(?:md|yaml|yml|json|txt)$/;
 function checkDocPath(path: string) {
   path = path.trim().replace(/^\/+/, '');
   if (!DOC_PATH.test(path)) throw new Error('Use a path like adr/ADR-008.md (folders allowed; md, yaml, yml, json or txt)');
@@ -292,11 +294,11 @@ export function folderPaths() {
   return [...set].sort();
 }
 export const folderEmpty = (path: string) => ![...all('doc'), ...all('folder')].some((x: Item) => x.id.startsWith(`${path}/`));
-const FOLDER_PATH = /^(?!.*\.\.)(?=.{1,100}$)[A-Za-z0-9][A-Za-z0-9_.-]*(?:\/[A-Za-z0-9][A-Za-z0-9_.-]*){0,4}$/;
+const FOLDER_PATH = /^(?!.*\.\.)(?=.{1,100}$)[A-Za-z0-9_][A-Za-z0-9_.-]*(?:\/[A-Za-z0-9_][A-Za-z0-9_.-]*){0,7}$/;
 
 export function createFolder(path: string) {
   path = path.trim().replace(/^\/+|\/+$/g, '');
-  if (!FOLDER_PATH.test(path)) throw new Error('Use letters, digits, . _ - and / (up to 5 levels), e.g. adr/2026');
+  if (!FOLDER_PATH.test(path)) throw new Error('Use letters, digits, . _ - and / (up to 8 levels), e.g. adr/2026');
   if (folderPaths().includes(path)) throw new Error(`${path} already exists`);
   if (state.items.get(path) && visible(state.items.get(path)!)) throw new Error(`${path} already exists`);
   dropped.delete(path);
@@ -322,7 +324,7 @@ export function deleteFolder(path: string) {
 /** Rename/move a folder together with everything inside it (documents are moved one by one, links follow). */
 export function moveFolder(oldPath: string, newPath: string) {
   newPath = newPath.trim().replace(/^\/+|\/+$/g, '');
-  if (!FOLDER_PATH.test(newPath)) throw new Error('Use letters, digits, . _ - and / (up to 5 levels)');
+  if (!FOLDER_PATH.test(newPath)) throw new Error('Use letters, digits, . _ - and / (up to 8 levels)');
   if (newPath === oldPath) return;
   if (newPath.startsWith(`${oldPath}/`)) throw new Error('A folder cannot be moved into itself');
   if (folderPaths().includes(newPath)) throw new Error(`${newPath} already exists`);
@@ -339,8 +341,8 @@ export function moveFolder(oldPath: string, newPath: string) {
 
 /** Foundation documents are always available to agents (vision, strategy, glossary, anything pinned). */
 export const foundationDocs = () => {
-  const order = ['vision.md', 'strategy.md', 'guardrails.md', 'glossary.md'];
-  return all('doc').filter((d) => d.pinned).sort((a: any, b: any) => (order.indexOf(a.id) < 0 ? 9 : order.indexOf(a.id)) - (order.indexOf(b.id) < 0 ? 9 : order.indexOf(b.id)) || a.id.localeCompare(b.id));
+  const order = ['vision.md', 'strategy.md', 'guardrails.md'];
+  return all('doc').filter((d) => d.pinned && !isGlossaryPath(d.id)).sort((a: any, b: any) => (order.indexOf(a.id) < 0 ? 9 : order.indexOf(a.id)) - (order.indexOf(b.id) < 0 ? 9 : order.indexOf(b.id)) || a.id.localeCompare(b.id));
 };
 export const setPinned = (id: string, on: boolean) => edit(id, { pinned: !!on });
 
@@ -474,7 +476,7 @@ async function syncTeam(tid: string) {
 }
 
 
-// ------------------------------------------------------------ glossary: global terms + editing glossary.md
+// ------------------------------------------------------------ glossary: global terms + term files
 export async function loadGlobalGlossary() {
   try {
     const { terms } = await api('GET', '/api/glossary/global');
@@ -484,84 +486,146 @@ export async function loadGlobalGlossary() {
 }
 export const parseOrigin = (o?: string | null) => { const m = /^global:([\w-]+)@(\d+)$/i.exec(o ?? ''); return m ? { id: m[1], rev: Number(m[2]) } : null; };
 
-// glossary.md as a structure: section headings (h2/h3) act as folders for the definition blocks below them.
-const headingAt = (blocks: any[], idx: number) => { for (let k = idx; k >= 0; k--) if (blocks[k].type === 'h' && blocks[k].level >= 2) return blocks[k].text.trim(); return ''; };
+// The glossary is a folder of term files (docs/glossary/<folder>/<term>.md, shared/glossaryFiles.js). Sub-folders group terms;
+// glossary/_proposed/ holds terms agents proposed until an approver accepts them.
+export const termItems = (): Item[] => all('doc').filter((d) => isTermPath(d.id) && !!parseTermFile(d.body));
+export const proposedItems = (): Item[] => all('doc').filter((d) => isProposedPath(d.id) && !!parseTermFile(d.body));
+/** Folder paths of the glossary relative to glossary/ ("Billing", "Billing/Invoices"), sorted. */
+export const glossaryFolders = (): string[] => folderPaths().filter((p) => p.startsWith(`${GLOSSARY_DIR}/`) && !isProposedPath(p)).map((p) => p.slice(GLOSSARY_DIR.length + 1)).sort((a, b) => a.localeCompare(b));
+const findTerm = (name: string, except?: string) => termItems().find((d) => d.id !== except && parseTermFile(d.body)!.term.toLowerCase() === name.trim().toLowerCase());
+export const termByName = (name: string) => findTerm(name);
+const cleanFolder = (f: string) => String(f ?? '').split('/').map((x) => x.trim()).filter(Boolean).map(folderSegment).join('/');
 
-export function glossaryModel() {
-  const g = get('glossary.md');
-  const folders: string[] = [];
-  const where = new Map<string, string>();
-  if (g) {
-    const blocks = parseBlocks(g.body);
-    blocks.forEach((b: any, i: number) => {
-      if (b.type === 'h' && b.level >= 2 && !folders.includes(b.text.trim())) folders.push(b.text.trim());
-      if (b.type === 'def') where.set(b.term.trim().toLowerCase(), headingAt(blocks, i));
-    });
+export interface TermInput { term: string; body: string; aliases?: string[]; avoid?: string[]; distinct?: string[]; see?: string[]; folder?: string; origin?: string | null }
+function checkTerm(t: TermInput, except?: string) {
+  const term = t.term.trim();
+  if (!term) throw new Error('Enter a term');
+  if (term.length > 80) throw new Error('A term has 80 characters at most');
+  if (/[[\]|]/.test(term)) throw new Error('Terms cannot contain [ ] or |');
+  if (!t.body.trim()) throw new Error('Enter a definition');
+  if (findTerm(term, except)) throw new Error(`“${term}” is already in the glossary`);
+}
+
+/** Every item that references `name` ([[name]], #[name], See also …) except `skip`, with the number of references. */
+export function referencesTo(name: string, skip?: string): { item: Item; n: number }[] {
+  return [...all('spec'), ...all('doc')].filter((i) => i.id !== skip && !isProposedPath(i.id)).map((item) => ({ item, n: refsIn(item.id, item.body, name) })).filter((x) => x.n > 0);
+}
+function rewriteAll(from: string, to: string | null, skip?: string) {
+  for (const { item } of referencesTo(from, skip)) {
+    const next = rewriteRefsIn(item.id, item.body, from, to);
+    if (next !== item.body) edit(item.id, { body: next });
   }
-  return { folders, where };
 }
 
-/** Insert `nb` at the end of the section `folder` ('' = before the first section heading). */
-function insertInFolder(blocks: any[], folder: string, nb: any) {
-  if (!folder) {
-    const first = blocks.findIndex((b: any) => b.type === 'h' && b.level >= 2);
-    blocks.splice(first < 0 ? blocks.length : first, 0, nb);
-    return;
+/** Creates or changes a term file. `path` = the term's file when it exists; a new name or folder moves the file.
+ *  `updateRefs` rewrites references to the old name everywhere, `keepAlias` keeps the old name as a synonym. Returns the (new) path. */
+export function saveTerm(t: TermInput, opts: { path?: string; updateRefs?: boolean; keepAlias?: boolean } = {}): string {
+  const old = opts.path ? get(opts.path) : undefined;
+  const prev = old ? parseTermFile(old.body) : null;
+  checkTerm(t, old?.id);
+  const term = t.term.trim();
+  const folder = cleanFolder(t.folder ?? (old ? termFolder(old.id) : ''));
+  const renamed = !!prev && prev.term !== term;
+  const aliases = [...new Set([...(t.aliases ?? []), ...(renamed && opts.keepAlias && prev!.term.toLowerCase() !== term.toLowerCase() ? [prev!.term] : [])])].filter((a) => a.toLowerCase() !== term.toLowerCase());
+  const body = formatTermFile({ term, body: t.body, aliases, avoid: t.avoid ?? [], distinct: t.distinct ?? [], see: t.see ?? [], origin: t.origin !== undefined ? t.origin : prev?.origin ?? null });
+  const sameName = old && slugify(term) === old.id.split('/').pop()!.replace(/(-\d+)?\.md$/, '');
+  const target = old && sameName && termFolder(old.id) === folder ? old.id : termPath(folder, term, (p: string) => p !== old?.id && !!get(p));
+  if (!old) { createDoc(target, body); edit(target, { pinned: true }); }
+  else {
+    if (body !== old.body) edit(old.id, { body });
+    if (target !== old.id) { moveDoc(old.id, target); edit(target, { pinned: true }); }
   }
-  const hi = blocks.findIndex((b: any) => b.type === 'h' && b.level >= 2 && b.text.trim() === folder);
-  if (hi < 0) { blocks.push({ id: `g${Date.now()}h`, type: 'h', level: 2, text: folder }, nb); return; }
-  let end = blocks.length;
-  for (let k = hi + 1; k < blocks.length; k++) if (blocks[k].type === 'h' && blocks[k].level <= blocks[hi].level) { end = k; break; }
-  blocks.splice(end, 0, nb);
+  if (renamed && opts.updateRefs) rewriteAll(prev!.term, term, target);
+  return target;
 }
 
-function applyTerm(blocks: any[], t: any) {
-  const key = (t.oldTerm ?? t.term).trim().toLowerCase();
-  const nb = { type: 'def', term: t.term, text: t.definition, aliases: (t.aliases ?? []).join(', '), see: (t.see ?? []).join(', '), src: t.source ?? '' };
-  const i = blocks.findIndex((b: any) => b.type === 'def' && b.term.trim().toLowerCase() === key);
-  const cur = i >= 0 ? headingAt(blocks, i) : null;
-  const want = t.folder === undefined ? (cur ?? '') : t.folder;
-  if (i >= 0 && want === cur) { blocks[i] = { ...blocks[i], ...nb, src: t.source ?? blocks[i].src ?? '' }; return; }
-  const keepSrc = i >= 0 ? blocks[i].src : '';
-  if (i >= 0) blocks.splice(i, 1);
-  insertInFolder(blocks, want, { id: `g${Date.now()}${blocks.length}`, ...nb, src: t.source ?? keepSrc ?? '' });
+/** Removes a term. References become plain text, or (merge) point to another term which takes over the name as a synonym. */
+export function deleteTerm(path: string, mode: 'unlink' | 'merge' = 'unlink', into?: string) {
+  const it = get(path); const t = it && parseTermFile(it.body);
+  if (!it || !t) return;
+  if (mode === 'merge' && into) {
+    const target = termByName(into);
+    if (!target) throw new Error(`“${into}” is not in the glossary`);
+    const tt = parseTermFile(target.body)!;
+    const aliases = [...new Set([...tt.aliases, t.term, ...t.aliases])].filter((a) => a.toLowerCase() !== tt.term.toLowerCase());
+    edit(target.id, { body: formatTermFile({ ...tt, aliases }) });
+    rewriteAll(t.term, tt.term, path);
+  } else rewriteAll(t.term, null, path);
+  deleteItem(path);
 }
 
-function editGlossary(fn: (b: any[]) => void) {
-  const g = get('glossary.md') ?? createDoc('glossary.md', '# Glossary\n\n');
-  const blocks = parseBlocks(g.body);
-  fn(blocks);
-  edit('glossary.md', { body: serializeBlocks(blocks) });
+export function createGlossaryFolder(path: string) {
+  const p = cleanFolder(path);
+  if (!p) throw new Error('Give the folder a name');
+  if (p.split('/')[0].startsWith('_')) throw new Error('Folder names cannot start with _');
+  if (glossaryFolders().some((f) => f.toLowerCase() === p.toLowerCase())) throw new Error(`“${p}” already exists`);
+  createFolder(`${GLOSSARY_DIR}/${p}`);
+  return p;
+}
+export function renameGlossaryFolder(from: string, to: string) {
+  const p = cleanFolder(to);
+  if (!p) throw new Error('Give the folder a name');
+  if (p.split('/')[0].startsWith('_')) throw new Error('Folder names cannot start with _');
+  if (p.toLowerCase() !== from.toLowerCase() && glossaryFolders().some((f) => f.toLowerCase() === p.toLowerCase())) throw new Error(`“${p}” already exists`);
+  moveFolder(`${GLOSSARY_DIR}/${from}`, `${GLOSSARY_DIR}/${p}`);
+  for (const d of all('doc').filter((x) => x.id.startsWith(`${GLOSSARY_DIR}/${p}/`) && isTermPath(x.id))) if (!d.pinned) edit(d.id, { pinned: true });
+  return p;
+}
+export function deleteGlossaryFolder(path: string) {
+  if (!folderEmpty(`${GLOSSARY_DIR}/${path}`)) throw new Error('Move or delete the terms in this folder first');
+  deleteFolder(`${GLOSSARY_DIR}/${path}`);
 }
 
-/** Adds or replaces definition blocks in the team's glossary.md (created when missing) in a single edit.
- *  Each item: { term, definition, aliases[], see[], source?, folder?, oldTerm? } – oldTerm renames, folder moves. */
-export function upsertGlossaryTerms(list: any[]) { editGlossary((blocks) => list.forEach((t) => applyTerm(blocks, t))); }
-export const saveGlossaryTerm = (t: any) => upsertGlossaryTerms([t]);
-export function deleteGlossaryTerm(term: string) {
-  editGlossary((blocks) => { const i = blocks.findIndex((b: any) => b.type === 'def' && b.term.trim().toLowerCase() === term.toLowerCase()); if (i >= 0) blocks.splice(i, 1); });
+/** Adds terms (import from the global glossary or a file). mode: skip terms that exist, or overwrite them. */
+export function importTerms(list: (TermInput & { origin?: string | null })[], mode: 'skip' | 'overwrite' = 'skip') {
+  let added = 0, updated = 0, skipped = 0;
+  for (const t of list) {
+    const cur = findTerm(t.term);
+    if (cur && mode === 'skip') { skipped++; continue; }
+    try {
+      const prev = cur ? parseTermFile(cur.body)! : null;
+      saveTerm({ ...t, folder: t.folder ?? (cur ? termFolder(cur.id) : ''), avoid: t.avoid ?? prev?.avoid, distinct: t.distinct ?? prev?.distinct }, { path: cur?.id });
+      cur ? updated++ : added++;
+    } catch { skipped++; }
+  }
+  return { added, updated, skipped };
 }
-export function createGlossaryFolder(name: string) {
-  name = name.trim();
-  if (!name || name.length > 60) throw new Error('Give the folder a name (up to 60 characters)');
-  if (glossaryModel().folders.some((f) => f.toLowerCase() === name.toLowerCase())) throw new Error(`“${name}” already exists`);
-  editGlossary((blocks) => blocks.push({ id: `g${Date.now()}f`, type: 'h', level: 2, text: name }));
-}
-export function renameGlossaryFolder(oldName: string, name: string) {
-  name = name.trim();
-  if (!name || name.length > 60) throw new Error('Give the folder a name (up to 60 characters)');
-  if (name.toLowerCase() !== oldName.toLowerCase() && glossaryModel().folders.some((f) => f.toLowerCase() === name.toLowerCase())) throw new Error(`“${name}” already exists`);
-  editGlossary((blocks) => blocks.forEach((b: any) => { if (b.type === 'h' && b.level >= 2 && b.text.trim() === oldName) b.text = name; }));
-}
-export function deleteGlossaryFolder(name: string) {
-  const m = glossaryModel();
-  if ([...m.where.values()].includes(name)) throw new Error('Move or delete the terms in this folder first');
-  editGlossary((blocks) => { const i = blocks.findIndex((b: any) => b.type === 'h' && b.level >= 2 && b.text.trim() === name); if (i >= 0) blocks.splice(i, 1); });
-}
-export function importGlobalTerms(ids: string[]) {
+export function importGlobalTerms(ids: string[], folder = '') {
   const picked = state.globalTerms.filter((g: any) => ids.includes(g.id));
-  upsertGlossaryTerms(picked.map((g: any) => ({ term: g.term, definition: g.definition, aliases: g.aliases, see: g.see, source: `global:${g.id}@${g.rev}` })));
-  return picked.length;
+  return importTerms(picked.map((g: any) => ({ term: g.term, body: g.definition, aliases: g.aliases, see: g.see, folder, origin: `global:${g.id}@${g.rev}` }))).added;
+}
+/** Replace a term's text with the newer revision from the global glossary (words to avoid, folder and distinctions stay). */
+export function updateFromGlobal(path: string, g: any) {
+  const it = get(path); const t = it && parseTermFile(it.body);
+  if (!it || !t) return;
+  edit(path, { body: formatTermFile({ ...t, body: g.definition, aliases: g.aliases, see: g.see, origin: `global:${g.id}@${g.rev}` }) });
+}
+/** Keep the local text but stop offering this revision of the global term. */
+export function keepLocalVersion(path: string, g: any) {
+  const it = get(path); const t = it && parseTermFile(it.body);
+  if (it && t) edit(path, { body: formatTermFile({ ...t, origin: `global:${g.id}@${g.rev}` }) });
+}
+
+/** Accepting a proposed term (approvers): it moves into a folder of the glossary and goes live like any term. */
+export function acceptProposed(path: string, folder: string, patch: Partial<TermInput> = {}) {
+  if (!can('approve')) throw new Error('Only approvers accept proposed terms');
+  const it = get(path); const t = it && parseTermFile(it.body);
+  if (!it || !t) throw new Error('This proposal no longer exists');
+  const target = saveTerm({ term: t.term, body: t.body, aliases: t.aliases, avoid: t.avoid, distinct: t.distinct, see: t.see, ...patch, folder });
+  deleteItem(path);
+  return target;
+}
+/** Definition blocks ("Term" + ": …") in a spec or document: remove the one for `term`, or give it another name. */
+export function dropDefinition(body: string, term: string) {
+  const blocks = parseBlocks(body).filter((b: any) => !(b.type === 'def' && b.term.trim().toLowerCase() === term.trim().toLowerCase()));
+  return serializeBlocks(blocks);
+}
+export function renameDefinition(body: string, term: string, name: string) {
+  return serializeBlocks(parseBlocks(body).map((b: any) => (b.type === 'def' && b.term.trim().toLowerCase() === term.trim().toLowerCase() ? { ...b, term: name.trim() } : b)));
+}
+export function declineProposed(path: string) {
+  if (!can('approve')) throw new Error('Only approvers decline proposed terms');
+  deleteItem(path);
 }
 
 // ------------------------------------------------------------ garden: feedback, decisions, implementation reports
@@ -604,7 +668,7 @@ async function adoptGarden(tid: string, data: any, sent: FbOp[]) {
   if (refused.length) state.gardenNotice = `${refused.length === 1 ? 'One answer was' : `${refused.length} answers were`} not accepted: ${refused[0].error}`;
   if (sent.length || left.length !== (state.fbOps[tid] ?? []).length) { state.fbOps[tid] = left; await meta('fbOps', state.fbOps); }
   if (data.garden) {
-    const g: Garden = { rev: data.garden.rev, feedback: data.garden.feedback ?? [], reports: data.garden.reports ?? {}, checks: data.garden.checks ?? {} };
+    const g: Garden = { rev: data.garden.rev, feedback: data.garden.feedback ?? [], reports: data.garden.reports ?? {}, checks: data.garden.checks ?? {}, agents: data.garden.agents, claims: data.garden.claims ?? {}, steering: data.garden.steering ?? {}, guardrailDrift: data.garden.guardrailDrift ?? {} };
     for (const op of left) g.feedback = g.feedback.map((f) => (f.id === op.id ? applyOp(f, op, state.me?.name) : f));
     state.garden[tid] = g;
     await meta('garden', state.garden);
@@ -623,6 +687,23 @@ export const fbPending = (id?: string): number => (state.fbOps[state.teamId] ?? 
 export const latestReport = (specId: string): any | null => state.garden[state.teamId]?.reports?.[specId] ?? null;
 /** The re-runnable checks of a spec with the state of their last run (also offline). */
 export const specChecks = (specId: string): any[] => state.garden[state.teamId]?.checks?.[specId] ?? [];
+/** The agents the server has seen (last MCP call, open claims), or null before the first sync with a server that reports them. */
+export const gardenAgents = (): any[] | null => state.garden[state.teamId]?.agents ?? null;
+/** The live claim on a spec: which agent builds it, until when. A claim that ran out since the last sync no longer counts. */
+export const specClaim = (specId: string): any | null => { const c = state.garden[state.teamId]?.claims?.[specId]; return c && Date.parse(c.until) > Date.now() ? c : null; };
+/** Guardrail ids added or reworded since the spec's implemented report (the agent has to check its code against them). */
+export const specDrift = (specId: string): string[] => state.garden[state.teamId]?.guardrailDrift?.[specId] ?? [];
+/** Priority, hold and dependencies a person set for a spec (defaults when nobody did). */
+export const specSteering = (specId: string): Steering => state.garden[state.teamId]?.steering?.[specId] ?? { priority: 'normal', hold: false, depends: [] };
+/** Saves steering on the server (needs a connection) and keeps the answer for offline use. */
+export async function steer(specId: string, patch: Partial<Steering>) {
+  const tid = state.teamId;
+  const r: any = await api('PATCH', `/api/teams/${tid}/steering/${encodeURIComponent(specId)}`, patch);
+  const g = state.garden[tid];
+  if (g) { g.steering = r.all; await meta('garden', state.garden); }
+  emit();
+  return r.steering as Steering;
+}
 export const dismissGardenNotice = () => { state.gardenNotice = null; emit(); };
 
 /** Open entries on a spec (feedback and decisions). From the offline copy, so it follows what was done on this device. */

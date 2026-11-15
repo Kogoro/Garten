@@ -9,11 +9,13 @@ optional in dessen Entwicklungs-Repository gepusht und über einen **MCP-Server*
 **Docker**
 
 ```bash
-ADMIN_PASSWORD='mein-passwort' docker compose up -d --build   # ohne ADMIN_PASSWORD: wird erzeugt und im Log angezeigt
+ADMIN_PASSWORD='mein-passwort' docker compose up -d   # ohne ADMIN_PASSWORD: wird erzeugt und im Log angezeigt
 docker compose logs specs
 ```
 
 <http://localhost:3000> → `admin@localhost`. `SEED_DEMO=1` (Default) füllt das erste Team mit Beispieldaten. Konfiguration per Umgebungsvariablen, siehe `docker-compose.yml`.
+
+Compose startet das veröffentlichte Image `ghcr.io/kogoro/garten:latest` (amd64 und arm64). Aktualisieren: `docker compose pull && docker compose up -d`. Eine feste Version: `GARTEN_IMAGE=ghcr.io/kogoro/garten:0.12.0`. Selbst bauen aus dem Checkout: `GARTEN_IMAGE=garten:local docker compose up -d --build`.
 
 **Debian 12/13 / Ubuntu 24.04 (VM, Server, LXC), als root:**
 
@@ -21,16 +23,30 @@ docker compose logs specs
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/Kogoro/Garten/main/scripts/install-debian.sh)"
 ```
 
-Installiert den **neuesten Release** nach `/opt/garten`, Daten unter `/var/lib/garten/data`, Einstellungen in `/etc/garten/garten.env` (dieselben Variablen wie in `docker-compose.yml`), Dienst `garten` auf `http://<IP>:3000`. Zugangsdaten stehen in `/root/garten.creds`.
+Installiert den **neuesten Release** nach `/opt/garten`, Daten unter `/var/lib/garten/data`, Einstellungen in `/etc/garten/garten.env` (dieselben Variablen wie in `docker-compose.yml`), Dienst `garten` auf `http://<IP>:3000`. Zugangsdaten stehen in `/root/garten.creds`. Der Installer lädt das fertig gebaute Release-Archiv (`garten-<tag>.tar.gz`, geprüft gegen die `.sha256`-Datei) und installiert nur noch die Server-Abhängigkeiten – kein Frontend-Build auf dem Server. Gibt es kein Archiv (Branch, ältere Releases), baut er wie bisher aus dem Quellcode (einige Minuten, rund 1 GB RAM).
 
 | Befehl | |
 |---|---|
 | `garten update` | auf den neuesten Release aktualisieren (Daten und Einstellungen bleiben) |
 | `garten info` · `garten logs` | Adresse, Version, Status · Log |
-| `garten backup` | Archiv in `/root` |
+| `garten backup` | Archiv in `/root`, im laufenden Betrieb |
 | `garten url https://spec.example.org` | eigene Adresse (Reverse-Proxy mit HTTPS) |
 
-`GARTEN_REF=v0.11.0 garten update` installiert eine bestimmte Version, `GARTEN_REF=main` den Entwicklungsstand. Plain HTTP funktioniert nur online – Offline-Modus und Handy-Installation brauchen HTTPS (siehe unten). Nur per VPN erreichbar heißt: Cloud-Routinen von Claude Code erreichen den Server nicht.
+`GARTEN_REF=v0.11.0 garten update` installiert eine bestimmte Version, `GARTEN_REF=main` den Entwicklungsstand (immer aus dem Quellcode gebaut).
+
+**Update:** Die neue Version wird in `/opt/garten.new` vorbereitet, während die alte weiterläuft. Erst wenn sie vollständig ist, wird der Dienst gestoppt und das Verzeichnis getauscht; die vorige Version bleibt als `/opt/garten.old`. Antwortet die neue Version nicht auf `/healthz`, kommt automatisch die vorige zurück. Schlägt Download oder Build fehl, läuft die alte Version einfach weiter. Die Datenbank von unmittelbar vor dem Update liegt in `/var/lib/garten/pre-update.db`.
+
+**Backup und Wiederherstellung:** `garten backup` stoppt den Server nicht. Es schreibt einen konsistenten Schnappschuss der SQLite-Datenbank (`VACUUM INTO`), dazu den Rest von `data/` (Git-Repos der Teams unter `data/repos`, `secret.key`, `known_hosts`) und `garten.env` nach `/root/garten-backup-<Zeit>.tar.gz`. Wiederherstellen:
+
+```bash
+systemctl stop garten
+rm -rf /var/lib/garten/data                        # auch alte specs.db-wal/-shm, die nicht zum Schnappschuss passen
+tar xzf /root/garten-backup-<Zeit>.tar.gz -C /var/lib/garten data
+chown -R garten:garten /var/lib/garten/data
+systemctl start garten
+```
+
+`garten.env` liegt ebenfalls im Archiv (`tar xzf … -C /etc/garten garten.env`), falls die Einstellungen verloren sind. Plain HTTP funktioniert nur online – Offline-Modus und Handy-Installation brauchen HTTPS (siehe unten). Nur per VPN erreichbar heißt: Cloud-Routinen von Claude Code erreichen den Server nicht.
 
 ## Releases
 
@@ -40,7 +56,12 @@ Version in `package.json` erhöhen, committen, dann Tag setzen und pushen:
 git tag v0.12.0 && git push origin v0.12.0
 ```
 
-Der Workflow `.github/workflows/release.yml` prüft, dass der Tag zur `package.json`-Version passt, und legt den GitHub-Release mit automatisch erzeugten Notizen an (Tags mit `-`, z. B. `v0.12.0-rc.1`, sind Vorab-Releases und werden von `garten update` nicht gewählt). Ohne veröffentlichten Release bricht `garten update` ab, statt auf `main` auszuweichen.
+Der Workflow `.github/workflows/release.yml` führt zuerst dieselben Prüfungen wie CI aus (Tests, Installer-Skript, Docker-Build, Audit) und prüft, dass der Tag zur `package.json`-Version passt. Erst dann veröffentlicht er:
+
+* das Docker-Image `ghcr.io/kogoro/garten:<version>` für amd64 und arm64, bei regulären Releases zusätzlich `:latest`,
+* den GitHub-Release mit automatisch erzeugten Notizen und dem fertig gebauten Archiv `garten-<tag>.tar.gz` samt `garten-<tag>.tar.gz.sha256` (Server, `shared/`, gebautes `web/dist`, `package.json`, `package-lock.json`, `scripts/`; ohne `node_modules`). Lokal erzeugt es `scripts/release-tarball.sh <tag>` nach einem `npm --prefix web run build`.
+
+Tags mit `-`, z. B. `v0.12.0-rc.1`, sind Vorab-Releases: kein `:latest`, und `garten update` wählt sie nicht. Ohne veröffentlichten Release bricht `garten update` ab, statt auf `main` auszuweichen. Das Image-Paket ist nach dem ersten Release in GitHub einmalig auf *public* zu stellen, damit `docker compose pull` ohne Anmeldung funktioniert.
 
 ## Teams, Einladungen, Rollen
 
@@ -63,11 +84,12 @@ Der Workflow `.github/workflows/release.yml` prüft, dass der Tag zur `package.j
 * **Spec-Typen:** Feature, API, UI, Data model, NFR, Integration, dazu Architecture spec und ADR – jeweils mit Vorlage. Teams definieren eigene Typen (*Members & Git → Spec types*). Der Typ steht im Front-Matter (`type: api`) und ist per MCP filterbar.
 * **Formular statt Editor:** Ein Typ kann seinen Inhalt als Formular mit Feldern, Listen und Tabs beschreiben (Feldtypen u. a. Requirements, API-Endpoints, Mermaid-Diagramm, Checkliste). Gespeichert wird immer Markdown (`## FELDNAME`); über das Overflow-Menü wechselt man zwischen **Form**, **Blocks** und **Markdown**. Unbekannte Abschnitte bleiben erhalten („Other content“).
 * **Editor:** Blöcke auf Basis von BlockNote (Text, Überschriften, Requirement, Checkliste, Liste, Definition, Zitat, Code, Diagramm, API-Endpoint), `/` öffnet das Block-Menü, `@` verlinkt Dokumente, `#` Glossarbegriffe. Mermaid-Diagramme rendern auch offline; andere Textformate gehen als Code-Block an den Agenten.
-* **Foundation-Dokumente:** Jedes Team hat `vision.md`, `strategy.md`, `glossary.md` und `guardrails.md`; weitere lassen sich anheften. Sie gehören keinem Spec, gehen nach der letzten Änderung automatisch live (pro Team umstellbar auf „Publish now“) und landen unter `<Ordner>/docs/`. `get_team_context()` liefert sie Agenten in einem Aufruf.
-* **Leitplanken:** Abschnitte *Always* / *Never* (`- G1: …`) in `guardrails.md` sind für Agenten verbindlich; würde eine Aufgabe eine Regel brechen, fragt der Agent per `request_decision`. Aus Feedback oder Abweichungen wird per **Make it a rule** eine Regel.
+* **Foundation-Dokumente:** Jedes Team hat `vision.md`, `strategy.md` und `guardrails.md`; weitere lassen sich anheften (auch jeder Glossarbegriff ist ein Foundation-Dokument). Sie gehören keinem Spec, gehen nach der letzten Änderung automatisch live (pro Team umstellbar auf „Publish now“) und landen unter `<Ordner>/docs/`. `get_team_context()` liefert sie Agenten in einem Aufruf.
+* **Leitplanken:** Abschnitte *Always* / *Never* (`- G1: …`) in `guardrails.md` sind für Agenten verbindlich; würde eine Aufgabe eine Regel brechen, fragt der Agent per `request_decision`. Jeder Bericht hält fest, gegen welche Regeln gebaut wurde. Kommt eine Regel hinzu oder ändert sich ihr Wortlaut, steht ein umgesetzter Spec wieder in der Arbeitsliste (`guardrails_changed` mit `rules_changed`), der Garden zeigt ihn unter *Needs attention*, und der Agent-Trigger meldet die neuen Leitplanken als Freigabe. Gestrichene Regeln lösen nichts aus. Aus Feedback oder Abweichungen wird per **Make it a rule** eine Regel.
 * **Aus Text ableiten:** Im Menü (⋯) eines Specs oder Dokuments gibt es *New spec from selection / this document…* und *Glossary term from selection / this document…*. Ohne Markierung gilt das ganze Dokument. Beim Spec wählt man Typ und Titel; der Text wird kopiert und bekommt einen Abschnitt `## SOURCE`. Beim Begriff öffnet sich der Glossar-Dialog vorbefüllt (kurze Markierung = Begriff, längere = Definition, ganzes Dokument = Titel und erster Absatz). Enthält ein Dokument schon Definitionen, übernimmt *Add N definitions … to the glossary* sie auf einmal. Das Original bleibt unverändert; Agenten tun dasselbe über `derive_from_document`.
 * **Dokumente in Ordnern:** IDs sind Pfade (bis 5 Ebenen), Ordner sind eigene Objekte, Verschieben/Umbenennen zieht Verlinkungen nach.
-* **Glossar:** Definition-Blöcke werden als Markdown-Definitionsliste gespeichert (`Term` / `: Definition` / `: Aliases:` / `: See also:`), Verweise mit `[[Begriff]]`. Alle Definitionen freigegebener Specs und Dokumente fließen in `GLOSSARY.md` / `get_glossary`. *Search definitions online* (Wikipedia, Wiktionary, dictionaryapi.dev) schickt nur den Suchbegriff, `LOOKUP=0` schaltet das ab. Instanz-Admins pflegen ein **globales Glossar** (*Admin → Global glossary*, Import aus CSV/JSON/Markdown); Teams importieren Begriffe als editierbare Kopie und sehen *Update available*, wenn das Original sich ändert.
+* **Glossar als Ordner:** Jeder Begriff ist eine eigene Markdown-Datei `docs/glossary/<Ordner>/<begriff>.md`; Unterordner gruppieren Begriffe (verschachtelbar). Die Datei beginnt mit Front Matter (`term`, `aliases`, `avoid` = Wörter, die man nicht verwenden soll, `distinct` = nicht verwechseln mit, `see`, bei Importen `source`); danach steht die Definition als normales Markdown (Absätze, Listen, Code, Beispiele). Verweise: `[[Begriff]]` in Definitionen, `#[Begriff]` im Fließtext (im Editor ein Chip mit der Definition beim Hover). Ändern sich Begriffe, geht das debounced in **einem** Commit pro Team live; ein Umbenennen kann alle Verweise mitziehen und den alten Namen als Synonym behalten. Die Seite *Glossary* hat drei Tabs: **Terms** (Ordnerbaum, Definition, *Used in*, *History* = Git-Log der Datei), **Proposed** (von Agenten vorgeschlagene Begriffe in `glossary/_proposed/`, gehen nie live; nur Approver nehmen sie an oder lehnen ab) und **Health** (zwei Definitionen, kaputte Verweise, zu vermeidende Wörter in Specs, doppelte Synonyme, Updates aus dem globalen Glossar, unbenutzte Begriffe). Verwendet ein Spec ein Wort aus `avoid`, zeigt der Editor einen Vorschlag; beim Approve, beim *Done* auf dem Handy und beim Verlassen eines bearbeiteten Specs warnt ein Dialog bzw. Hinweis mit *Replace*. Export und Import als **ZIP** (eine Datei pro Begriff) oder **CSV**. Definition-Blöcke in Specs und Dokumenten (`Term` / `: Definition`) zählen weiter mit und erscheinen unter *In specs & documents*. `GLOSSARY.md` / `get_glossary` fassen alles zusammen. *Search definitions online* (Wikipedia, Wiktionary, dictionaryapi.dev) schickt nur den Suchbegriff, `LOOKUP=0` schaltet das ab. Instanz-Admins pflegen ein **globales Glossar** (*Admin → Global glossary*, Import aus CSV/JSON/Markdown); Teams importieren Begriffe als editierbare Kopie, *Health* bietet neue Revisionen mit Diff an.
+* **Umstieg von `glossary.md`:** Beim ersten Start nach dem Update wird das alte `glossary.md` aufgeteilt: jede Definition wird eine Datei, `##`-Überschriften werden Ordner, `###` Unterordner; war das Glossar live, geht der neue Ordner in einem Commit live und `glossary.md` verschwindet aus dem Repository. Unveröffentlichte Agenten-Entwürfe `glossary/from-*.md` werden zu Vorschlägen.
 
 ## Git-Verbindung pro Team
 
@@ -90,10 +112,10 @@ Ein Zugang gehört zu **einem Team** und handelt mit den **aktuellen** Rechten d
 1. **OAuth 2.1** (empfohlen): `claude mcp add --transport http specs <PUBLIC_URL>/mcp` → anmelden, Team wählen, erlauben.
 2. **Persönliches Token** (`spc_…`) unter *Account → Agent access*: Team, Scope (`mcp:read` / `mcp:drafts` / `mcp:write`), Ablauf. Nur einmal sichtbar, als Hash gespeichert.
 
-**Lesen:** `get_team_context`, `list_specs`, `get_spec(id, version?)`, `list_documents`, `get_document`, `get_glossary`, `list_spec_types`, `get_work_list`, `get_spec_changes`, `list_decisions`, `list_reports`, `list_checks`.
-**Schreiben** (`mcp:write`): `create_draft_spec`, `update_draft_spec`, `create_draft_document`, `update_draft_document`, `add_feedback`, `list_feedback`, `withdraw_feedback`, `request_decision`, `report_implementation`, `register_check`, `report_check_result`, `retire_check`, `derive_from_document` (siehe unten). Es gibt **kein** Freigabe-Tool: Agenten-Änderungen bleiben Entwurf (Chip *Agent draft*), `base_rev` verhindert Überschreiben, Foundation-Dokumente sind gesperrt, Limit 60 Schreibzugriffe/Stunde.
+**Lesen:** `get_team_context`, `list_specs`, `get_spec(id, version?)`, `get_criteria(spec_id, version?)`, `list_documents`, `get_document`, `get_glossary(term?, spec?)` (volle Definitionen, `avoid`, `not_to_be_confused_with`, Ordner; mit `spec` nur die Begriffe, die der Spec verwendet), `list_spec_types`, `get_work_list`, `get_spec_changes`, `list_decisions`, `list_reports`, `list_checks`.
+**Schreiben** (`mcp:write`): `create_draft_spec`, `update_draft_spec`, `create_draft_document`, `update_draft_document`, `add_feedback`, `list_feedback`, `withdraw_feedback`, `request_decision`, `report_implementation`, `register_check`, `report_check_result`, `retire_check`, `propose_term`, `derive_from_document` (siehe unten). Es gibt **kein** Freigabe-Tool: Agenten-Änderungen bleiben Entwurf (Chip *Agent draft*), `base_rev` verhindert Überschreiben, Foundation-Dokumente sind gesperrt, Limit 60 Schreibzugriffe/Stunde (Lesen, z. B. `list_feedback`, zählt nicht; Checks haben ein eigenes Limit von 300/Stunde).
 
-**Glossar und Specs aus Dokumenten ableiten:** Der MCP-Prompt `derive_glossary_and_specs` (Argument: Pfad oder Spec-ID) führt den Agenten durch den Ablauf: Quelle mit `get_document`/`get_spec` (`draft=true`) lesen, dann **ein** Aufruf von `derive_from_document` mit Begriffen (Definition, Aliase, *See also*) und/oder Spec-Entwürfen. Das Tool schreibt die Begriffe als Definitionsliste in den Entwurf `glossary/from-<Quelle>.md` (erneute Aufrufe mergen pro Begriff), überspringt Begriffe und Aliase, die schon definiert sind (freigegeben oder in einem anderen Entwurf), und meldet sie als `exists`. Jeder abgeleitete Spec bekommt einen Abschnitt `## SOURCE` und verlinkt den Glossar-Entwurf; der geht mit dem ersten freigegebenen Spec live. Ohne neuen Spec verlinkt `attach_to=<Spec-ID>` ihn. Nichts wird ohne Freigabe durch eine Person veröffentlicht.
+**Glossar und Specs aus Dokumenten ableiten:** Der MCP-Prompt `derive_glossary_and_specs` (Argument: Pfad oder Spec-ID) führt den Agenten durch den Ablauf: Quelle mit `get_document`/`get_spec` (`draft=true`) lesen, dann **ein** Aufruf von `derive_from_document` mit Begriffen (Definition, Aliase, *See also*) und/oder Spec-Entwürfen. Das Tool legt jeden Begriff als Vorschlag `glossary/_proposed/<begriff>.md` an (erneute Aufrufe aktualisieren denselben Vorschlag), überspringt Begriffe und Aliase, die schon definiert oder vorgeschlagen sind, und meldet sie als `exists`. Einzelne Begriffe schlägt `propose_term` vor. Jeder abgeleitete Spec bekommt einen Abschnitt `## SOURCE`. Nichts wird ohne Freigabe durch eine Person veröffentlicht.
 
 ## Agenten selbstständig arbeiten lassen
 
@@ -101,14 +123,19 @@ Menschen schreiben und geben frei, Agenten bauen und melden zurück.
 
 1. Ein Approver gibt frei; der **Agent trigger** (Webhook) startet den Agenten, oder er läuft nach Zeitplan.
 2. Der Agent holt `get_work_list` (Zustände `new`, `changed`, `in_progress`, `partial`, `blocked`, `recheck`) und baut.
-3. Bei offenen Fragen ruft er `request_decision` auf (optional `blocking`) statt zu raten. Menschen antworten im **Garden** – auch offline; danach löst der Trigger erneut aus.
-4. Am Ende `report_implementation`: Status, jedes Akzeptanzkriterium (`met` / `deviating` / `open`), Belege, Abweichungen. Ein neuer Release macht den Bericht „Outdated“.
-5. **Checks** machen Belege wiederholbar: pro Kriterium ein registrierter Check (`test`, `ci`, `command`, `metric`, `url`, `manual`), die App zeigt *Verified*, *Check failing*, *Check stale* oder *Claimed only*. Veraltete oder fehlgeschlagene Checks setzen den Spec wieder in die Arbeitsliste. Eine Pipeline kann Ergebnisse selbst melden: `POST /api/ci/checks/results` mit Token-Scope *Read & write drafts* (max. 50 pro Aufruf, `source: ci`). Die App führt nichts selbst aus.
+   Vorher reserviert er den Spec mit `claim_spec` (eine Frist von 30 Minuten, höchstens 240), die er während der Arbeit erneuert (Heartbeat). Specs, die ein anderer Agent reserviert hat, stehen in der Arbeitsliste getrennt unter `claimed_by_others`, ein zweiter `claim_spec` wird abgelehnt. `report_implementation` gibt die Reservierung zurück (bei `in_progress` verlängert es sie), `unclaim_spec` ohne Bericht. Läuft eine Reservierung ab, ist der Spec wieder frei.
+3. Bei offenen Fragen ruft er `request_decision` auf (optional `blocking`) statt zu raten. Menschen antworten im **Garden** – auch offline; danach löst der Trigger erneut aus. Eine Antwort oder Ablehnung (*Dismiss*) setzt den Spec als `decision_answered` an den Anfang der Arbeitsliste, auch wenn er zuvor `blocked` war. Beim Antworten schreibt *Also write it into the spec* (voreingestellt) die Entscheidung als `- Frage → Antwort – Notiz (Wer, Datum)` unter `## DECISIONS` in den Entwurf des Specs; mit der nächsten Freigabe steht sie im Spec, und Agenten fragen nicht erneut. Bereits beantwortete Entscheidungen haben dafür *Add to spec*; eine geänderte Antwort ersetzt die Zeile.
+4. Am Ende `report_implementation`: Status, jedes Kriterium (`met` / `deviating` / `open`), Belege, Abweichungen. Ein neuer Release macht den Bericht „Outdated“.
+   Die Checkliste kommt vom Server: `get_criteria` liest aus der freigegebenen Version jede Anforderung (`R1 …`, ID aus dem Spec) und jeden Listenpunkt unter einer Überschrift mit *Acceptance*/*Criteria*/*Definition of done* (`AC1`, `AC2` … in Reihenfolge). Der Bericht nennt sie per ID oder Zitat; fehlende werden als `open` („Not in the report“) gespeichert, `implemented` wird abgelehnt, solange eines fehlt. Kriterien, die der Spec nicht kennt, bleiben als zusätzliche Zeilen erhalten.
+5. **Checks** machen Belege wiederholbar: pro Kriterium ein registrierter Check (`test`, `ci`, `command`, `metric`, `url`, `manual`), die App zeigt *Verified*, *Check failing*, *Check stale* oder *Claimed only*. Veraltete oder fehlgeschlagene Checks setzen den Spec wieder in die Arbeitsliste. Eine Pipeline kann Ergebnisse selbst melden: `POST /api/ci/checks/results` mit Token-Scope *Read & write drafts* (max. 50 pro Aufruf, `source: ci`, optional `spec_version` = die Version, die der getestete Stand umsetzt; ältere Versionen zählen als veraltet). Was zu laufen hat, liefert `GET /api/ci/checks` (jedes Team-Token, Filter `?state=failing,stale,unverified`, `?spec=`). *Agent setup → 4* enthält einen GitHub-Actions-Workflow dafür; die Befehle stehen im Repository, die Pipeline führt nie einen Befehl aus, den sie vom Server bekommt. Mit *Only CI results prove a check* (Team-Admin) zählt ein „pass“ des Agenten nicht mehr als Beleg (`needs_ci`). Die App führt nichts selbst aus.
 6. **Feedback:** Agenten widersprechen oder fragen nach, ohne den Spec zu ändern (`add_feedback`: concern, conflict, question, suggestion, gap). Editor+ können annehmen, ablehnen, antworten oder per *Accept & add to spec* als Punkt unter `## REVIEW NOTES` übernehmen. Approver und Admins bekommen einen Mail-Digest (`FEEDBACK_MAIL_DEBOUNCE_MS`, abschaltbar).
 
-**Garden** zeigt, was auf dich wartet (Entscheidungen, Feedback), den Umsetzungsstand jedes freigegebenen Specs und *Team health*; Team-Admins können Agenten pausieren.
+**Steuern pro Spec** (Approver und Admins, im Bericht eines Specs unter *Steering*): Priorität *High* / *Normal* / *Low* ordnet die Arbeitsliste vor dem Zustand; *On hold* (mit Begründung) nimmt einen Spec heraus (`on_hold`); *Build after* nennt Specs, die vorher umgesetzt sein müssen – bis dahin steht er unter `waiting_on_specs`. Zyklen und unbekannte Specs werden abgelehnt. Die Pipeline zeigt das als Chips.
 
-**Agent trigger** (*Members & Git → Agent trigger*, Team-Admin): Adresse, optional Token (`Authorization: Bearer …`) und Header, Ereignisse (Freigabe, Antwort), Format `text` oder `full`. Aufrufe werden entprellt (`HOOK_DEBOUNCE_MS`, 5 s); mit Token kommen `X-Specs-Timestamp` und `X-Specs-Signature: sha256=<HMAC-SHA256(Token, "<Timestamp>.<Body>")>` mit. Lokale/private Ziele sind gesperrt (`HOOK_ALLOW_LOCAL=1` erlaubt sie). Der Webhook ist nur der Anstoß – maßgeblich ist die Arbeitsliste.
+**Garden** zeigt, was auf dich wartet (Entscheidungen, Feedback), den Umsetzungsstand jedes freigegebenen Specs und *Team health*. *Spec quality by type* (aufklappbar, aus `GET /api/teams/<id>/metrics` → `quality`) zeigt pro Spec-Typ Fragen und Feedback pro Spec, Anteil mit Abweichungen, Berichte pro Spec und die Zeit von Freigabe bis „implemented“ – viele Fragen heißen: Vorlage oder Akzeptanzkriterien des Typs schärfen; darunter die fünf Specs, mit denen Agenten am meisten kämpften; Team-Admins können Agenten pausieren.
+Die Agenten-Liste beruht auf dem, was der Server sieht: letzter MCP-Aufruf jedes Zugangs (*Connected* bis 15 Minuten danach), was er gerade reserviert hat (*Building*), und wann sein persönliches Token abläuft (Hinweis 7 Tage vorher). Ein Spec „In progress“ ohne Reservierung und ohne Bericht seit 2 Stunden landet unter *Needs attention*. Hat der Agent-Trigger angeschlagen, aber seit 15 Minuten kein Agent verbunden, zeigt der Garden *No agent came after the trigger*.
+
+**Agent trigger** (*Members & Git → Agent trigger*, Team-Admin): Adresse, optional Token (`Authorization: Bearer …`) und Header, Ereignisse (Freigabe, Antwort, Check – ein von CI gemeldeter Fehlschlag oder ein veralteter Check, einmal pro Lauf –, Fortsetzen nach einer Pause), Format `text` oder `full`. Aufrufe werden entprellt (`HOOK_DEBOUNCE_MS`, 5 s); mit Token kommen `X-Specs-Timestamp` und `X-Specs-Signature: sha256=<HMAC-SHA256(Token, "<Timestamp>.<Body>")>` mit. Lokale/private Ziele sind gesperrt (`HOOK_ALLOW_LOCAL=1` erlaubt sie). Der Webhook ist nur der Anstoß – maßgeblich ist die Arbeitsliste.
 
 **Claude Code als Routine in der Cloud** (Stand November 2026, Research Preview):
 

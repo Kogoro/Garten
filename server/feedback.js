@@ -145,22 +145,19 @@ export function gardenFeedback(teamId) {
 }
 
 /**
- * Retention (hourly, from the janitor): closed entries – answered, dismissed, done, accepted, withdrawn – are history. A spec keeps
- * its 100 most recently closed ones; older ones go once they have been closed for half a year. Never removed: open entries, an
- * answer the agent has not reported on since (the work list shows it as decision_answered), the answers a device keeps offline
- * (gardenFeedback) and anything the metrics count (30 days).
+ * Retention (hourly, from the janitor): closed feedback – dismissed, done, accepted, withdrawn – is history. A spec keeps its 100
+ * most recently closed entries; older ones go once they have been closed for half a year. Decisions a person answered or dismissed
+ * are never removed: they are the record of what people decided (agents read them with list_decisions, the work list shows the ones
+ * reported on since, and writing one into the spec under DECISIONS is optional and done on a device). Open entries stay, too.
  */
 export const FEEDBACK_KEEP = { perSpec: 100, days: 180 };
 export function pruneFeedback() {
   const before = new Date(Date.now() - FEEDBACK_KEEP.days * 86400_000).toISOString();
   return sql(`DELETE FROM feedback WHERE rowid IN (
-    SELECT f.rowid FROM (SELECT rowid, team_id, spec_id, kind, status, resolved_at,
-        ROW_NUMBER() OVER (PARTITION BY team_id, spec_id ORDER BY resolved_at DESC, created_at DESC) AS n
-      FROM feedback WHERE status<>'open' AND resolved_at IS NOT NULL) f
-    WHERE f.n > ? AND f.resolved_at < ?
-      AND NOT (f.kind=? AND f.status='answered' AND f.resolved_at > COALESCE((SELECT MAX(r.created_at) FROM reports r WHERE r.team_id=f.team_id AND r.spec_id=f.spec_id), ''))
-      AND f.rowid NOT IN (SELECT x.rowid FROM feedback x WHERE x.team_id=f.team_id AND x.kind=? AND x.status='answered' ORDER BY x.resolved_at DESC LIMIT 30))`)
-    .run(FEEDBACK_KEEP.perSpec, before, DECISION, DECISION).changes;
+    SELECT rowid FROM (SELECT rowid, resolved_at, ROW_NUMBER() OVER (PARTITION BY team_id, spec_id ORDER BY resolved_at DESC, created_at DESC) AS n
+      FROM feedback WHERE status<>'open' AND resolved_at IS NOT NULL AND (kind<>? OR status='withdrawn'))
+    WHERE n > ? AND resolved_at < ?)`)
+    .run(DECISION, FEEDBACK_KEEP.perSpec, before).changes;
 }
 
 /** An agent takes back its own open feedback or decision request (e.g. it was wrong). People's decisions are never overridden. */

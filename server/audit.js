@@ -1,5 +1,5 @@
 // Audit log of security-relevant actions. Never put secrets (passwords, tokens, keys) into `detail`.
-import { db } from './db.js';
+import { db, sql } from './db.js';
 import { AUDIT_RETENTION_DAYS } from './config.js';
 
 const clip = (s, n) => (s == null ? null : String(s).replace(/[\r\n\0]+/g, ' ').slice(0, n));
@@ -16,7 +16,7 @@ const parseDetail = (s) => { if (!s) return null; try { return JSON.parse(s); } 
 export function audit(req, action, { team = null, target = null, detail = null, actor = null } = {}) {
   try {
     const u = actor ?? req?.user ?? null;
-    db.prepare('INSERT INTO audit_log (at,actor_id,actor,team_id,action,target,ip,detail) VALUES (?,?,?,?,?,?,?,?)')
+    sql('INSERT INTO audit_log (at,actor_id,actor,team_id,action,target,ip,detail) VALUES (?,?,?,?,?,?,?,?)')
       .run(new Date().toISOString(), u?.id ?? null, clip(u?.email ?? null, 254), team, clip(action, 80), clip(target, 200), clip(req?.ip ?? null, 64), detail ? safeDetail(detail) : null);
   } catch (e) { console.error('audit:', e.message); }
 }

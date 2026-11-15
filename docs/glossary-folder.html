@@ -1,0 +1,428 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Glossary as a folder</title>
+<style>
+/* Mockup: the glossary as a folder of term files (one Markdown file per term) with formatted definitions,
+   term chips in specs, a review queue for proposed terms and a health view. Same tokens as the app (docs/DESIGN-SYSTEM.md). */
+:root{--accent:#2B7A57;--accent-hover:#236649;--on-accent:#fff;--bg:#F9FAF9;--panel:#fff;--tint:#F1F4F2;--line:rgba(0,0,0,.08);--line2:#C3CAC6;--text:#111815;--soft:#3F4A45;--muted:#59635E;--ph:#66706B;
+--amber:#8A5A00;--amber-bg:#FFF3D6;--amber-line:#E8C97E;--red:#B3261E;--red-bg:#FDECEA;--red-line:#F0B7B2;
+--shadow:0 1px 2px rgba(0,0,0,.04),0 4px 12px rgba(0,0,0,.03);--pop:0 1px 2px rgba(0,0,0,.04),0 8px 24px rgba(0,0,0,.08);
+--font:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;--mono:"JetBrains Mono",ui-monospace,Menlo,monospace}
+*{box-sizing:border-box}body{margin:0;background:#E9ECEA;font:14px/1.5 var(--font);color:var(--text);padding:48px}
+.title{margin:0 0 8px;font:600 28px/1.2 var(--font);letter-spacing:-.02em}.sub{margin:0 0 48px;color:var(--muted);max-width:96ch}
+h2.board{margin:64px 0 4px;font:600 20px/1.3 var(--font);letter-spacing:-.01em}h2.board+p{margin:0 0 24px;color:var(--muted);max-width:96ch}
+.boards{display:flex;gap:48px;align-items:flex-start;flex-wrap:wrap}.lab{display:flex;gap:8px;align-items:center;font:600 14px var(--font);margin-bottom:16px}.lab i{width:8px;height:8px;border-radius:50%;background:var(--accent)}
+.frame{border-radius:12px;overflow:hidden;border:1px solid var(--line);box-shadow:var(--shadow);background:var(--bg);position:relative}
+.d{width:1100px}.d .art{width:1467px;transform:scale(.75);transform-origin:0 0}
+.art{display:flex;background:var(--bg);position:relative}
+svg.i{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex:none}svg.s{width:14px;height:14px}
+.side{width:244px;flex:none;background:var(--panel);border-right:1px solid var(--line);padding:16px;display:flex;flex-direction:column;gap:24px}
+.ws{display:flex;align-items:center;gap:8px;padding:4px 8px;font-weight:600}.av{width:32px;height:32px;border-radius:8px;background:var(--accent);color:#fff;display:grid;place-items:center;font-weight:600}
+.nav{display:flex;flex-direction:column;gap:4px}.ni{display:flex;align-items:center;gap:12px;padding:8px 12px;border-radius:8px;color:var(--muted);font-weight:500;min-height:40px}.ni.on{background:var(--tint);color:var(--accent);font-weight:600}.ni b{margin-left:auto;font:500 12px var(--font)}
+.sf{margin-top:auto;color:var(--muted);font:500 12px var(--font);padding:4px 12px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:32px;padding:0 12px;border-radius:8px;font-weight:500;border:1px solid var(--line);background:var(--panel);color:var(--text);white-space:nowrap}
+.pri{background:var(--accent);color:#fff;border:0;font-weight:600;padding:0 16px}.ghost{border-color:transparent;background:none;color:var(--muted)}.btn.sm{height:28px;font-size:13px;padding:0 8px}
+.cap{font:500 12px var(--font);color:var(--muted)}.mono{font-family:var(--mono);font-size:12px;color:var(--muted)}.t{font-weight:600;letter-spacing:-.01em}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);overflow:hidden}
+.chip{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 8px;border-radius:8px;background:var(--tint);color:var(--soft);font:500 12px var(--font);white-space:nowrap}
+.chip .dot{width:6px;height:6px;border-radius:50%;background:var(--muted)}.chip.w{color:var(--amber)}.chip.w .dot{background:var(--amber)}.chip.b{color:var(--red)}.chip.b .dot{background:var(--red)}
+/* master / detail */
+.master{width:400px;flex:none;border-right:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column}
+.bar{height:56px;display:flex;align-items:center;gap:12px;padding:0 24px;border-bottom:1px solid var(--line)}.bar h1{margin:0;font:600 18px var(--font);letter-spacing:-.01em;flex:1}
+.tabs{display:flex;gap:24px;padding:0 24px;border-bottom:1px solid var(--line)}.tabs span{padding:12px 0 10px;color:var(--muted);font-weight:500;border-bottom:2px solid transparent;display:flex;gap:6px;align-items:center}.tabs span.on{color:var(--text);font-weight:600;border-color:var(--accent)}.tabs b{font:600 12px var(--font);color:var(--muted)}.tabs b.w{color:var(--amber)}
+.search{margin:16px 24px 8px;height:40px;border:1px solid var(--line2);border-radius:8px;display:flex;align-items:center;gap:8px;padding:0 12px;color:var(--ph)}
+.frow{display:flex;align-items:center;gap:8px;padding:12px 24px 4px;color:var(--muted);font:500 12px var(--font);letter-spacing:.06em;text-transform:uppercase}.frow small{letter-spacing:0;color:var(--ph)}.frow .x{transform:rotate(90deg)}
+.trow{padding:8px 24px 8px 46px;display:flex;flex-direction:column;gap:2px;border-left:2px solid transparent}.trow.on{background:var(--tint);border-left-color:var(--accent)}
+.trow .top{display:flex;gap:8px;align-items:center}.trow .ex{color:var(--muted);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.detail{flex:1;min-width:0;display:flex;flex-direction:column}
+.dh{padding:24px 48px 0;display:flex;flex-direction:column;gap:8px}.dh .r{display:flex;align-items:center;gap:12px}.dh h1{margin:0;flex:1;font:600 28px/1.2 var(--font);letter-spacing:-.02em}.dh .meta{color:var(--muted);font-size:13px}
+.dbody{padding:24px 48px 48px;display:flex;flex-direction:column;gap:24px;max-width:860px}
+/* rendered Markdown */
+.md{font-size:16px;line-height:1.6;color:var(--text)}.md p{margin:0 0 12px}.md ul,.md ol{margin:0 0 12px;padding-left:22px}.md li{margin:2px 0}
+.md code{font:13px var(--mono);background:var(--tint);padding:1px 6px;border-radius:6px}.md h4{margin:16px 0 8px;font:600 14px var(--font);letter-spacing:.02em;color:var(--soft)}
+.md pre{margin:0;font:13px/1.6 var(--mono);background:var(--tint);border-radius:8px;padding:12px 16px;color:var(--soft);white-space:pre-wrap}
+.ref{color:var(--accent);text-decoration:underline;text-decoration-color:rgba(43,122,87,.4);text-underline-offset:2px}.ref.broken{color:var(--red);text-decoration-style:dashed;text-decoration-color:var(--red)}
+.kv{display:grid;grid-template-columns:180px 1fr;gap:12px 16px;align-items:baseline;border-top:1px solid var(--line);padding-top:24px}.kv>span{color:var(--muted);font-size:13px}.kv>div{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.pill{padding:2px 10px;border-radius:8px;background:var(--panel);border:1px solid var(--line);color:var(--soft);font-size:13px}.pill.avoid{text-decoration:line-through;text-decoration-color:var(--red);color:var(--muted)}
+.note{color:var(--muted);font-size:13px;margin:0}
+/* editor */
+.lbl{font:500 12px var(--font);color:var(--muted);margin-bottom:6px;display:block}
+.field{height:40px;border:1px solid var(--line2);border-radius:8px;background:var(--panel);display:flex;align-items:center;padding:0 12px;gap:8px;font-size:14px}
+.tok{display:inline-flex;align-items:center;gap:4px;height:26px;padding:0 6px 0 10px;border-radius:6px;background:var(--tint);font-size:13px}.tok svg{width:12px;height:12px;color:var(--muted)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px 24px}
+.edbox{border:1px solid var(--line2);border-radius:12px;background:var(--panel);overflow:visible;position:relative}
+.fmt{display:flex;gap:4px;padding:6px 8px;border-bottom:1px solid var(--line);align-items:center}.fmt span{min-width:32px;height:32px;border-radius:6px;display:grid;place-items:center;color:var(--soft);font-weight:600;padding:0 6px}.fmt span.on{background:var(--tint);color:var(--text)}.fmt i{width:1px;height:20px;background:var(--line);margin:0 4px}
+.edbody{padding:16px 20px;min-height:220px}.caret{display:inline-block;width:1.5px;height:18px;background:var(--text);vertical-align:-3px;margin-left:1px}
+.popm{position:absolute;background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--pop);padding:6px;width:380px;z-index:2}.popm .o{white-space:nowrap}
+.popm .o{display:flex;gap:10px;align-items:center;padding:8px 10px;border-radius:8px}.popm .o.on{background:var(--tint)}.popm .o small{margin-left:auto;color:var(--muted);font-size:12px}
+.banner{display:flex;gap:16px;align-items:flex-start;padding:16px;border-radius:12px;border:1px solid var(--line);background:var(--panel)}.banner .g{flex:1;display:flex;flex-direction:column;gap:6px}
+.cb{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--soft)}.cb i{width:16px;height:16px;border-radius:4px;background:var(--text);display:grid;place-items:center;color:#fff;flex:none}.cb i.off{background:none;border:1.5px solid var(--line2)}
+.disc{display:flex;gap:8px;align-items:center;color:var(--muted);font-size:13px}
+/* spec editor */
+.chipref{display:inline-flex;align-items:center;gap:4px;padding:0 6px;border-radius:6px;background:#E6F1EB;color:var(--accent);font-weight:500;line-height:1.5}.chipref svg{width:13px;height:13px}
+.wavy{text-decoration:underline wavy var(--amber);text-underline-offset:3px}.dotted{text-decoration:underline dotted var(--muted);text-underline-offset:3px}
+.hov{position:absolute;width:400px;background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--pop);padding:16px;display:flex;flex-direction:column;gap:10px;z-index:2}
+.hov .md{font-size:14px;line-height:1.55}
+.req{display:flex;gap:16px;padding:12px 0;border-top:1px solid var(--line)}.req b{font:600 12px var(--mono);color:var(--muted);width:32px;padding-top:3px;flex:none}
+.sugg{display:flex;flex-direction:column}.sugg .row{display:flex;gap:12px;align-items:center;padding:12px 16px;border-top:1px solid var(--line)}.sugg .row:first-child{border-top:0}.sugg .row .g{flex:1;display:flex;flex-direction:column;gap:2px}
+/* health / compare */
+.irow{padding:10px 24px 10px 46px;display:flex;flex-direction:column;gap:2px;border-left:2px solid transparent}.irow.on{background:var(--tint);border-left-color:var(--accent)}.irow .ex{color:var(--muted);font-size:13px}
+.cmp{display:grid;grid-template-columns:1fr 1fr;gap:16px}.cmp .card{padding:16px;display:flex;flex-direction:column;gap:10px}.cmp .card.sel{border-color:var(--text);box-shadow:inset 0 0 0 1px var(--text)}
+.diff{font:13px/1.7 var(--mono);background:var(--tint);border-radius:8px;padding:12px 16px;color:var(--soft)}.diff del{color:var(--red);background:var(--red-bg);text-decoration:line-through}.diff ins{color:var(--accent);background:#E6F1EB;text-decoration:none}
+/* sheets */
+.sheetwrap{width:560px;padding:32px;background:rgba(17,24,21,.4);display:flex}.sheet{background:var(--panel);border-radius:12px;box-shadow:var(--pop);padding:24px;display:flex;flex-direction:column;gap:16px;width:100%}.sheet h3{margin:0;font:600 18px var(--font)}.sheet p{margin:0;color:var(--soft)}
+.opt{display:flex;gap:12px;align-items:flex-start;padding:10px 12px;border:1px solid var(--line);border-radius:8px}.opt i{width:16px;height:16px;border:1.5px solid var(--line2);border-radius:50%;margin-top:3px;flex:none}.opt.on{border-color:var(--text)}.opt.on i{border-color:var(--text);box-shadow:inset 0 0 0 4px var(--panel);background:var(--text)}.opt small{display:block;color:var(--muted);font-size:12px}
+.acts{display:flex;gap:8px;align-items:center}
+/* phone */
+.phone{width:390px;height:844px;display:flex;flex-direction:column;background:var(--bg);position:relative}
+.pbar{height:56px;display:flex;align-items:center;gap:8px;padding:0 8px 0 16px;background:var(--panel);border-bottom:1px solid var(--line);font:600 18px var(--font)}.pbar .g{flex:1}
+.ib{width:48px;height:48px;display:grid;place-items:center;color:var(--soft)}
+.pbody{flex:1;overflow:hidden;display:flex;flex-direction:column}
+.tabbar{height:64px;display:flex;background:var(--panel);border-top:1px solid var(--line)}.tabbar div{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font:500 11px var(--font);color:var(--muted)}.tabbar .on{color:var(--accent)}
+.fab{position:absolute;right:16px;bottom:80px;width:48px;height:48px;border-radius:12px;background:var(--accent);color:#fff;display:grid;place-items:center;box-shadow:var(--pop)}
+.phone .trow{padding:10px 16px 10px 40px}.phone .frow{padding:12px 16px 4px}.phone .tabs{padding:0 16px;background:var(--panel)}.phone .search{margin:12px 16px 4px;background:var(--panel)}
+.phone .md{font-size:16px}
+/* notes */
+.notes{margin-top:24px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px;max-width:1540px}.notes>div{background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:24px}.notes h3{margin:0 0 8px;font:600 16px var(--font)}.notes p,.notes li{color:var(--soft);max-width:60ch}.notes p{margin:0 0 8px}.notes ul{margin:0;padding-left:18px}.notes li{margin:4px 0}
+.notes pre{margin:8px 0 0;font:12px/1.6 var(--mono);background:var(--tint);border-radius:8px;padding:12px 16px;color:var(--soft);white-space:pre;overflow:auto}
+</style></head><body>
+<svg width="0" height="0" style="position:absolute"><defs>
+<symbol id="leaf" viewBox="0 0 24 24"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/></symbol>
+<symbol id="file" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></symbol>
+<symbol id="folder" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
+<symbol id="book" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></symbol>
+<symbol id="shield" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></symbol>
+<symbol id="users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+<symbol id="more" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></symbol>
+<symbol id="chev" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+<symbol id="down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+<symbol id="back" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+<symbol id="check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+<symbol id="x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+<symbol id="plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+<symbol id="search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+<symbol id="link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></symbol>
+<symbol id="list" viewBox="0 0 24 24"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></symbol>
+<symbol id="code" viewBox="0 0 24 24"><path d="m16 18 6-6-6-6"/><path d="m8 6-6 6 6 6"/></symbol>
+<symbol id="warn" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+<symbol id="bot" viewBox="0 0 24 24"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></symbol>
+</defs></svg>
+
+<h1 class="title">Glossary as a folder</h1>
+<p class="sub">Every term becomes its own Markdown file under <span class="mono">docs/glossary/</span>; sub-folders replace the section headings of <span class="mono">glossary.md</span>. That gives each term a formatted definition (paragraphs, lists, code, examples), its own history and clean renames. On top: term chips with a preview in specs, a review queue for terms agents propose, and a health view that finds broken, conflicting and avoided terms. One primary action per view, quiet empty states, words from UI-VOCABULARY.md.</p>
+
+<!-- ===================================================================== A -->
+<h2 class="board">1 · A term, read</h2>
+<p>The definition is rendered Markdown. Structured fields sit below it: synonyms, words to avoid, terms it is easily confused with, related terms. Three tabs for the term as an object: the definition, where it is used (with the sentence), and its versions.</p>
+<div class="boards">
+<div><div class="lab"><i></i>Desktop</div><div class="frame d" style="height:780px"><div class="art" style="height:1040px">
+ <div class="side"><div class="ws"><span class="av">P</span>Platform team</div>
+  <div class="nav"><div class="ni"><svg class="i"><use href="#leaf"/></svg>Garden<b>4</b></div><div class="ni"><svg class="i"><use href="#file"/></svg>Specs<b>6</b></div><div class="ni"><svg class="i"><use href="#folder"/></svg>Documents</div><div class="ni on"><svg class="i"><use href="#book"/></svg>Glossary</div><div class="ni"><svg class="i"><use href="#shield"/></svg>Release</div></div>
+  <div class="nav"><div class="ni"><svg class="i"><use href="#users"/></svg>Members &amp; Git</div></div><div class="sf">● Synced</div></div>
+ <div class="master">
+  <div class="bar"><h1>Glossary</h1><span class="btn pri"><svg class="i s"><use href="#plus"/></svg>New<svg class="i s"><use href="#down"/></svg></span></div>
+  <div class="tabs"><span class="on">Terms</span><span>Proposed <b>3</b></span><span>Health <b class="w">5</b></span></div>
+  <div class="search"><svg class="i s"><use href="#search"/></svg>Search terms, synonyms and definitions</div>
+  <div class="frow"><svg class="i s x"><use href="#chev"/></svg><svg class="i s"><use href="#folder"/></svg>Billing <small>4</small></div>
+  <div class="trow on"><div class="top"><span class="t">Attempt window</span></div><span class="ex">The time bucket in which retries of one invoice run count as…</span></div>
+  <div class="trow"><div class="top"><span class="t">Dunning</span></div><span class="ex">Reminding a customer of an unpaid invoice in fixed steps.</span></div>
+  <div class="trow"><div class="top"><span class="t">Invoice run</span></div><span class="ex">One scheduled pass that creates and sends all due invoices.</span></div>
+  <div class="trow"><div class="top"><span class="t">Retry budget</span></div><span class="ex">How many delivery attempts one invoice may use in total.</span></div>
+  <div class="frow"><svg class="i s x"><use href="#chev"/></svg><svg class="i s"><use href="#folder"/></svg>Payments <small>3</small></div>
+  <div class="trow"><div class="top"><span class="t">Idempotency key</span><span class="chip">Global</span></div><span class="ex">A client-chosen id that makes a repeated request safe.</span></div>
+  <div class="trow"><div class="top"><span class="t">Ledger entry</span></div><span class="ex">An immutable booking line; corrections are new entries.</span></div>
+  <div class="trow"><div class="top"><span class="t">Settlement</span><span class="chip w"><span class="dot"></span>2 definitions</span></div><span class="ex">The transfer of collected money to the merchant account.</span></div>
+  <div class="frow"><svg class="i s"><use href="#chev"/></svg><svg class="i s"><use href="#folder"/></svg>General <small>6</small></div>
+  <div class="frow"><svg class="i s"><use href="#chev"/></svg><svg class="i s"><use href="#file"/></svg>In specs &amp; documents <small>2</small></div>
+ </div>
+ <div class="detail">
+  <div class="dh"><div class="r"><h1>Attempt window</h1><span class="btn">Edit</span><span class="btn ghost" style="width:32px;padding:0"><svg class="i"><use href="#more"/></svg></span></div>
+   <div class="meta">Billing · <span class="mono">glossary/billing/attempt-window.md</span> · Live v3 · edited 2 days ago by Lena Hartmann</div></div>
+  <div class="tabs" style="padding:0 48px;margin-top:16px"><span class="on">Definition</span><span>Used in <b>6</b></span><span>History <b>3</b></span></div>
+  <div class="dbody">
+   <div class="md">
+    <p>The <strong>time bucket</strong> in which retries of one <a class="ref">Invoice run</a> count as the same attempt. A new window opens when the <a class="ref">Idempotency key</a> changes.</p>
+    <p>A window</p>
+    <ul><li>starts with the first delivery attempt,</li><li>closes after <code>ATTEMPT_WINDOW_MINUTES</code> (default 30),</li><li>is never reopened – a late retry starts a new window.</li></ul>
+    <h4>Example</h4>
+    <pre>Invoice 2026-118 · attempts 09:00, 09:12, 09:41
+→ windows A, A, B (09:41 is after 09:30)</pre>
+   </div>
+   <div class="kv">
+    <span>Also known as</span><div><span class="pill">retry window</span><span class="pill">window</span></div>
+    <span>Avoid</span><div><span class="pill avoid">retry period</span><span class="note">Flagged when a spec uses it</span></div>
+    <span>Not to be confused with</span><div><a class="ref">Retry budget</a><span class="note">– counts attempts, not time</span></div>
+    <span>See also</span><div><a class="ref">Idempotency key</a><a class="ref">Ledger entry</a></div>
+    <span>Referenced by</span><div><a class="ref">Dunning</a><a class="ref">Invoice run</a></div>
+   </div>
+  </div>
+ </div>
+</div></div></div>
+
+<div><div class="lab"><i></i>Phone</div><div class="frame"><div class="phone">
+ <div class="pbar"><span class="ib" style="width:32px"><svg class="i"><use href="#back"/></svg></span><span class="g"></span><span class="ib"><svg class="i"><use href="#more"/></svg></span></div>
+ <div class="pbody" style="background:var(--panel)">
+  <div style="padding:8px 16px 0"><div style="font:600 24px/1.25 var(--font);letter-spacing:-.02em">Attempt window</div><div class="meta" style="color:var(--muted);font-size:13px;margin-top:4px">Billing · Live v3</div></div>
+  <div class="tabs" style="margin-top:12px"><span class="on">Definition</span><span>Used in <b>6</b></span><span>History</span></div>
+  <div style="padding:16px;display:flex;flex-direction:column;gap:16px">
+   <div class="md"><p>The <strong>time bucket</strong> in which retries of one <a class="ref">Invoice run</a> count as the same attempt.</p><p>A window</p><ul><li>starts with the first delivery attempt,</li><li>closes after <code>ATTEMPT_WINDOW_MINUTES</code>,</li><li>is never reopened.</li></ul><h4>Example</h4><pre>attempts 09:00, 09:12, 09:41
+→ windows A, A, B</pre></div>
+   <div style="display:flex;flex-direction:column;gap:6px"><span class="cap">Also known as</span><div style="display:flex;gap:8px;flex-wrap:wrap"><span class="pill">retry window</span><span class="pill">window</span></div></div>
+   <div style="display:flex;flex-direction:column;gap:6px"><span class="cap">Avoid</span><div><span class="pill avoid">retry period</span></div></div>
+  </div>
+ </div>
+ <div style="display:flex;justify-content:flex-end;padding:8px 16px;background:var(--panel);border-top:1px solid var(--line)"><span class="btn" style="height:40px">Edit</span></div>
+ <div class="tabbar"><div><svg class="i"><use href="#leaf"/></svg>Garden</div><div><svg class="i"><use href="#file"/></svg>Specs</div><div><svg class="i"><use href="#folder"/></svg>Docs</div><div class="on"><svg class="i"><use href="#book"/></svg>Glossary</div><div><svg class="i"><use href="#more"/></svg>More</div></div>
+</div></div></div>
+</div>
+
+<!-- ===================================================================== B -->
+<h2 class="board">2 · Editing a term</h2>
+<p>The definition is a small block editor with a format bar; <span class="mono">[[</span> opens the term picker (undefined terms can be created from there). Synonyms and related terms are token fields. A rename rewrites every reference in the same commit and keeps the old name as a synonym.</p>
+<div class="boards">
+<div><div class="lab"><i></i>Desktop · rename in progress, term picker open</div><div class="frame d" style="height:640px"><div class="art" style="height:853px">
+ <div class="side"><div class="ws"><span class="av">P</span>Platform team</div>
+  <div class="nav"><div class="ni"><svg class="i"><use href="#leaf"/></svg>Garden<b>4</b></div><div class="ni"><svg class="i"><use href="#file"/></svg>Specs<b>6</b></div><div class="ni"><svg class="i"><use href="#folder"/></svg>Documents</div><div class="ni on"><svg class="i"><use href="#book"/></svg>Glossary</div><div class="ni"><svg class="i"><use href="#shield"/></svg>Release</div></div>
+  <div class="nav"><div class="ni"><svg class="i"><use href="#users"/></svg>Members &amp; Git</div></div><div class="sf">● Saved on device</div></div>
+ <div class="detail">
+  <div class="bar" style="padding:0 48px"><span class="btn ghost" style="width:32px;padding:0"><svg class="i"><use href="#back"/></svg></span><h1>Edit term</h1><span class="cap">Saved on device · not synced</span><span class="btn pri">Done</span></div>
+  <div class="dbody" style="max-width:980px;gap:20px">
+   <div class="grid2">
+    <div><span class="lbl">Term</span><div class="field">Attempt window<span class="caret"></span></div></div>
+    <div><span class="lbl">Folder</span><div class="field"><svg class="i s"><use href="#folder"/></svg>Billing<svg class="i s" style="margin-left:auto"><use href="#down"/></svg></div></div>
+   </div>
+   <div class="banner"><svg class="i" style="margin-top:2px"><use href="#link"/></svg><div class="g"><span class="t">Renamed from “Retry window”</span><span class="note">7 references in 4 specs and 2 terms point to the old name. They are rewritten when you press Done – one commit, one release.</span>
+    <div style="display:flex;gap:24px;margin-top:4px"><span class="cb"><i><svg class="i s" style="width:12px;height:12px"><use href="#check"/></svg></i>Update the 7 references</span><span class="cb"><i><svg class="i s" style="width:12px;height:12px"><use href="#check"/></svg></i>Keep “Retry window” as a synonym</span></div></div><span class="btn ghost sm">Show references</span></div>
+   <div><span class="lbl">Definition</span>
+    <div class="edbox">
+     <div class="fmt"><span class="on">B</span><span style="font-style:italic;font-weight:500">I</span><span><svg class="i s"><use href="#code"/></svg></span><span><svg class="i s"><use href="#link"/></svg></span><i></i><span><svg class="i s"><use href="#list"/></svg></span><span style="font-size:12px">1.</span><span style="font-size:12px">H</span><i></i><span style="font:600 12px var(--mono)">[[ ]]</span><span style="font-size:12px;font-weight:500;color:var(--muted);margin-left:auto">Markdown</span></div>
+     <div class="edbody md">
+      <p>The <strong>time bucket</strong> in which retries of one <a class="ref">Invoice run</a> count as the same attempt. A new window opens when the <span style="color:var(--accent)">[[Idem</span><span class="caret"></span></p>
+      <p>A window</p>
+      <ul><li>starts with the first delivery attempt,</li><li>closes after <code>ATTEMPT_WINDOW_MINUTES</code> (default 30),</li><li>is never reopened – a late retry starts a new window.</li></ul>
+     </div>
+     <div class="popm" style="left:480px;top:92px">
+      <div class="o on"><svg class="i s"><use href="#book"/></svg><b>Idempotency key</b><small>Payments</small></div>
+      <div class="o"><svg class="i s"><use href="#book"/></svg>Idempotent retry<small>synonym of Idempotency key</small></div>
+      <div class="o" style="border-top:1px solid var(--line);border-radius:0;margin-top:4px;padding-top:10px;color:var(--muted)"><svg class="i s"><use href="#plus"/></svg>Create “Idem…” as a new term</div>
+     </div>
+    </div></div>
+   <div class="grid2">
+    <div><span class="lbl">Also known as</span><div class="field" style="height:auto;min-height:40px;padding:6px 8px;flex-wrap:wrap"><span class="tok">retry window<svg class="i"><use href="#x"/></svg></span><span class="tok">window<svg class="i"><use href="#x"/></svg></span><span class="tok">Retry window<svg class="i"><use href="#x"/></svg></span></div></div>
+    <div><span class="lbl">Avoid · flagged when a spec uses it</span><div class="field" style="height:auto;min-height:40px;padding:6px 8px"><span class="tok">retry period<svg class="i"><use href="#x"/></svg></span></div></div>
+    <div><span class="lbl">Not to be confused with</span><div class="field" style="height:auto;min-height:40px;padding:6px 8px"><span class="tok">Retry budget<svg class="i"><use href="#x"/></svg></span></div></div>
+    <div><span class="lbl">See also</span><div class="field" style="height:auto;min-height:40px;padding:6px 8px"><span class="tok">Idempotency key<svg class="i"><use href="#x"/></svg></span><span class="tok">Ledger entry<svg class="i"><use href="#x"/></svg></span></div></div>
+   </div>
+   <div class="disc"><svg class="i s"><use href="#chev"/></svg>Look up online (Wikipedia, Wiktionary)</div>
+  </div>
+ </div>
+</div></div></div>
+</div>
+
+<!-- ===================================================================== C -->
+<h2 class="board">3 · Terms inside a spec</h2>
+<p><span class="mono">#[Attempt window]</span> renders as a chip; hovering (or tapping) shows the formatted definition. The editor quietly marks words to avoid and defined terms that are not linked yet; the suggestions sit in one card at the end, never as pop-ups while typing.</p>
+<div class="boards">
+<div><div class="lab"><i></i>Desktop · hovering a term chip</div><div class="frame d" style="height:620px"><div class="art" style="height:827px">
+ <div class="side"><div class="ws"><span class="av">P</span>Platform team</div>
+  <div class="nav"><div class="ni"><svg class="i"><use href="#leaf"/></svg>Garden<b>4</b></div><div class="ni on"><svg class="i"><use href="#file"/></svg>Specs<b>6</b></div><div class="ni"><svg class="i"><use href="#folder"/></svg>Documents</div><div class="ni"><svg class="i"><use href="#book"/></svg>Glossary</div><div class="ni"><svg class="i"><use href="#shield"/></svg>Release</div></div>
+  <div class="nav"><div class="ni"><svg class="i"><use href="#users"/></svg>Members &amp; Git</div></div><div class="sf">● Synced</div></div>
+ <div class="detail">
+  <div class="dh"><div class="r"><span class="mono" style="flex:1">RV-014</span><span class="cap">Synced</span><span class="btn"><svg class="i s"><use href="#file"/></svg>2 documents</span><span class="btn pri">Approve v2<svg class="i s"><use href="#check"/></svg></span><span class="btn ghost" style="width:32px;padding:0"><svg class="i"><use href="#more"/></svg></span></div>
+   <h1 style="margin-top:8px">Invoice delivery: error handling</h1><div class="meta">Feature · Approved v1 · edited</div></div>
+  <div class="tabs" style="padding:0 48px;margin-top:16px"><span class="on">Content</span><span>Report</span><span>Feedback <b>2</b></span><span>History</span></div>
+  <div class="dbody" style="max-width:900px;position:relative">
+   <div class="md" style="font-size:15px">
+    <div class="req"><b>R3</b><div>Retries of one invoice inside the same <span class="chipref"><svg class="i"><use href="#book"/></svg>Attempt window</span> count as one attempt and use one <span class="chipref"><svg class="i"><use href="#book"/></svg>Idempotency key</span>.</div></div>
+    <div class="req" style="margin-top:150px"><b>R4</b><div>After the <span class="wavy">retry period</span> ends without delivery, the invoice moves to <span class="dotted">dunning</span>.</div></div>
+    <div class="req"><b>R5</b><div>An SMTP 5xx answer ends the attempt at once; it is not retried.</div></div>
+   </div>
+   <div class="hov" style="left:328px;top:64px">
+    <div style="display:flex;gap:8px;align-items:center"><svg class="i s" style="color:var(--accent)"><use href="#book"/></svg><span class="t">Attempt window</span><span class="cap" style="margin-left:auto">Billing · v3</span></div>
+    <div class="md"><p style="margin:0">The <strong>time bucket</strong> in which retries of one <a class="ref">Invoice run</a> count as the same attempt. A new window opens when the <a class="ref">Idempotency key</a> changes.</p></div>
+    <div class="cap">Also: retry window, window · Avoid: retry period</div>
+    <div style="display:flex;gap:16px"><a class="ref" style="font-size:13px">Open term</a><a class="ref" style="font-size:13px">Used in 6 specs</a></div>
+   </div>
+   <div class="card sugg">
+    <div class="row" style="background:var(--tint)"><svg class="i s"><use href="#book"/></svg><span class="t" style="flex:1">Glossary · 2 suggestions</span><span class="btn ghost sm">Apply both</span></div>
+    <div class="row"><div class="g"><span>“retry period” is a word to avoid</span><span class="cap">R4 · use Attempt window instead</span></div><span class="btn sm">Replace</span></div>
+    <div class="row"><div class="g"><span>“dunning” is defined in the glossary</span><span class="cap">R4 · link it so agents get the definition</span></div><span class="btn sm">Link term</span></div>
+   </div>
+  </div>
+ </div>
+</div></div></div>
+</div>
+
+<!-- ===================================================================== D -->
+<h2 class="board">4 · Health</h2>
+<p>A tab that lists what is wrong, grouped by kind. The first item is open on the right; it carries the view's one primary action. Empty groups disappear; with nothing wrong the tab shows one grey line.</p>
+<div class="boards">
+<div><div class="lab"><i></i>Desktop · resolving two definitions</div><div class="frame d" style="height:680px"><div class="art" style="height:907px">
+ <div class="side"><div class="ws"><span class="av">P</span>Platform team</div>
+  <div class="nav"><div class="ni"><svg class="i"><use href="#leaf"/></svg>Garden<b>4</b></div><div class="ni"><svg class="i"><use href="#file"/></svg>Specs<b>6</b></div><div class="ni"><svg class="i"><use href="#folder"/></svg>Documents</div><div class="ni on"><svg class="i"><use href="#book"/></svg>Glossary</div><div class="ni"><svg class="i"><use href="#shield"/></svg>Release</div></div>
+  <div class="nav"><div class="ni"><svg class="i"><use href="#users"/></svg>Members &amp; Git</div></div><div class="sf">● Synced</div></div>
+ <div class="master">
+  <div class="bar"><h1>Glossary</h1><span class="btn"><svg class="i s"><use href="#plus"/></svg>New<svg class="i s"><use href="#down"/></svg></span></div>
+  <div class="tabs"><span>Terms</span><span>Proposed <b>3</b></span><span class="on">Health <b class="w">5</b></span></div>
+  <div class="frow" style="padding-top:16px">Two definitions <small>1</small></div>
+  <div class="irow on"><span class="t">Settlement</span><span class="ex">Glossary and spec PAY-002 say different things</span></div>
+  <div class="frow">Broken references <small>2</small></div>
+  <div class="irow"><span class="t" style="color:var(--red)">[[Payout batch]]</span><span class="ex">in the term Settlement – not defined</span></div>
+  <div class="irow"><span class="t" style="color:var(--red)">#[Refund window]</span><span class="ex">in PAY-004 R2 – not defined</span></div>
+  <div class="frow">Words to avoid in specs <small>1</small></div>
+  <div class="irow"><span class="t">retry period</span><span class="ex">RV-014 R4 · use Attempt window</span></div>
+  <div class="frow">Update from the global glossary <small>1</small></div>
+  <div class="irow"><span class="t">Idempotency key</span><span class="ex">Revision 4 is available (you have 3)</span></div>
+  <div class="frow" style="padding-top:20px">Not used anywhere <small>3</small></div>
+  <div class="irow"><span class="ex">Chargeback, Ledger entry, Retry budget – no spec mentions them. Fine for reference terms.</span></div>
+ </div>
+ <div class="detail">
+  <div class="dh"><div class="r"><h1>Settlement</h1></div><div class="meta">Defined twice. Agents receive both and have to guess which one counts.</div></div>
+  <div class="dbody" style="max-width:960px">
+   <div class="cmp">
+    <div class="card sel"><span class="cap"><span class="mono">glossary/payments/settlement.md</span> · Live v2</span><div class="md" style="font-size:15px"><p style="margin:0">The transfer of collected money to the merchant account, <strong>once per business day</strong>, grouped into a <a class="ref broken">Payout batch</a>.</p></div><span class="cap">Used in 3 specs</span></div>
+    <div class="card"><span class="cap">Spec <span class="mono">PAY-002</span> · Definition block · Draft</span><div class="md" style="font-size:15px"><p style="margin:0">The moment a card payment is final and can no longer be reversed by the issuer.</p></div><span class="cap">Only in PAY-002</span></div>
+   </div>
+   <div class="card" style="padding:16px;display:flex;flex-direction:column;gap:12px">
+    <span class="t">How to resolve</span>
+    <div class="opt on"><i></i><div>Keep the glossary definition<small>PAY-002’s block is replaced by a link #[Settlement]</small></div></div>
+    <div class="opt"><i></i><div>Use the spec’s definition<small>Overwrites the glossary term; the 3 specs that use it are marked “edited”</small></div></div>
+    <div class="opt"><i></i><div>They are two terms<small>Rename the spec’s block (e.g. “Payment finality”) and add it to Payments</small></div></div>
+    <div class="acts"><span class="btn pri">Resolve</span><span class="btn ghost">Open PAY-002</span></div>
+   </div>
+  </div>
+ </div>
+</div></div></div>
+</div>
+
+<!-- ===================================================================== E -->
+<h2 class="board">5 · Proposed terms</h2>
+<p>Terms agents find (through <span class="mono">derive_from_document</span> or a new <span class="mono">propose_term</span> tool) arrive as draft term files and wait here. Accepting moves the file into its folder and makes it live; nothing reaches agents before a person has looked at it.</p>
+<div class="boards">
+<div><div class="lab"><i></i>Desktop</div><div class="frame d" style="height:520px"><div class="art" style="height:693px">
+ <div class="side"><div class="ws"><span class="av">P</span>Platform team</div>
+  <div class="nav"><div class="ni"><svg class="i"><use href="#leaf"/></svg>Garden<b>4</b></div><div class="ni"><svg class="i"><use href="#file"/></svg>Specs<b>6</b></div><div class="ni"><svg class="i"><use href="#folder"/></svg>Documents</div><div class="ni on"><svg class="i"><use href="#book"/></svg>Glossary</div><div class="ni"><svg class="i"><use href="#shield"/></svg>Release</div></div>
+  <div class="nav"><div class="ni"><svg class="i"><use href="#users"/></svg>Members &amp; Git</div></div><div class="sf">● Synced</div></div>
+ <div class="master">
+  <div class="bar"><h1>Glossary</h1><span class="btn"><svg class="i s"><use href="#plus"/></svg>New<svg class="i s"><use href="#down"/></svg></span></div>
+  <div class="tabs"><span>Terms</span><span class="on">Proposed <b>3</b></span><span>Health <b class="w">5</b></span></div>
+  <div class="frow" style="padding-top:16px">From docs/billing-runbook.md <small>3</small></div>
+  <div class="irow on"><span class="t">Grace period</span><span class="ex">Claude Code · 20 min ago · Billing</span></div>
+  <div class="irow"><span class="t">Hard bounce</span><span class="ex">Claude Code · 20 min ago · Billing</span></div>
+  <div class="irow"><span class="t">Payout batch</span><span class="ex">Claude Code · 20 min ago · Payments · fixes a broken reference</span></div>
+  <div style="padding:16px 24px"><span class="note">Already defined, so not proposed again: Dunning, Invoice run.</span></div>
+ </div>
+ <div class="detail">
+  <div class="dh"><div class="r"><h1>Grace period</h1><span class="chip"><svg class="i s"><use href="#bot"/></svg>Proposed by Claude Code</span></div>
+   <div class="meta">Billing · from <span class="mono">docs/billing-runbook.md</span>, section “Overdue invoices”</div></div>
+  <div class="dbody">
+   <div class="md"><p>The days after the due date in which an unpaid invoice is <strong>not</strong> yet sent to <a class="ref">Dunning</a>. Default <code>7</code> days, per customer configurable.</p></div>
+   <div class="kv"><span>Also known as</span><div><span class="pill">payment grace</span></div><span>See also</span><div><a class="ref">Dunning</a><a class="ref">Attempt window</a></div></div>
+   <div class="acts"><span class="btn pri">Accept</span><span class="btn">Edit first</span><span class="btn ghost">Decline</span><span class="note" style="margin-left:auto">Accept all 3 from this document</span></div>
+  </div>
+ </div>
+</div></div></div>
+
+<div><div class="lab"><i></i>Phone · Proposed</div><div class="frame"><div class="phone">
+ <div class="pbar"><span class="g">Glossary</span><span class="ib"><svg class="i"><use href="#search"/></svg></span></div>
+ <div class="pbody">
+  <div class="tabs"><span>Terms</span><span class="on">Proposed <b>3</b></span><span>Health <b class="w">5</b></span></div>
+  <div class="frow" style="padding-top:16px">From billing-runbook.md <small>3</small></div>
+  <div style="margin:4px 16px 0" class="card">
+   <div style="padding:16px;display:flex;flex-direction:column;gap:8px"><span class="t">Grace period</span><span style="color:var(--soft);font-size:15px">The days after the due date in which an unpaid invoice is <strong>not</strong> yet sent to Dunning.</span><span class="cap">Claude Code · 20 min ago · Billing</span>
+    <div class="acts" style="margin-top:4px"><span class="btn pri" style="height:40px">Accept</span><span class="btn" style="height:40px">Edit</span><span class="btn ghost" style="height:40px">Decline</span></div></div>
+   <div style="padding:12px 16px;border-top:1px solid var(--line);display:flex;justify-content:space-between"><span class="t" style="font-weight:500">Hard bounce</span><svg class="i s" style="color:var(--muted)"><use href="#chev"/></svg></div>
+   <div style="padding:12px 16px;border-top:1px solid var(--line);display:flex;justify-content:space-between"><span class="t" style="font-weight:500">Payout batch</span><svg class="i s" style="color:var(--muted)"><use href="#chev"/></svg></div>
+  </div>
+ </div>
+ <div class="fab"><svg class="i"><use href="#plus"/></svg></div>
+ <div class="tabbar"><div><svg class="i"><use href="#leaf"/></svg>Garden</div><div><svg class="i"><use href="#file"/></svg>Specs</div><div><svg class="i"><use href="#folder"/></svg>Docs</div><div class="on"><svg class="i"><use href="#book"/></svg>Glossary</div><div><svg class="i"><use href="#more"/></svg>More</div></div>
+</div></div></div>
+</div>
+
+<!-- ===================================================================== F -->
+<h2 class="board">6 · Sheets</h2>
+<p>Changes with side effects show what happens before they happen.</p>
+<div class="boards">
+<div><div class="lab"><i></i>Update from the global glossary</div><div class="frame"><div class="sheetwrap"><div class="sheet">
+ <h3>Update “Idempotency key”?</h3><p>The global glossary has revision 4. Your copy is revision 3 with one local change.</p>
+ <div class="diff">A client-chosen id that makes a repeated request safe. <del>Valid for 24 hours.</del> <ins>Valid for 72 hours; after that the request is new.</ins><br><span style="color:var(--muted)">Your change:</span> Stored per <del>account</del> <ins>merchant</ins>.</div>
+ <div class="opt on"><i></i><div>Take revision 4, keep my change<small>Your sentence about merchants stays</small></div></div>
+ <div class="opt"><i></i><div>Take revision 4 as it is</div></div>
+ <div class="acts"><span class="btn pri">Update</span><span class="btn ghost">Not now</span></div>
+</div></div></div></div>
+
+<div><div class="lab"><i></i>Delete a term that is in use</div><div class="frame"><div class="sheetwrap"><div class="sheet">
+ <h3>Delete “Retry budget”?</h3><p>2 specs and 1 term link to it. After deleting, those links show as broken in Health.</p>
+ <div class="card" style="box-shadow:none"><div style="padding:10px 16px" class="mono">RV-014 · R6</div><div style="padding:10px 16px;border-top:1px solid var(--line)" class="mono">RV-019 · R2</div><div style="padding:10px 16px;border-top:1px solid var(--line)" class="mono">Attempt window · Not to be confused with</div></div>
+ <div class="opt on"><i></i><div>Replace the links with plain text<small>“#[Retry budget]” becomes “retry budget”</small></div></div>
+ <div class="opt"><i></i><div>Merge into another term…<small>Links point to it, the name becomes a synonym</small></div></div>
+ <div class="acts"><span class="btn" style="color:var(--red);border-color:var(--red-line)">Delete term</span><span class="btn ghost">Cancel</span></div>
+</div></div></div></div>
+</div>
+
+<!-- ===================================================================== model -->
+<h2 class="board">The folder model</h2>
+<p>What changes underneath. The Git repository stays readable for people and agents without the app.</p>
+<div class="notes">
+ <div><h3>One file per term</h3>
+  <p>Sub-folders are the glossary folders. The file name is the term as a slug; the term itself is in the front matter, so it may contain any characters.</p>
+<pre>docs/glossary/
+  billing/
+    attempt-window.md
+    dunning.md
+    invoice-run.md
+  payments/
+    idempotency-key.md
+    settlement.md
+  general/ …
+  _proposed/           ← agent drafts, never live
+    grace-period.md</pre>
+ </div>
+ <div><h3>A term file</h3>
+<pre>---
+term: Attempt window
+aliases: [retry window, window]
+avoid: [retry period]
+distinct: [Retry budget]
+see: [Idempotency key, Ledger entry]
+source: global:7c1e…@3     # only when imported
+---
+The **time bucket** in which retries of one
+[[Invoice run]] count as the same attempt.
+
+A window
+- starts with the first delivery attempt,
+- closes after `ATTEMPT_WINDOW_MINUTES`.
+
+## Example
+…</pre>
+  <p style="margin-top:8px">The body is ordinary Markdown, so multi-line definitions (item 2) come for free.</p>
+ </div>
+ <div><h3>Behaviour</h3>
+  <ul>
+   <li><b>Going live:</b> every file under <span class="mono">glossary/</span> is a foundation document, as <span class="mono">glossary.md</span> is today – live after you stop typing, or by an approver if the team turned that off. <span class="mono">_proposed/</span> never goes live.</li>
+   <li><b>History:</b> the History tab is the Git log of one file.</li>
+   <li><b>Rename:</b> move the file and rewrite <span class="mono">#[…]</span>, <span class="mono">[[…]]</span> and “See also” in one commit.</li>
+   <li><b>GLOSSARY.md</b> is still generated at the team root for agents that only read the repository; it now includes the full body.</li>
+   <li><b>Definition blocks in specs</b> stay as they are and appear under “In specs &amp; documents”; Health shows when they disagree with a term file.</li>
+  </ul></div>
+ <div><h3>Migration</h3>
+  <ul>
+   <li>On first start after the update the server splits <span class="mono">glossary.md</span>: each definition becomes a file, each section heading a folder, terms above the first heading go to <span class="mono">general/</span>.</li>
+   <li>Existing agent drafts <span class="mono">glossary/from-&lt;source&gt;.md</span> are split into <span class="mono">_proposed/</span>.</li>
+   <li>One commit, “Glossary: one file per term”. <span class="mono">glossary.md</span> is removed; old links to it open the Glossary page.</li>
+  </ul></div>
+ <div><h3>Agents (MCP)</h3>
+  <ul>
+   <li><span class="mono">get_glossary</span> returns the Markdown body plus <span class="mono">avoid</span> and <span class="mono">distinct</span>; new optional <span class="mono">spec</span> parameter returns only the terms that spec uses.</li>
+   <li><span class="mono">get_team_context</span> lists terms with their first paragraph to keep it short.</li>
+   <li>New <span class="mono">propose_term</span>; <span class="mono">derive_from_document</span> writes to <span class="mono">_proposed/</span>.</li>
+  </ul></div>
+ <div><h3>Decisions</h3>
+  <ul>
+   <li>Folders nest (up to 3 levels below glossary/).</li>
+   <li>Accepting or declining a proposed term needs the approve role.</li>
+   <li>Words to avoid warn, they do not block: a dialog on Approve and on Done (phone), a hint when leaving an edited spec, and suggestions in the editor.</li>
+   <li>Team glossaries export and import as ZIP (one file per term) and as CSV.</li>
+  </ul></div>
+</div>
+</body></html>

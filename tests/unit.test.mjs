@@ -70,25 +70,50 @@ sweepExpired();
 assert.deepEqual(db.prepare('SELECT id FROM sessions').all().map((r) => r.id), ['new']); assert.equal(db.prepare('SELECT COUNT(*) n FROM oauth_requests').get().n, 0);
 assert.deepEqual(db.prepare('SELECT client_id FROM oauth_clients').all().map((r) => r.client_id), ['fresh']); ok('janitor: expired sessions, requests and unused clients are removed');
 
+// ---- criteria: the checklist a report is held against
+{
+  const { specCriteria, findCriterion } = await import('../shared/criteria.js');
+  const md = '---\nid: X\n---\n\n# X\n\n## REQUIREMENTS\nR1 Keys rotate.\nR2 Window is 24h\n\n- not a criterion\n\n## ACCEPTANCE CRITERIA\n- [ ] Old key accepted\n- [x] **Revoked** key rejected\n* plain bullet\n\n```\n- [ ] in a fence\nR9 in a fence\n```\n\n## Definition of done\n- Docs updated\n\n## OUT OF SCOPE\n- Printing\n';
+  const c = specCriteria(md);
+  assert.deepEqual(c.map((x) => x.id), ['R1', 'R2', 'AC1', 'AC2', 'AC3', 'AC4']);
+  assert.equal(c[3].text, '**Revoked** key rejected'); assert.equal(c[5].section, 'Definition of done');
+  assert.equal(findCriterion(c, { id: 'r2' }).id, 'R2'); assert.equal(findCriterion(c, { text: 'R1: keys rotate' }).id, 'R1');
+  assert.equal(findCriterion(c, { text: 'revoked key rejected.' }).id, 'AC2'); assert.equal(findCriterion(c, { text: 'AC1 – done' }).id, 'AC1');
+  assert.equal(findCriterion(c, { text: 'Verified: old key accepted for 24 h' }).id, 'AC1'); assert.equal(findCriterion(c, { text: 'Something else' }), null);
+  assert.deepEqual(specCriteria('## GOAL\nnothing\n'), []); ok('criteria: requirements and acceptance items get stable ids; fences and other sections are ignored; reports match by id or text');
+}
+
+// ---- guardrails: rules and what changed since a report
+{
+  const { parseRules, ruleSnapshot, rulesChanged } = await import('../shared/guardrails.js');
+  const md = '# Guardrails\n\n<!-- - G9: in a comment -->\n## Always\n- G1: Verify signatures.\n* G2) Log in UTC\n\n## Never\n- G3: Log secrets.\n- G3: duplicate\n```\n- G7: in a fence\n```\n';
+  const r = parseRules(md);
+  assert.deepEqual(r.map((x) => [x.id, x.kind, x.text]), [['G1', 'always', 'Verify signatures.'], ['G2', 'always', 'Log in UTC'], ['G3', 'never', 'Log secrets.']]);
+  const snap = ruleSnapshot(r.slice(0, 2));
+  assert.deepEqual(rulesChanged(r, snap).map((x) => [x.id, x.change]), [['G3', 'added']]);
+  assert.deepEqual(rulesChanged(parseRules('- G1: Verify  signatures.\n- G2: Log in local time\n'), snap).map((x) => [x.id, x.change]), [['G2', 'changed']]);
+  assert.deepEqual(rulesChanged(r, null), []); ok('guardrails: rules are parsed by section; new and reworded rules count, whitespace and removed rules do not');
+}
+
 // ---- bounded history: reports per spec, closed feedback
 const { REPORTS_KEPT, SCHEMA_VERSION } = await import('../server/db.js');
 const { addReport, latestReports, listReports } = await import('../server/reports.js');
 const ago = (days) => new Date(Date.now() - days * 86400_000).toISOString();
 db.prepare("INSERT INTO teams (id,key,name,created_at) VALUES ('tp','TP','Prune',?)").run(ago(0));
 for (const id of ['P-1', 'P-2']) db.prepare("INSERT INTO items (team_id,id,kind,title,rev,seq,status,version,created_at,updated_at) VALUES ('tp',?,'spec','x',1,1,'approved',1,?,?)").run(id, ago(0), ago(0));
-for (let i = 0; i < REPORTS_KEPT + 5; i++) addReport({ id: 'tp' }, { specId: 'P-1', status: 'in_progress', summary: `step ${i}` }, { name: 'agent' });
-addReport({ id: 'tp' }, { specId: 'P-2', status: 'implemented', summary: 'done' }, { name: 'agent' });
+for (let i = 0; i < REPORTS_KEPT + 5; i++) await addReport({ id: 'tp' }, { specId: 'P-1', status: 'in_progress', summary: `step ${i}` }, { name: 'agent' });
+await addReport({ id: 'tp' }, { specId: 'P-2', status: 'implemented', summary: 'done' }, { name: 'agent' });
 assert.equal(db.prepare("SELECT COUNT(*) n FROM reports WHERE spec_id='P-1'").get().n, REPORTS_KEPT); assert.equal(listReports('tp', { specId: 'P-1' }).at(-1).summary, 'step 5');
 const latest = latestReports('tp'); assert.equal(latest['P-1'].summary, `step ${REPORTS_KEPT + 4}`); assert.equal(latest['P-2'].summary, 'done'); ok('reports: the newest per spec are kept, latestReports picks the newest of every spec');
 db.prepare("DELETE FROM reports WHERE team_id='tp'").run();
-db.prepare("INSERT INTO reports (id,team_id,spec_id,spec_version,status,created_at) VALUES ('rp','tp','P-1',1,'implemented',?)").run(ago(320));
+db.prepare("INSERT INTO reports (id,team_id,spec_id,spec_version,status,created_at) VALUES ('rp','tp','P-1',1,'implemented',?)").run(ago(5));
 const fb = db.prepare("INSERT INTO feedback (id,team_id,spec_id,kind,text,status,created_at,resolved_at) VALUES (?,'tp','P-1',?,'x',?,?,?)");
 for (let i = 0; i < 104; i++) fb.run(`d${i}`, 'concern', 'dismissed', ago(400), ago(200 + i));
-fb.run('ans', 'decision', 'answered', ago(400), ago(310)); // oldest, but the agent has not reported since: the work list still needs it
+fb.run('ans', 'decision', 'answered', ago(400), ago(310)); // a person's decision: kept, however old
 fb.run('open', 'question', 'open', ago(900), null);
 sweepExpired();
 const left = new Set(db.prepare("SELECT id FROM feedback WHERE team_id='tp'").all().map((r) => r.id));
-assert.equal(left.size, 102); assert.ok(left.has('ans') && left.has('open') && left.has('d99') && !left.has('d100') && !left.has('d103')); ok('janitor: old closed feedback beyond 100 per spec goes; open entries and unreported answers stay');
+assert.equal(left.size, 102); assert.ok(left.has('ans') && left.has('open') && left.has('d99') && !left.has('d100') && !left.has('d103')); ok('janitor: old closed feedback beyond 100 per spec goes; open entries and decisions stay');
 
 // ---- schema migrations: databases without a recorded version (earlier releases) are upgraded
 const old = mkdtempSync(path.join(process.env.TEST_TMP || tmpdir(), 'specs-old-'));
@@ -107,7 +132,7 @@ openWith(old); openWith(old); // the second start finds nothing to do
 const up = new (await import('node:sqlite')).DatabaseSync(path.join(old, 'specs.db'));
 assert.equal(up.prepare('PRAGMA user_version').get().user_version, SCHEMA_VERSION);
 const cols = (db2, t2) => db2.prepare(`SELECT name FROM pragma_table_info('${t2}') ORDER BY name`).all().map((r) => r.name).join();
-for (const t2 of ['items', 'teams', 'feedback', 'reports', 'checks', 'sessions', 'oauth_tokens']) assert.equal(cols(up, t2), cols(db, t2), t2);
+for (const t2 of ['items', 'teams', 'feedback', 'reports', 'checks', 'sessions', 'oauth_tokens', 'agent_activity', 'claims', 'spec_steering']) assert.equal(cols(up, t2), cols(db, t2), t2);
 assert.equal(up.prepare("SELECT title FROM items WHERE id='OLD-001'").get().title, 'Kept'); assert.ok(up.prepare("SELECT 1 FROM sqlite_master WHERE name='items_fetched'").get());
 up.exec('PRAGMA user_version = 99'); up.close();
 assert.throws(() => openWith(old), /newer version/); ok('migrations: a v0.3 database without a schema version is brought to the current schema; a newer one is refused');

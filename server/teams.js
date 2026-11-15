@@ -40,6 +40,10 @@ export function renameTeam(id, name) {
   sql('UPDATE teams SET name=? WHERE id=?').run(name, id);
   return getTeam(id);
 }
+export function setCiRequired(id, on) {
+  sql('UPDATE teams SET ci_required=? WHERE id=?').run(on ? 1 : 0, id);
+  return getTeam(id);
+}
 export function setAgentPaused(id, on) {
   sql('UPDATE teams SET agent_paused=? WHERE id=?').run(on ? 1 : 0, id);
   return getTeam(id);

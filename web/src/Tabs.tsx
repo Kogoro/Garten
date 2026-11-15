@@ -3,7 +3,8 @@ import { useRef, type KeyboardEvent } from 'react';
 export interface TabDef { id: string; label: string; badge?: number | string }
 
 /** Tabs for pages with several sections (Members & Git, Admin, Account). Arrow keys move between them; the choice is kept by the caller. */
-export function Tabs({ tabs, value, onChange, label }: { tabs: TabDef[]; value: string; onChange: (id: string) => void; label: string }) {
+/** `controls`: id of the panel the selected tab shows (default "tabpanel"); only the selected tab names it, so no tab points to a panel that is not on the page. */
+export function Tabs({ tabs, value, onChange, label, controls }: { tabs: TabDef[]; value: string; onChange: (id: string) => void; label: string; controls?: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const key = (e: KeyboardEvent) => {
     const i = tabs.findIndex((t) => t.id === value);
@@ -15,7 +16,7 @@ export function Tabs({ tabs, value, onChange, label }: { tabs: TabDef[]; value: 
   return (
     <div className="tabs" role="tablist" aria-label={label} ref={ref} onKeyDown={key}>
       {tabs.map((t) => (
-        <button key={t.id} type="button" role="tab" id={`tab-${t.id}`} data-tab={t.id} aria-selected={value === t.id} aria-controls="tabpanel" tabIndex={value === t.id ? 0 : -1} className={`tab${value === t.id ? ' on' : ''}`} onClick={() => onChange(t.id)}>
+        <button key={t.id} type="button" role="tab" id={`tab-${t.id}`} data-tab={t.id} aria-selected={value === t.id} aria-controls={controls ? (value === t.id ? controls : undefined) : 'tabpanel'} tabIndex={value === t.id ? 0 : -1} className={`tab${value === t.id ? ' on' : ''}`} onClick={() => onChange(t.id)}>
           {t.label}{t.badge !== undefined && t.badge !== '' && <span className="tab-badge">{t.badge}</span>}
         </button>
       ))}
