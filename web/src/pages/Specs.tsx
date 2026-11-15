@@ -6,7 +6,6 @@ import { NewSpecSheet } from '../sheets';
 import { ImplChip } from '../reports';
 import { Icon, ago, touched, useStore } from '../ui';
 import { usePref } from '../prefs';
-import { Hint } from '../Hint';
 import { Fab } from '../Fab';
 import { awaitsApproval } from '../lib';
 import { Sheet } from '../dialogs';

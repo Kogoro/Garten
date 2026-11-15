@@ -43,6 +43,7 @@ export function activeClaims(teamId) {
 }
 
 /** Claim a released spec, or renew the own claim (a heartbeat). Another agent's live claim is refused. */
+/** @param {any} team @param {any} agent @param {{ specId: string, minutes?: number, note?: string }} claim */
 export function claimSpec(team, agent, { specId, minutes, note }) {
   const spec = store.getItem(team.id, specId);
   if (!spec || spec.kind !== 'spec' || spec.version < 1) throw new ApiError(`No released spec "${specId}".`, 404);

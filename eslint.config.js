@@ -84,15 +84,17 @@ export default defineConfig(
       ...notDefects,
       ...typed,
       // The store fires persist()/sync() and react-router's navigate() without awaiting them on purpose
-      // (66 hits, 32 in store/core.ts). Turn this on once those calls are marked with `void` or handled.
+      // (70 hits, most in store/core.ts). Turn this on once those calls are marked with `void` or handled.
       '@typescript-eslint/no-floating-promises': 'off',
       '@typescript-eslint/no-unused-vars': unused,
       '@typescript-eslint/no-unused-expressions': ['error', { allowShortCircuit: true, allowTernary: true }],
-      '@typescript-eslint/no-explicit-any': 'off', // `any` is used deliberately at API boundaries (219 hits)
+      '@typescript-eslint/no-explicit-any': 'off', // `any` is used deliberately at API boundaries (242 hits)
       'prefer-const': 'off', // style
       // React Compiler readiness checks (the app does not use the compiler); they flag patterns that work today:
-      // setState at the start of an effect (7), non-trivial useMemo dependency lists (2), a ref read during render (1).
+      // setState at the start of an effect (8), non-trivial useMemo dependency lists (2), refs read during render (2),
+      // Date.now() during render for "x minutes ago" labels (7).
       'react-hooks/set-state-in-effect': 'off',
+      'react-hooks/purity': 'off',
       'react-hooks/use-memo': 'off',
       'react-hooks/refs': 'off',
     },

@@ -13,7 +13,7 @@ import { hasContent } from '../shared/glossary.js';
 import { Limiter } from './ratelimit.js';
 import { readSource, proposeTerms, deriveSpecs } from './derive.js';
 import { agentOf, recordActivity, claimSpec, releaseClaim, CLAIM_DEFAULT_MIN, CLAIM_MAX_MIN } from './agents.js';
-import { isGlossaryPath, isTermPath, firstParagraph, plainText } from '../shared/glossaryFiles.js';
+import { isGlossaryPath, firstParagraph, plainText } from '../shared/glossaryFiles.js';
 import { extractTermRefs } from '../shared/glossary.js';
 
 const text = (t) => ({ content: [{ type: /** @type {const} */ ('text'), text: t }] });
