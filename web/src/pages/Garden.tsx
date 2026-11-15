@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { DecisionCard, FbItem, useFbAct } from '../feedback';
-import { ImplChip, ReportSheet, implState } from '../reports';
+import { ImplChip, ReportSheet, SteerChips, implState } from '../reports';
 import { Bar, Shell } from '../Shell';
 import { Icon, ago, toast, touched, useStore } from '../ui';
 import { Hint } from '../Hint';
@@ -116,7 +116,7 @@ export function GardenPage() {
 
   // pipeline: released specs from new to implemented; a failing or stale check or an outdated report needs attention
   const stalled = (x: (typeof rows)[number]) => !!seen && x.st.key === 'in_progress' && !S.specClaim(x.s.id) && Date.now() - Date.parse(x.r.createdAt) > 2 * 3600_000;
-  const bad = (x: (typeof rows)[number]) => stalled(x) || x.st.key === 'blocked' || x.st.key === 'outdated' || x.checks.some((c) => c.state === 'failing' || c.state === 'stale');
+  const bad = (x: (typeof rows)[number]) => S.specDrift(x.s.id).length > 0 || stalled(x) || x.st.key === 'blocked' || x.st.key === 'outdated' || x.checks.some((c) => c.state === 'failing' || c.state === 'stale');
   const cols = [
     { key: 'new', title: 'New', items: rows.filter((x) => x.st.key === 'none') },
     { key: 'progress', title: 'In progress', items: rows.filter((x) => (x.st.key === 'in_progress' || x.st.key === 'partial') && !bad(x)) },
@@ -126,8 +126,8 @@ export function GardenPage() {
   const activeCol = cols.find((c) => c.key === colSel)?.key ?? ['attention', 'progress', 'new', 'done'].find((k) => cols.some((c) => c.key === k)); // phones show one stage: the most urgent one first
   const row = (x: (typeof rows)[number]) => { const { s, r } = x; return (
     <button type="button" className="gd-row" key={s.id} data-spec={s.id} onClick={() => setReport(s.id)}>
-      <span className="grow"><b><span className="mono">{s.id}</span> {s.title}</b><span>{S.specClaim(s.id) ? `${who(S.specClaim(s.id))} is building it · claim until ${clock(S.specClaim(s.id).until)}${r ? ` · ${String(r.summary).split('\n')[0].slice(0, 100)}` : ''}` : stalled(x) ? `No agent has worked on it since ${ago(Date.parse(r.createdAt))} – the next run picks it up again` : r ? `${who(r)} · ${ago(Date.parse(r.createdAt))} · ${String(r.summary).split('\n')[0].slice(0, 140)}` : `v${s.version} released${s.releasedAt ? ` ${ago(Date.parse(s.releasedAt))}` : ''} – no report yet`}</span></span>
-      <ImplChip spec={s} always /><Icon name="chevron" size={14} />
+      <span className="grow"><b><span className="mono">{s.id}</span> {s.title}</b><span>{S.specDrift(s.id).length && x.st.key === 'implemented' ? `Guardrails changed since the report (${S.specDrift(s.id).join(', ')}) – the agent checks the code again` : S.specClaim(s.id) ? `${who(S.specClaim(s.id))} is building it · claim until ${clock(S.specClaim(s.id).until)}${r ? ` · ${String(r.summary).split('\n')[0].slice(0, 100)}` : ''}` : stalled(x) ? `No agent has worked on it since ${ago(Date.parse(r.createdAt))} – the next run picks it up again` : r ? `${who(r)} · ${ago(Date.parse(r.createdAt))} · ${String(r.summary).split('\n')[0].slice(0, 140)}` : `v${s.version} released${s.releasedAt ? ` ${ago(Date.parse(s.releasedAt))}` : ''} – no report yet`}</span></span>
+      <SteerChips specId={s.id} /><ImplChip spec={s} always /><Icon name="chevron" size={14} />
     </button>
   ); };
 

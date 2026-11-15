@@ -225,7 +225,7 @@ function buildServer(team, canDrafts, writer, agent) {
     server.registerTool(
       'request_decision',
       {
-        description: 'Ask a person to decide something the spec leaves open (a trade-off, an ambiguity, a product choice). Give 2–6 concrete options and say which you recommend. The person answers in the Specs app, often from a phone – keep the question and the options short and self-contained. ' +
+        description: 'Ask a person to decide something the spec leaves open (a trade-off, an ambiguity, a product choice). First read the spec\'s "## DECISIONS" section: questions answered there are settled and must not be asked again. Give 2–6 concrete options and say which you recommend. The person answers in the Specs app, often from a phone – keep the question and the options short and self-contained. ' +
           'Read the answer later with list_decisions (it also appears in get_work_list). Set blocking=false when you can sensibly continue with your recommendation in the meantime. The same open question is not recorded twice.',
         inputSchema: {
           spec_id: z.string(), question: z.string().min(1).max(2000).describe('One question a person can answer without reading code'),
@@ -302,11 +302,12 @@ function buildServer(team, canDrafts, writer, agent) {
           spec_id: z.string(), name: z.string().min(1).max(80), status: z.enum(RUN_STATUSES),
           value: z.string().max(200).optional().describe('Measured value, e.g. "47 passed", "182 ms"'), detail: z.string().max(2000).optional(),
           ref: z.string().max(400).optional().describe('URL of the CI run or log'), commit: z.string().max(80).optional().describe('Commit that was checked'),
+          spec_version: z.number().int().positive().optional().describe('Released version of the spec the checked code implements (default: the current one). A result for an older version counts as stale.'),
         },
       },
-      run(async ({ spec_id, name, status, value, detail, ref, commit }) => {
-        const c = recordRun(team, { specId: spec_id, name, status, value, detail, ref, commit }, by, 'agent');
-        return { spec: c.specId, name: c.name, state: c.state, note: 'Recorded. People see it next to the implementation report.' };
+      run(async ({ spec_id, name, status, value, detail, ref, commit, spec_version }) => {
+        const c = recordRun(team, { specId: spec_id, name, status, value, detail, ref, commit, specVersion: spec_version }, by, 'agent');
+        return { spec: c.specId, name: c.name, state: c.state, ...(c.needsCi ? { needs_ci: true, note: 'Recorded, but this team counts only results reported by CI: the check stays unverified until the pipeline reports it (POST /api/ci/checks/results).' } : { note: 'Recorded. People see it next to the implementation report.' }) };
       }, 'checks'),
     );
 
@@ -497,7 +498,7 @@ function buildServer(team, canDrafts, writer, agent) {
       inputSchema: { spec_id: z.string().optional(), history: z.boolean().optional().describe('Include the last runs of each check') },
     },
     safe(async ({ spec_id, history }) => listChecks(t, { specId: spec_id }).map((c) => ({
-      spec: c.specId, name: c.name, kind: c.kind, how: c.how, expect: c.expect || undefined, proves: c.criterion || undefined, max_age_days: c.maxAgeDays, state: c.state, last_run: c.last ?? undefined,
+      spec: c.specId, name: c.name, kind: c.kind, how: c.how, expect: c.expect || undefined, proves: c.criterion || undefined, max_age_days: c.maxAgeDays, state: c.state, ...(c.needsCi ? { needs_ci: true } : {}), last_run: c.last ?? undefined,
       ...(history ? { runs: runHistory(t, c.specId, c.name, 10) } : {}),
     }))),
   );

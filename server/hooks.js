@@ -201,6 +201,11 @@ export function sweepStaleChecks(teamId = null) {
 export function initHooks() {
   // failing results from a pipeline: the agent did not run them itself, so it does not know yet
   events.on('check', ({ teamId, check: c, source }) => { if (c.state === 'failing' && source === 'ci') queue(teamId, 'check', `${c.specId}|${c.name}`, { spec_id: c.specId, name: c.name, state: 'failing', source, value: c.last?.value }); });
+  // new guardrails: agents check what they built against them (the work list says which specs); the garden shows the drift
+  events.on('guardrails', ({ teamId, version, by }) => {
+    db.prepare('UPDATE teams SET garden_rev = garden_rev + 1 WHERE id=?').run(teamId);
+    queue(teamId, 'release', 'guardrails.md', { id: 'guardrails.md', version, title: 'Guardrails (check built specs against new rules)', by });
+  });
   events.on('resumed', ({ teamId }) => queue(teamId, 'resume', 'resume', { at: new Date().toISOString() }));
   const sweep = setInterval(() => { try { sweepStaleChecks(); } catch (e) { console.error('stale checks:', e.message); } }, 3600_000);
   sweep.unref?.();

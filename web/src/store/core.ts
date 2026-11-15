@@ -25,7 +25,8 @@ export const state: any = {
 };
 export type FbPatch = { status?: string; answer?: number; reply?: string };
 export type FbOp = FbPatch & { id: string; n: number };
-export type Garden = { rev: number; feedback: any[]; reports: Record<string, any>; checks?: Record<string, any[]>; agents?: any[]; claims?: Record<string, any> };
+export type Garden = { rev: number; feedback: any[]; reports: Record<string, any>; checks?: Record<string, any[]>; agents?: any[]; claims?: Record<string, any>; steering?: Record<string, Steering>; guardrailDrift?: Record<string, string[]> };
+export type Steering = { priority: 'high' | 'normal' | 'low'; hold: boolean; holdNote?: string; depends: string[] };
 const mapOf = (tid: string): Map<string, Item> => { if (!state.maps.has(tid)) state.maps.set(tid, new Map()); return state.maps.get(tid); };
 Object.defineProperty(state, 'items', { get: (): Map<string, Item> => mapOf(state.teamId) });
 
@@ -658,7 +659,7 @@ async function adoptGarden(tid: string, data: any, sent: FbOp[]) {
   if (refused.length) state.gardenNotice = `${refused.length === 1 ? 'One answer was' : `${refused.length} answers were`} not accepted: ${refused[0].error}`;
   if (sent.length || left.length !== (state.fbOps[tid] ?? []).length) { state.fbOps[tid] = left; await meta('fbOps', state.fbOps); }
   if (data.garden) {
-    const g: Garden = { rev: data.garden.rev, feedback: data.garden.feedback ?? [], reports: data.garden.reports ?? {}, checks: data.garden.checks ?? {}, agents: data.garden.agents, claims: data.garden.claims ?? {} };
+    const g: Garden = { rev: data.garden.rev, feedback: data.garden.feedback ?? [], reports: data.garden.reports ?? {}, checks: data.garden.checks ?? {}, agents: data.garden.agents, claims: data.garden.claims ?? {}, steering: data.garden.steering ?? {}, guardrailDrift: data.garden.guardrailDrift ?? {} };
     for (const op of left) g.feedback = g.feedback.map((f) => (f.id === op.id ? applyOp(f, op, state.me?.name) : f));
     state.garden[tid] = g;
     await meta('garden', state.garden);
@@ -681,6 +682,19 @@ export const specChecks = (specId: string): any[] => state.garden[state.teamId]?
 export const gardenAgents = (): any[] | null => state.garden[state.teamId]?.agents ?? null;
 /** The live claim on a spec: which agent builds it, until when. A claim that ran out since the last sync no longer counts. */
 export const specClaim = (specId: string): any | null => { const c = state.garden[state.teamId]?.claims?.[specId]; return c && Date.parse(c.until) > Date.now() ? c : null; };
+/** Guardrail ids added or reworded since the spec's implemented report (the agent has to check its code against them). */
+export const specDrift = (specId: string): string[] => state.garden[state.teamId]?.guardrailDrift?.[specId] ?? [];
+/** Priority, hold and dependencies a person set for a spec (defaults when nobody did). */
+export const specSteering = (specId: string): Steering => state.garden[state.teamId]?.steering?.[specId] ?? { priority: 'normal', hold: false, depends: [] };
+/** Saves steering on the server (needs a connection) and keeps the answer for offline use. */
+export async function steer(specId: string, patch: Partial<Steering>) {
+  const tid = state.teamId;
+  const r: any = await api('PATCH', `/api/teams/${tid}/steering/${encodeURIComponent(specId)}`, patch);
+  const g = state.garden[tid];
+  if (g) { g.steering = r.all; await meta('garden', state.garden); }
+  emit();
+  return r.steering as Steering;
+}
 export const dismissGardenNotice = () => { state.gardenNotice = null; emit(); };
 
 /** Open entries on a spec (feedback and decisions). From the offline copy, so it follows what was done on this device. */

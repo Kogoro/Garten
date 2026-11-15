@@ -83,5 +83,17 @@ assert.deepEqual(db.prepare('SELECT client_id FROM oauth_clients').all().map((r)
   assert.deepEqual(specCriteria('## GOAL\nnothing\n'), []); ok('criteria: requirements and acceptance items get stable ids; fences and other sections are ignored; reports match by id or text');
 }
 
+// ---- guardrails: rules and what changed since a report
+{
+  const { parseRules, ruleSnapshot, rulesChanged } = await import('../shared/guardrails.js');
+  const md = '# Guardrails\n\n<!-- - G9: in a comment -->\n## Always\n- G1: Verify signatures.\n* G2) Log in UTC\n\n## Never\n- G3: Log secrets.\n- G3: duplicate\n```\n- G7: in a fence\n```\n';
+  const r = parseRules(md);
+  assert.deepEqual(r.map((x) => [x.id, x.kind, x.text]), [['G1', 'always', 'Verify signatures.'], ['G2', 'always', 'Log in UTC'], ['G3', 'never', 'Log secrets.']]);
+  const snap = ruleSnapshot(r.slice(0, 2));
+  assert.deepEqual(rulesChanged(r, snap).map((x) => [x.id, x.change]), [['G3', 'added']]);
+  assert.deepEqual(rulesChanged(parseRules('- G1: Verify  signatures.\n- G2: Log in local time\n'), snap).map((x) => [x.id, x.change]), [['G2', 'changed']]);
+  assert.deepEqual(rulesChanged(r, null), []); ok('guardrails: rules are parsed by section; new and reworded rules count, whitespace and removed rules do not');
+}
+
 console.log(`\n${n} checks passed`);
 process.exit(0);

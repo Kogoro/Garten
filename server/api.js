@@ -10,7 +10,7 @@ import { db } from './db.js';
 import { listConnections, revokeConnection } from './oauth.js';
 import { PROJECT_NAME, PUBLIC_URL, OIDC, ALLOW_TEAM_CREATION, MAX_TEAMS_PER_USER } from './config.js';
 import {
-  createTeam, renameTeam, setFoundationAuto, setAgentPaused, setFeedbackMail, deleteTeamRows, listTeams, teamsCreatedBy, publicGit, saveGitSettings, getTeam, TeamError,
+  createTeam, renameTeam, setFoundationAuto, setCiRequired, setAgentPaused, setFeedbackMail, deleteTeamRows, listTeams, teamsCreatedBy, publicGit, saveGitSettings, getTeam, TeamError,
 } from './teams.js';
 import { lookupDefinitions, LookupError } from './lookup.js';
 import { testRemote, pushTeam, generateSshKey, forgetHostKey } from './gitremote.js';
@@ -18,9 +18,10 @@ import { mailEnabled, mailInfo, sendMail, mailError, invitationMail } from './ma
 import { createInvite, listInvites, revokeInvite, inviteByToken, registerFromInvite, acceptForUser, declineForUser, invitesForEmail } from './invites.js';
 import { listGlobalTerms, createGlobalTerm, updateGlobalTerm, deleteGlobalTerm, importGlobalTerms, GlossaryError } from './globalGlossary.js';
 import { bumpGarden, addFeedback, listFeedback, setFeedback, getFeedback, PROPOSALS, openCounts, applyFeedbackOps, gardenFeedback, gardenRev } from './feedback.js';
-import { listReports, latestReports } from './reports.js';
+import { listReports, latestReports, guardrailDrift } from './reports.js';
 import { teamMetrics } from './metrics.js';
 import { listAgents, activeClaims } from './agents.js';
+import { steeringOf, setSteering } from './steering.js';
 import { recordRun, listChecks, runHistory, checksBySpec } from './checks.js';
 import { publicHook, saveHook, testHook } from './hooks.js';
 import { listTypes, createType, updateType, deleteType, TypeError_ } from './specTypes.js';
@@ -115,7 +116,7 @@ async function acceptProposal(team, fb, body, user) {
 const order = (c) => (c.delete ? (c.kind === 'folder' ? 3 : 2) : c.kind === 'folder' ? -1 : c.kind === 'doc' ? 0 : 1); // folders/docs first, deletions last
 
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
-const teamView = (team, role) => ({ id: team.id, key: team.key, name: team.name, role, foundationAuto: !!team.row.foundation_auto, agentPaused: !!team.row.agent_paused, feedbackMail: !!team.row.feedback_mail, mailEnabled, git: publicGit(team), ...(role === 'admin' ? { hook: publicHook(team) } : {}) });
+const teamView = (team, role) => ({ id: team.id, key: team.key, name: team.name, role, foundationAuto: !!team.row.foundation_auto, ciRequired: !!team.row.ci_required, agentPaused: !!team.row.agent_paused, feedbackMail: !!team.row.feedback_mail, mailEnabled, git: publicGit(team), ...(role === 'admin' ? { hook: publicHook(team) } : {}) });
 
 // keeps one admin from using the invite form as a mail cannon
 const inviteLimiter = new Limiter({ windowMs: 3600_000, max: 30 });
@@ -178,10 +179,25 @@ export function apiRouter() {
     const rows = Array.isArray(req.body?.results) ? req.body.results : [req.body];
     if (rows.length > 50) return res.status(400).json({ error: 'At most 50 results per call.' });
     const out = rows.map((x) => {
-      try { const c = recordRun(team, { specId: x?.spec_id, name: x?.name, status: x?.status, value: x?.value, detail: x?.detail, ref: x?.ref, commit: x?.commit }, { id: p.user.id, name: p.user.name, via: p.name }, 'ci'); return { spec_id: c.specId, name: c.name, state: c.state }; }
+      try { const c = recordRun(team, { specId: x?.spec_id, name: x?.name, status: x?.status, value: x?.value, detail: x?.detail, ref: x?.ref, commit: x?.commit, specVersion: x?.spec_version }, { id: p.user.id, name: p.user.name, via: p.name }, 'ci'); return { spec_id: c.specId, name: c.name, state: c.state }; }
       catch (e) { if (e instanceof store.ApiError) return { spec_id: x?.spec_id, name: x?.name, error: e.message }; throw e; }
     });
     res.json({ results: out });
+  }));
+
+  // ---- a pipeline asks which checks to run: every live check of the released specs, with how to run it and its current state.
+  // Any personal token of the team (read scope is enough). ?state=failing,stale,unverified narrows it; ?spec= one spec.
+  r.get('/ci/checks', wrap(async (req, res) => {
+    const m = /^Bearer (spc_\S+)$/.exec(req.get('authorization') ?? '');
+    const p = m && verifyPat(m[1]);
+    if (!p) return res.status(401).json({ error: 'Send a personal token: Authorization: Bearer spc_…' });
+    const team = getTeam(p.teamId);
+    const want = String(req.query.state ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+    const released = new Map(store.approvedSpecs(team.id).map((s) => [s.id, s]));
+    const checks = listChecks(team.id, { specId: req.query.spec ? String(req.query.spec) : undefined })
+      .filter((c) => released.has(c.specId) && (!want.length || want.includes(c.state)))
+      .map((c) => ({ spec_id: c.specId, spec_version: released.get(c.specId).version, name: c.name, kind: c.kind, how: c.how, expect: c.expect || undefined, criterion: c.criterion || undefined, state: c.state, ...(c.needsCi ? { needs_ci: true } : {}), last: c.last ?? undefined }));
+    res.json({ team: team.key, ci_required: !!team.row.ci_required, checks, report_to: `${PUBLIC_URL}/api/ci/checks/results` });
   }));
 
   // ---- everything below needs a session
@@ -279,7 +295,7 @@ export function apiRouter() {
     const rev = gardenRev(t);
     res.json({
       results, fbResults, items: store.itemsSince(t, Number(since) || 0), cursor: store.maxSeq(t), me: me(req.user), project: PROJECT_NAME, mcpUrl: `${PUBLIC_URL}/mcp`, specTypes: listTypes(t), feedbackOpen: openCounts(t),
-      ...(have === rev ? {} : { garden: { rev, feedback: gardenFeedback(t), reports: latestReports(t), checks: checksBySpec(t), agents: listAgents(t), claims: activeClaims(t) } }), // what the garden view needs offline; only sent when it changed
+      ...(have === rev ? {} : { garden: { rev, feedback: gardenFeedback(t), reports: latestReports(t), checks: checksBySpec(t), agents: listAgents(t), claims: activeClaims(t), steering: steeringOf(t), guardrailDrift: Object.fromEntries(Object.entries(await guardrailDrift(req.team)).map(([k, v]) => [k, v.map((r) => r.id)])) } }), // what the garden view needs offline; only sent when it changed
     });
   }));
 
@@ -314,6 +330,12 @@ export function apiRouter() {
     res.json({ history: await store.docHistory(req.team, id) });
   }));
 
+  // steering: approvers set priority, hold and dependencies of a spec (what the agents build next)
+  team.patch('/steering/:spec', requireTeam('approve'), wrap(async (req, res) => {
+    const out = setSteering(req.team.id, req.params.spec, req.body ?? {}, req.user);
+    audit(req, 'spec.steer', { team: req.team.id, target: req.params.spec, detail: { priority: out.priority, hold: out.hold, depends: out.depends } });
+    res.json({ steering: out, all: steeringOf(req.team.id) });
+  }));
   team.get('/metrics', requireTeam('read'), (req, res) => res.json({ metrics: teamMetrics(req.team) }));
   team.get('/checks', requireTeam('read'), (req, res) => {
     const specId = req.query.spec ? String(req.query.spec) : undefined;
@@ -324,6 +346,7 @@ export function apiRouter() {
   team.patch('/', requireTeam('admin'), wrap(async (req, res) => {
     let t = req.team;
     if (req.body?.name !== undefined) t = renameTeam(t.id, req.body.name);
+    if (req.body?.ciRequired !== undefined) { t = setCiRequired(t.id, !!req.body.ciRequired); bumpGarden(t.id); }
     if (req.body?.foundationAuto !== undefined) {
       t = setFoundationAuto(t.id, !!req.body.foundationAuto);
       if (t.row.foundation_auto) await store.startupSweep(); // catch up on documents edited while auto-release was off
@@ -335,7 +358,7 @@ export function apiRouter() {
       if (was && !req.body.agentPaused) store.events.emit('resumed', { teamId: t.id });
     }
     if (req.body?.hook !== undefined) t = saveHook(t.id, req.body.hook ?? {});
-    audit(req, 'team.update', { team: t.id, detail: { fields: Object.keys(req.body ?? {}).filter((k) => ['name', 'foundationAuto', 'feedbackMail', 'hook'].includes(k)), ...(req.body?.hook !== undefined ? { hookHost: (() => { try { return new URL(t.row.hook_url).host; } catch { return null; } })() } : {}) } });
+    audit(req, 'team.update', { team: t.id, detail: { fields: Object.keys(req.body ?? {}).filter((k) => ['name', 'foundationAuto', 'feedbackMail', 'hook', 'ciRequired'].includes(k)), ...(req.body?.hook !== undefined ? { hookHost: (() => { try { return new URL(t.row.hook_url).host; } catch { return null; } })() } : {}) } });
     res.json({ team: teamView(t, req.role) });
   }));
   team.post('/hook/test', requireTeam('admin'), wrap(async (req, res) => { audit(req, 'team.hook.test', { team: req.team.id }); res.json(await testHook(req.team.id)); }));

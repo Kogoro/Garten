@@ -650,6 +650,11 @@ textarea.field.hook-headers { min-height: 76px; font-size: 13px; }
 .rp-ctext, .rp-ref { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; min-width: 0; flex: 1; overflow-wrap: anywhere; }
 .rp-ctext .chip, .rp-ev .chip { padding: 1px 8px; font-size: 12px; }
 .rp-cid { font-size: 12px; color: var(--muted); }
+.rp-steer { display: grid; gap: 10px; margin-top: 16px; }
+.rp-steer .seg { margin-left: 0; justify-self: start; }
+.rp-steer-deps { display: flex; gap: 8px; align-items: center; }
+.rp-steer-deps .field { flex: 1; min-width: 0; }
+.rp-steer-deps .btn { flex: none; }
 .rp-ev .chip { flex: none; }
 .rp-ctext small, .rp-ref small { flex-basis: 100%; font-size: 13px; color: var(--muted); }
 .rp-ref a { color: var(--accent); word-break: break-all; }
