@@ -18,7 +18,7 @@ import { mailEnabled, mailInfo, sendMail, mailError, invitationMail } from './ma
 import { createInvite, listInvites, revokeInvite, inviteByToken, registerFromInvite, acceptForUser, declineForUser, invitesForEmail } from './invites.js';
 import { listGlobalTerms, createGlobalTerm, updateGlobalTerm, deleteGlobalTerm, importGlobalTerms, GlossaryError } from './globalGlossary.js';
 import { bumpGarden, addFeedback, listFeedback, setFeedback, getFeedback, PROPOSALS, openCounts, applyFeedbackOps, gardenFeedback, gardenRev } from './feedback.js';
-import { listReports, latestReports } from './reports.js';
+import { listReports, latestReports, guardrailDrift } from './reports.js';
 import { teamMetrics } from './metrics.js';
 import { listAgents, activeClaims } from './agents.js';
 import { steeringOf, setSteering } from './steering.js';
@@ -280,7 +280,7 @@ export function apiRouter() {
     const rev = gardenRev(t);
     res.json({
       results, fbResults, items: store.itemsSince(t, Number(since) || 0), cursor: store.maxSeq(t), me: me(req.user), project: PROJECT_NAME, mcpUrl: `${PUBLIC_URL}/mcp`, specTypes: listTypes(t), feedbackOpen: openCounts(t),
-      ...(have === rev ? {} : { garden: { rev, feedback: gardenFeedback(t), reports: latestReports(t), checks: checksBySpec(t), agents: listAgents(t), claims: activeClaims(t), steering: steeringOf(t) } }), // what the garden view needs offline; only sent when it changed
+      ...(have === rev ? {} : { garden: { rev, feedback: gardenFeedback(t), reports: latestReports(t), checks: checksBySpec(t), agents: listAgents(t), claims: activeClaims(t), steering: steeringOf(t), guardrailDrift: Object.fromEntries(Object.entries(await guardrailDrift(req.team)).map(([k, v]) => [k, v.map((r) => r.id)])) } }), // what the garden view needs offline; only sent when it changed
     });
   }));
 

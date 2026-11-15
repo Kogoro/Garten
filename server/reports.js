@@ -6,6 +6,7 @@ import { bumpGarden, DECISION } from './feedback.js';
 import { listChecks, summarize, checksBySpec } from './checks.js';
 import { specCriteria, findCriterion } from '../shared/criteria.js';
 import { activeClaims } from './agents.js';
+import { parseRules, ruleSnapshot, rulesChanged } from '../shared/guardrails.js';
 import { steeringOf } from './steering.js';
 
 export const REPORT_STATUSES = ['implemented', 'partial', 'blocked', 'in_progress'];
@@ -30,14 +31,35 @@ function enrich(criteria, checks) {
   for (const c of met) verification[bucket(c)] += 1;
   return { criteria: out, verification };
 }
+const snap = (s) => { try { return s ? JSON.parse(s) : null; } catch { return null; } };
 const view = (r, checks) => {
   const e = enrich(json(r.criteria), checks);
   return {
+    guardrails: snap(r.guardrails),
     id: r.id, specId: r.spec_id, specVersion: r.spec_version, status: r.status, summary: r.summary, criteria: e.criteria, verification: e.verification, evidence: json(r.evidence),
     deviations: r.deviations, author: r.author, via: r.via, createdAt: r.created_at,
   };
 };
 const clip = (s, n) => String(s ?? '').trim().slice(0, n);
+
+/** The rules of the team's released guardrails ([] when none are released). */
+export async function releasedRules(team) {
+  const g = store.getItem(team.id, 'guardrails.md');
+  if (!g || g.status !== 'approved') return [];
+  try { return parseRules(await store.readReleasedDoc(team, 'guardrails.md')); } catch { return []; }
+}
+
+/** { SPEC-1: [rule …] }: implemented specs whose report predates rules that are new or reworded since. */
+export async function guardrailDrift(team) {
+  const rules = await releasedRules(team);
+  if (!rules.length) return {};
+  const out = {};
+  for (const [id, r] of Object.entries(latestReports(team.id))) {
+    const changed = rulesChanged(rules, r.guardrails);
+    if (changed.length) out[id] = changed;
+  }
+  return out;
+}
 
 /** The criteria of a released spec version (requirements and acceptance criteria), or null when the file cannot be read. */
 export async function releasedCriteria(team, specId, version) {
@@ -100,8 +122,9 @@ export async function addReport(team, { specId, version, status, summary, criter
     : crit;
   if (all.length > 80) all.length = 80;
   const id = randomUUID();
-  db.prepare('INSERT INTO reports (id,team_id,spec_id,spec_version,status,summary,criteria,evidence,deviations,author,author_id,via,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
-    .run(id, team.id, specId, v, status, sum, JSON.stringify(all), JSON.stringify(evid), dev, by?.name ?? null, by?.id ?? null, by?.via ?? null, new Date().toISOString());
+  const rules = ruleSnapshot(await releasedRules(team));
+  db.prepare('INSERT INTO reports (id,team_id,spec_id,spec_version,status,summary,criteria,evidence,deviations,author,author_id,via,created_at,guardrails) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+    .run(id, team.id, specId, v, status, sum, JSON.stringify(all), JSON.stringify(evid), dev, by?.name ?? null, by?.id ?? null, by?.via ?? null, new Date().toISOString(), JSON.stringify(rules));
   bumpGarden(team.id);
   return { ...view(db.prepare('SELECT * FROM reports WHERE id=?').get(id), checksOf(team.id, specId)), notReported: missing.map((c) => c.id), extra: crit.filter((c) => !c.id).length, specCriteria: own.length };
 }
@@ -123,12 +146,13 @@ export function latestReports(teamId) {
 }
 
 /** What is left to do, from the agent's point of view: released specs without a current "implemented" report, and decisions. */
-export function workList(team, agentKey = null) {
+export async function workList(team, agentKey = null) {
   const t = team.id;
   if (team.row.agent_paused) {
     return { team: team.name, paused: true, work: [], note: 'A person has paused the agents of this team. Do not start new work; try again later. Answers to your questions and reports are still accepted.' };
   }
   const latest = latestReports(t);
+  const rules = await releasedRules(team);
   const decisions = db.prepare("SELECT * FROM feedback WHERE team_id=? AND kind=? AND status IN ('open','answered','dismissed') ORDER BY created_at").all(t, DECISION);
   const feedbackOpen = Object.fromEntries(db.prepare("SELECT spec_id, COUNT(*) AS n FROM feedback WHERE team_id=? AND status='open' AND kind<>? GROUP BY spec_id").all(t, DECISION).map((r) => [r.spec_id, r.n]));
   const allChecks = checksBySpec(t);
@@ -151,6 +175,9 @@ export function workList(team, agentKey = null) {
     else if (rep.status !== 'implemented') state = rep.status;
     const chk = summarize(allChecks[s.id] ?? []);
     if (!state && (chk.failing || chk.stale || chk.unverified)) state = 'recheck';
+    // the code was checked against older guardrails: new or reworded rules have to be checked against it
+    const drift = rep && rep.status === 'implemented' && rep.specVersion === s.version ? rulesChanged(rules, rep.guardrails) : [];
+    if (!state && drift.length) state = 'guardrails_changed';
     if (!state) { done += 1; if (!open.length) continue; state = 'implemented'; }
     const options = (d) => { try { return JSON.parse(d.options) ?? []; } catch { return []; } };
     const st = steer[s.id];
@@ -172,13 +199,17 @@ export function workList(team, agentKey = null) {
         : { id: d.id, question: d.text, outcome: 'answered', answer: d.answer >= 0 ? options(d)[d.answer]?.label ?? null : null, note: d.reply || undefined, answered_by: d.resolved_by })) } : {}),
       ...(feedbackOpen[s.id] ? { open_feedback: feedbackOpen[s.id] } : {}),
       ...(chk.total ? { checks: chk } : {}),
+      ...(state === 'guardrails_changed' ? {
+        rules_changed: drift.map((r) => ({ id: r.id, ...(r.kind ? { kind: r.kind } : {}), text: r.text, change: r.change })),
+        hint: 'The guardrails changed since your last report. Check the code of this spec against these rules (get_team_context has all of them). If it complies, report again (report_implementation, same status and criteria); if not, fix it – or ask with request_decision when a rule and the spec contradict each other.',
+      } : {}),
       ...(state === 'recheck' ? {
         hint: 'Run these checks again (list_checks shows how) and report each result with report_check_result. If one fails, fix the code or report the spec as partial.',
         checks_to_run: (allChecks[s.id] ?? []).filter((c) => c.state !== 'passing').map((c) => ({ name: c.name, kind: c.kind, how: c.how, expect: c.expect || undefined, state: c.state })),
       } : {}),
     });
   }
-  const rank = { decision_answered: 0, changed: 1, recheck: 2, new: 3, in_progress: 4, partial: 5, blocked: 6, implemented: 7 };
+  const rank = { decision_answered: 0, changed: 1, recheck: 2, guardrails_changed: 2.5, new: 3, in_progress: 4, partial: 5, blocked: 6, implemented: 7 };
   const prio = { high: 0, normal: 1, low: 2 };
   work.sort((a, b) => prio[a.priority ?? 'normal'] - prio[b.priority ?? 'normal'] || rank[a.state] - rank[b.state] || a.spec_id.localeCompare(b.spec_id));
   return {
@@ -186,7 +217,7 @@ export function workList(team, agentKey = null) {
     ...(others.length ? { claimed_by_others: others } : {}),
     ...(held.length ? { on_hold: held } : {}),
     ...(waiting.length ? { waiting_on_specs: waiting } : {}),
-    states: 'new = never reported · changed = a newer version was released since your last report · recheck = implemented, but a check fails, is stale (too old or from an older version) or never ran – run it again · decision_answered = a person answered your question, or dismissed it (outcome "dismissed": do not ask it again – follow the note, or continue with your recommendation and say so in the report) · in_progress / partial / blocked = your last report · implemented = done, listed only because a question is still open · claimed_by_others = another agent is building these right now: leave them alone · on_hold = a person put these on hold: do not start or continue them · waiting_on_specs = these are built after the specs in waits_for are implemented · priority high / low = a person wants these sooner / later; the list is already in that order',
+    states: 'new = never reported · changed = a newer version was released since your last report · recheck = implemented, but a check fails, is stale (too old or from an older version) or never ran – run it again · guardrails_changed = implemented, but guardrails were added or reworded since: check the code against rules_changed and report again · decision_answered = a person answered your question, or dismissed it (outcome "dismissed": do not ask it again – follow the note, or continue with your recommendation and say so in the report) · in_progress / partial / blocked = your last report · implemented = done, listed only because a question is still open · claimed_by_others = another agent is building these right now: leave them alone · on_hold = a person put these on hold: do not start or continue them · waiting_on_specs = these are built after the specs in waits_for are implemented · priority high / low = a person wants these sooner / later; the list is already in that order',
     note: work.length ? 'Claim an entry with claim_spec before you build it. Entries with a blocking waiting_for_decision must wait for a person; work on the others.' : others.length ? 'Nothing for you: the remaining specs are being built by other agents.' : 'Nothing to do: every released spec has an "implemented" report for its current version.',
   };
 }
