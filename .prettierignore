@@ -1,0 +1,14 @@
+# Dependencies, build output and local data
+node_modules/
+dist/
+web/dev-dist/
+coverage/
+data/
+*.log
+.claude/
+
+# Lock files are written by npm
+package-lock.json
+
+# Generated files
+docs/*.html

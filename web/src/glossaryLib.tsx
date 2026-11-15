@@ -65,6 +65,7 @@ const REF = /\[\[([^\]|\n]+)(?:\|([^\]\n]*))?\]\]|#\[([^\]|\n]+)(?:\|([^\]\n]*))
 export function Linkify({ text, idx }: { text: string; idx: Map<string, string> }) {
   const out: ReactNode[] = [];
   let last = 0, m: RegExpExecArray | null, n = 0;
+  // eslint-disable-next-line react-hooks/immutability -- module-level /g regex, reset before each use
   REF.lastIndex = 0;
   while ((m = REF.exec(text))) {
     if (m.index > last) out.push(text.slice(last, m.index));

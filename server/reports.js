@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { db } from './db.js';
+import { sql, REPORTS_KEPT } from './db.js';
 import * as store from './store.js';
 import { ApiError } from './store.js';
 import { bumpGarden, DECISION } from './feedback.js';
@@ -49,12 +49,12 @@ export async function releasedRules(team) {
   try { return parseRules(await store.readReleasedDoc(team, 'guardrails.md')); } catch { return []; }
 }
 
-/** { SPEC-1: [rule …] }: implemented specs whose report predates rules that are new or reworded since. */
-export async function guardrailDrift(team) {
+/** { SPEC-1: [rule …] }: implemented specs whose report predates rules that are new or reworded since. Pass latestReports when it is at hand already. */
+export async function guardrailDrift(team, latest = null) {
   const rules = await releasedRules(team);
   if (!rules.length) return {};
   const out = {};
-  for (const [id, r] of Object.entries(latestReports(team.id))) {
+  for (const [id, r] of Object.entries(latest ?? latestReports(team.id))) {
     const changed = rulesChanged(rules, r.guardrails);
     if (changed.length) out[id] = changed;
   }
@@ -66,7 +66,8 @@ export async function releasedCriteria(team, specId, version) {
   try { return specCriteria(await store.readReleasedSpec(team, specId, version)); } catch { return null; }
 }
 
-/** An agent reports what it built for a released spec version: status, each acceptance criterion, evidence, deviations. Reports are append-only.
+/** An agent reports what it built for a released spec version: status, each acceptance criterion, evidence, deviations. Reports are append-only;
+ * the newest REPORTS_KEPT per spec are kept (the newest is the current state and carries the guardrails drift is measured against).
  * The spec's own criteria are the checklist: every one of them is in the report – the agent's entries are matched to them,
  * criteria it left out are added as "open", and "implemented" needs every one of them met or deviating. */
 export async function addReport(team, { specId, version, status, summary, criteria, evidence, deviations }, by) {
@@ -123,25 +124,30 @@ export async function addReport(team, { specId, version, status, summary, criter
   if (all.length > 80) all.length = 80;
   const id = randomUUID();
   const rules = ruleSnapshot(await releasedRules(team));
-  db.prepare('INSERT INTO reports (id,team_id,spec_id,spec_version,status,summary,criteria,evidence,deviations,author,author_id,via,created_at,guardrails) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+  sql('INSERT INTO reports (id,team_id,spec_id,spec_version,status,summary,criteria,evidence,deviations,author,author_id,via,created_at,guardrails) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
     .run(id, team.id, specId, v, status, sum, JSON.stringify(all), JSON.stringify(evid), dev, by?.name ?? null, by?.id ?? null, by?.via ?? null, new Date().toISOString(), JSON.stringify(rules));
+  sql('DELETE FROM reports WHERE team_id=? AND spec_id=? AND rowid NOT IN (SELECT rowid FROM reports WHERE team_id=? AND spec_id=? ORDER BY created_at DESC, rowid DESC LIMIT ?)')
+    .run(team.id, specId, team.id, specId, REPORTS_KEPT);
   bumpGarden(team.id);
-  return { ...view(db.prepare('SELECT * FROM reports WHERE id=?').get(id), checksOf(team.id, specId)), notReported: missing.map((c) => c.id), extra: crit.filter((c) => !c.id).length, specCriteria: own.length };
+  return { ...view(sql('SELECT * FROM reports WHERE id=?').get(id), checksOf(team.id, specId)), notReported: missing.map((c) => c.id), extra: crit.filter((c) => !c.id).length, specCriteria: own.length };
 }
 
-export function listReports(teamId, { specId, limit = 50 } = {}) {
+/** @param {string} teamId @param {{ specId?: string, limit?: number }} [opts] */
+export function listReports(teamId, { specId, limit = REPORTS_KEPT } = {}) {
   const rows = specId
-    ? db.prepare('SELECT * FROM reports WHERE team_id=? AND spec_id=? ORDER BY created_at DESC, rowid DESC LIMIT ?').all(teamId, specId, limit)
-    : db.prepare('SELECT * FROM reports WHERE team_id=? ORDER BY created_at DESC, rowid DESC LIMIT ?').all(teamId, limit);
+    ? sql('SELECT * FROM reports WHERE team_id=? AND spec_id=? ORDER BY created_at DESC, rowid DESC LIMIT ?').all(teamId, specId, limit)
+    : sql('SELECT * FROM reports WHERE team_id=? ORDER BY created_at DESC, rowid DESC LIMIT ?').all(teamId, limit);
   const bySpec = checksBySpec(teamId);
   return rows.map((r) => view(r, bySpec[r.spec_id]));
 }
 
-/** The newest report of every spec (what the garden view shows, also offline). */
-export function latestReports(teamId) {
+/** The newest report of every spec (what the garden view shows, also offline). Pass checksBySpec when it is at hand already. */
+export function latestReports(teamId, bySpec = checksBySpec(teamId)) {
   const out = {};
-  const bySpec = checksBySpec(teamId);
-  for (const r of db.prepare('SELECT * FROM reports WHERE team_id=? ORDER BY created_at, rowid').all(teamId)) out[r.spec_id] = view(r, bySpec[r.spec_id]);
+  // one index lookup per spec (reports_spec), so older reports are never read
+  const rows = sql(`SELECT r.* FROM (SELECT DISTINCT spec_id FROM reports WHERE team_id=?) s
+    JOIN reports r ON r.rowid = (SELECT x.rowid FROM reports x WHERE x.team_id=? AND x.spec_id=s.spec_id ORDER BY x.created_at DESC, x.rowid DESC LIMIT 1)`).all(teamId, teamId);
+  for (const r of rows) out[r.spec_id] = view(r, bySpec[r.spec_id]);
   return out;
 }
 
@@ -151,18 +157,19 @@ export async function workList(team, agentKey = null) {
   if (team.row.agent_paused) {
     return { team: team.name, paused: true, work: [], note: 'A person has paused the agents of this team. Do not start new work; try again later. Answers to your questions and reports are still accepted.' };
   }
-  const latest = latestReports(t);
-  const rules = await releasedRules(team);
-  const decisions = db.prepare("SELECT * FROM feedback WHERE team_id=? AND kind=? AND status IN ('open','answered','dismissed') ORDER BY created_at").all(t, DECISION);
-  const feedbackOpen = Object.fromEntries(db.prepare("SELECT spec_id, COUNT(*) AS n FROM feedback WHERE team_id=? AND status='open' AND kind<>? GROUP BY spec_id").all(t, DECISION).map((r) => [r.spec_id, r.n]));
   const allChecks = checksBySpec(t);
+  const latest = latestReports(t, allChecks);
+  const rules = await releasedRules(team);
+  const decisions = sql("SELECT * FROM feedback WHERE team_id=? AND kind=? AND status IN ('open','answered','dismissed') ORDER BY created_at").all(t, DECISION);
+  const feedbackOpen = Object.fromEntries(sql("SELECT spec_id, COUNT(*) AS n FROM feedback WHERE team_id=? AND status='open' AND kind<>? GROUP BY spec_id").all(t, DECISION).map((r) => [r.spec_id, r.n]));
   const claims = activeClaims(t);
   const steer = steeringOf(t);
-  const released = new Map(store.approvedSpecs(t).map((s) => [s.id, s]));
+  const specs = store.approvedSpecs(t);
+  const released = new Map(specs.map((s) => [s.id, s]));
   // a dependency is met when that spec is released and implemented in its current version
   const isBuilt = (id) => { const d = released.get(id); const r = latest[id]; return !!d && !!r && r.status === 'implemented' && r.specVersion === d.version; };
   const work = []; const others = []; const held = []; const waiting = []; let done = 0;
-  for (const s of store.approvedSpecs(t)) {
+  for (const s of specs) {
     const rep = latest[s.id];
     const mine = decisions.filter((d) => d.spec_id === s.id);
     const open = mine.filter((d) => d.status === 'open');
@@ -213,7 +220,7 @@ export async function workList(team, agentKey = null) {
   const prio = { high: 0, normal: 1, low: 2 };
   work.sort((a, b) => prio[a.priority ?? 'normal'] - prio[b.priority ?? 'normal'] || rank[a.state] - rank[b.state] || a.spec_id.localeCompare(b.spec_id));
   return {
-    team: team.name, released_specs: store.approvedSpecs(t).length, up_to_date: done, work,
+    team: team.name, released_specs: specs.length, up_to_date: done, work,
     ...(others.length ? { claimed_by_others: others } : {}),
     ...(held.length ? { on_hold: held } : {}),
     ...(waiting.length ? { waiting_on_specs: waiting } : {}),
@@ -237,9 +244,9 @@ const sections = (md) => {
 export async function specChanges(team, id, from, to) {
   const spec = store.getItem(team.id, id);
   if (!spec || spec.kind !== 'spec' || spec.version < 1) throw new ApiError(`No released spec "${id}".`, 404);
-  const latest = latestReports(team.id)[id];
+  const latest = sql('SELECT spec_version FROM reports WHERE team_id=? AND spec_id=? ORDER BY created_at DESC, rowid DESC LIMIT 1').get(team.id, id);
   const b = to === undefined || to === null ? spec.version : Number(to);
-  const a = from === undefined || from === null ? (latest && latest.specVersion < b ? latest.specVersion : b - 1) : Number(from);
+  const a = from === undefined || from === null ? (latest && latest.spec_version < b ? latest.spec_version : b - 1) : Number(from);
   if (!Number.isInteger(b) || b < 1 || b > spec.version) throw new ApiError(`to must be a released version of ${id} (1–${spec.version}).`);
   if (!Number.isInteger(a) || a < 0 || a >= b) throw new ApiError(`from must be a version before v${b}.`);
   if (a === 0) return { id, from: null, to: b, note: `v${b} is the first version you see – read it completely with get_spec.`, sections_changed: [], diff: '' };

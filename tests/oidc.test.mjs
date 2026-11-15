@@ -1,8 +1,10 @@
 // OIDC sign-in against an in-process mock identity provider (auth code + PKCE).
+//   node --test tests/oidc.test.mjs
 import assert from 'node:assert/strict';
+import { before, after, describe } from 'node:test';
 import http from 'node:http';
 import { createHash, randomUUID, generateKeyPairSync, createSign } from 'node:crypto';
-import { startServer, Client, freePort } from './helpers.mjs';
+import { startServer, Client, freePort, chain } from './helpers.mjs';
 
 // ---- mock IdP
 const idpPort = await freePort();
@@ -44,7 +46,6 @@ const idp = http.createServer((req, res) => {
 });
 await new Promise((r) => idp.listen(idpPort, r));
 
-let n = 0; const ok = (m) => console.log(`ok ${++n} - ${m}`);
 const oidcEnv = { OIDC_ISSUER: ISSUER, OIDC_CLIENT_ID: 'specs', OIDC_CLIENT_SECRET: 'idp-secret', OIDC_NAME: 'Mock SSO' };
 
 async function ssoLogin(base, next = '/', { dropStateCookie = false } = {}) {
@@ -59,85 +60,125 @@ async function ssoLogin(base, next = '/', { dropStateCookie = false } = {}) {
   return { c, location: r.headers.get('location') };
 }
 
-let srv = await startServer(oidcEnv);
-try {
-  const cfg = await (await fetch(`${srv.base}/api/auth/config`)).json();
-  assert.equal(cfg.oidc.name, 'Mock SSO'); ok('app advertises the SSO provider');
+/** One server with the given environment for the surrounding describe block. */
+function oidcServer(env) {
+  const s = {};
+  before(async () => { s.srv = await startServer(env); });
+  after(() => s.srv?.kill());
+  return s;
+}
 
-  let { c, location } = await ssoLogin(srv.base);
-  assert.match(location, /login_error=.*No%20account|login_error=No/); assert.equal((await c.get('/api/me')).status, 401); ok('unknown identity is refused (no auto-create)');
+describe('OIDC sign-in', () => {
+  after(() => idp.close());
 
-  const admin = new Client(srv.base); await admin.login('admin@localhost', 'adminpass1');
-  assert.equal((await admin.post('/api/users', { email: 'SSO@example.com', name: 'Invited', teamId: admin.tid, role: 'editor' })).status, 200); ok('admin invites a user by e-mail (no password)');
-  ({ c, location } = await ssoLogin(srv.base, '/oauth/consent?request=abc'));
-  assert.equal(location, '/oauth/consent?request=abc'); ok('invited user signs in via SSO and is redirected to `next`');
-  const me = (await c.get('/api/me')).data.me;
-  assert.equal(me.teams[0].role, 'editor'); assert.equal(me.email, 'sso@example.com'); ok('SSO session carries the role assigned in the team');
-  for (const bad of ['https://evil.example/', '//evil.example', '/\\evil.example', '/\t/evil.example', 'javascript:alert(1)']) {
-    ({ location } = await ssoLogin(srv.base, bad));
-    assert.equal(location, '/', bad);
-  }
-  ({ location } = await ssoLogin(srv.base, '/#/invite/abc'));
-  assert.equal(location, '/#/invite/abc'); ok('open redirect via next= is blocked (also with backslashes and control characters)');
+  describe('invited users only', () => {
+    const s = oidcServer(oidcEnv);
+    const step = chain();
+    let srv, admin, c, location;
+    before(() => { ({ srv } = s); });
+    step('app advertises the SSO provider', async () => {
+      const cfg = await (await fetch(`${srv.base}/api/auth/config`)).json();
+      assert.equal(cfg.oidc.name, 'Mock SSO');
+    });
+    step('unknown identity is refused (no auto-create)', async () => {
+      ({ c, location } = await ssoLogin(srv.base));
+      assert.match(location, /login_error=.*No%20account|login_error=No/); assert.equal((await c.get('/api/me')).status, 401);
+    });
+    step('admin invites a user by e-mail (no password)', async () => {
+      admin = new Client(srv.base); await admin.login('admin@localhost', 'adminpass1');
+      assert.equal((await admin.post('/api/users', { email: 'SSO@example.com', name: 'Invited', teamId: admin.tid, role: 'editor' })).status, 200);
+    });
+    step('invited user signs in via SSO and is redirected to `next`', async () => {
+      ({ c, location } = await ssoLogin(srv.base, '/oauth/consent?request=abc'));
+      assert.equal(location, '/oauth/consent?request=abc');
+    });
+    step('SSO session carries the role assigned in the team', async () => {
+      const me = (await c.get('/api/me')).data.me;
+      assert.equal(me.teams[0].role, 'editor'); assert.equal(me.email, 'sso@example.com');
+    });
+    step('open redirect via next= is blocked (also with backslashes and control characters)', async () => {
+      for (const bad of ['https://evil.example/', '//evil.example', '/\\evil.example', '/\t/evil.example', 'javascript:alert(1)']) {
+        ({ location } = await ssoLogin(srv.base, bad));
+        assert.equal(location, '/', bad);
+      }
+      ({ location } = await ssoLogin(srv.base, '/#/invite/abc'));
+      assert.equal(location, '/#/invite/abc');
+    });
+    // login CSRF: the callback must come from the browser that started the login
+    step('a callback without the state cookie is refused', async () => {
+      ({ c, location } = await ssoLogin(srv.base, '/', { dropStateCookie: true }));
+      assert.match(location, /login_error=.*expired/); assert.equal((await c.get('/api/me')).status, 401);
+    });
+    step('ID tokens with a wrong audience, issuer, expiry or nonce are refused', async () => {
+      try {
+        for (const [name, tweak] of [['wrong audience', (x) => ({ ...x, aud: 'someone-else' })], ['wrong issuer', (x) => ({ ...x, iss: 'https://evil.example' })], ['expired', (x) => ({ ...x, exp: 1000 })], ['wrong nonce', (x) => ({ ...x, nonce: 'forged' })]]) {
+          tweakClaims = tweak;
+          ({ c, location } = await ssoLogin(srv.base));
+          assert.match(location, /login_error=Sign-in%20failed/, name); assert.equal((await c.get('/api/me')).status, 401);
+        }
+      } finally { tweakClaims = (x) => x; }
+    });
+    // a local account is never handed over by an e-mail match: admin and password accounts stay as they are
+    step('an existing admin / password account is not taken over through SSO', async () => {
+      nextIdentity = { sub: 'u-evil', email: 'admin@localhost', name: 'Not the admin', email_verified: true };
+      ({ c, location } = await ssoLogin(srv.base));
+      assert.match(location, /login_error=.*already%20exists/); assert.equal((await c.get('/api/me')).status, 401);
+      nextIdentity = { sub: 'u-1', email: 'sso@example.com', name: 'Sso Person', email_verified: true };
+    });
+    step('unverified e-mail is refused (also when the provider does not say)', async () => {
+      nextIdentity = { sub: 'u-2', email: 'unverified@example.com', email_verified: false };
+      ({ location } = await ssoLogin(srv.base));
+      assert.match(location, /not%20verified/);
+      nextIdentity = { sub: 'u-2', email: 'unverified@example.com' }; // the claim is missing altogether
+      ({ location } = await ssoLogin(srv.base));
+      assert.match(location, /not%20verified/);
+    });
+    step('SSO-only account has no usable password', async () => { assert.equal((await new Client(srv.base).post('/api/auth/login', { email: 'sso@example.com', password: 'anything-123' })).status, 401); });
 
-  // login CSRF: the callback must come from the browser that started the login
-  ({ c, location } = await ssoLogin(srv.base, '/', { dropStateCookie: true }));
-  assert.match(location, /login_error=.*expired/); assert.equal((await c.get('/api/me')).status, 401); ok('a callback without the state cookie is refused');
+    // without SMTP_URL nothing is sent: admins get the link, the test mail is refused, invitations are rate limited
+    step('without a mail server the invitation link is returned for copying', async () => {
+      const noMail = await admin.post(`/api/teams/${admin.tid}/invites`, { email: 'nomail@example.com', role: 'viewer' });
+      assert.equal(noMail.data.mailEnabled, false); assert.equal(noMail.data.emailed, false); assert.ok(noMail.data.link);
+    });
+    step('test e-mail is refused when no mail server is configured', async () => { assert.equal((await admin.post('/api/admin/mail/test')).status, 400); });
+    step('invitations are rate limited per team', async () => {
+      const bulkTeam = (await admin.post('/api/teams', { name: 'Bulk' })).data.team;
+      let limited = 0; for (let i = 0; i < 32; i++) { const r = await admin.post(`/api/teams/${bulkTeam.id}/invites`, { email: `bulk${i}@example.com`, role: 'viewer' }); if (r.status === 429) limited++; }
+      assert.ok(limited >= 1);
+    });
+    // someone invited by a team admin who has no account yet is created on first SSO login and joins the team
+    step('SSO login accepts a pending invitation and creates the account', async () => {
+      assert.equal((await admin.post(`/api/teams/${admin.tid}/invites`, { email: 'invited-sso@example.com', role: 'approver' })).status, 200);
+      nextIdentity = { sub: 'u-9', email: 'invited-sso@example.com', name: 'Invited Sso', email_verified: true };
+      ({ c } = await ssoLogin(srv.base));
+      const inviteMe = (await c.get('/api/me')).data.me;
+      assert.equal(inviteMe.teams[0].role, 'approver'); assert.equal(inviteMe.invites.length, 0);
+    });
+  });
 
-  // ID token checks
-  for (const [name, tweak] of [['wrong audience', (x) => ({ ...x, aud: 'someone-else' })], ['wrong issuer', (x) => ({ ...x, iss: 'https://evil.example' })], ['expired', (x) => ({ ...x, exp: 1000 })], ['wrong nonce', (x) => ({ ...x, nonce: 'forged' })]]) {
-    tweakClaims = tweak;
-    ({ c, location } = await ssoLogin(srv.base));
-    assert.match(location, /login_error=Sign-in%20failed/, name); assert.equal((await c.get('/api/me')).status, 401);
-  }
-  tweakClaims = (x) => x; ok('ID tokens with a wrong audience, issuer, expiry or nonce are refused');
+  describe('OIDC_AUTO_CREATE', () => {
+    const s = oidcServer({ ...oidcEnv, OIDC_AUTO_CREATE: '1', OIDC_DEFAULT_ROLE: 'viewer' });
+    const step = chain();
+    step('auto-create provisions new users into the default team with the default role', async () => {
+      nextIdentity = { sub: 'u-3', email: 'newbie@example.com', name: 'Newbie', email_verified: true };
+      const { c } = await ssoLogin(s.srv.base);
+      assert.equal((await c.get('/api/me')).data.me.teams[0].role, 'viewer');
+    });
+    step('e-mail claims that are only in the ID token are used', async () => {
+      nextIdentity = { sub: 'u-5' }; tweakClaims = (x) => ({ ...x, email: 'idtoken@example.com', email_verified: true }); // e-mail claims only in the ID token
+      const viaToken = await ssoLogin(s.srv.base).finally(() => { tweakClaims = (x) => x; });
+      assert.equal((await viaToken.c.get('/api/me')).data.me.email, 'idtoken@example.com');
+    });
+  });
 
-  // a local account is never handed over by an e-mail match: admin and password accounts stay as they are
-  nextIdentity = { sub: 'u-evil', email: 'admin@localhost', name: 'Not the admin', email_verified: true };
-  ({ c, location } = await ssoLogin(srv.base));
-  assert.match(location, /login_error=.*already%20exists/); assert.equal((await c.get('/api/me')).status, 401); ok('an existing admin / password account is not taken over through SSO');
-  nextIdentity = { sub: 'u-1', email: 'sso@example.com', name: 'Sso Person', email_verified: true };
-
-  nextIdentity = { sub: 'u-2', email: 'unverified@example.com', email_verified: false };
-  ({ location } = await ssoLogin(srv.base));
-  assert.match(location, /not%20verified/);
-  nextIdentity = { sub: 'u-2', email: 'unverified@example.com' }; // the claim is missing altogether
-  ({ location } = await ssoLogin(srv.base));
-  assert.match(location, /not%20verified/); ok('unverified e-mail is refused (also when the provider does not say)');
-
-  assert.equal((await new Client(srv.base).post('/api/auth/login', { email: 'sso@example.com', password: 'anything-123' })).status, 401); ok('SSO-only account has no usable password');
-
-  // without SMTP_URL nothing is sent: admins get the link, the test mail is refused, invitations are rate limited
-  const noMail = await admin.post(`/api/teams/${admin.tid}/invites`, { email: 'nomail@example.com', role: 'viewer' });
-  assert.equal(noMail.data.mailEnabled, false); assert.equal(noMail.data.emailed, false); assert.ok(noMail.data.link); ok('without a mail server the invitation link is returned for copying');
-  assert.equal((await admin.post('/api/admin/mail/test')).status, 400); ok('test e-mail is refused when no mail server is configured');
-  const bulkTeam = (await admin.post('/api/teams', { name: 'Bulk' })).data.team;
-  let limited = 0; for (let i = 0; i < 32; i++) { const r = await admin.post(`/api/teams/${bulkTeam.id}/invites`, { email: `bulk${i}@example.com`, role: 'viewer' }); if (r.status === 429) limited++; }
-  assert.ok(limited >= 1); ok('invitations are rate limited per team');
-
-  // someone invited by a team admin who has no account yet is created on first SSO login and joins the team
-  assert.equal((await admin.post(`/api/teams/${admin.tid}/invites`, { email: 'invited-sso@example.com', role: 'approver' })).status, 200);
-  nextIdentity = { sub: 'u-9', email: 'invited-sso@example.com', name: 'Invited Sso', email_verified: true };
-  ({ c } = await ssoLogin(srv.base));
-  const inviteMe = (await c.get('/api/me')).data.me;
-  assert.equal(inviteMe.teams[0].role, 'approver'); assert.equal(inviteMe.invites.length, 0); ok('SSO login accepts a pending invitation and creates the account');
-} finally { srv.stop(); }
-
-nextIdentity = { sub: 'u-3', email: 'newbie@example.com', name: 'Newbie', email_verified: true };
-srv = await startServer({ ...oidcEnv, OIDC_AUTO_CREATE: '1', OIDC_DEFAULT_ROLE: 'viewer' });
-try {
-  const { c } = await ssoLogin(srv.base);
-  assert.equal((await c.get('/api/me')).data.me.teams[0].role, 'viewer'); ok('auto-create provisions new users into the default team with the default role');
-  nextIdentity = { sub: 'u-5' }; tweakClaims = (x) => ({ ...x, email: 'idtoken@example.com', email_verified: true }); // e-mail claims only in the ID token
-  const viaToken = await ssoLogin(srv.base); tweakClaims = (x) => x;
-  assert.equal((await viaToken.c.get('/api/me')).data.me.email, 'idtoken@example.com'); ok('e-mail claims that are only in the ID token are used');
-} finally { srv.stop(); }
-
-// providers that never send email_verified can be trusted explicitly
-nextIdentity = { sub: 'u-4', email: 'noclaim@example.com', name: 'No Claim' };
-srv = await startServer({ ...oidcEnv, OIDC_AUTO_CREATE: '1', OIDC_TRUST_UNVERIFIED_EMAIL: '1' });
-try {
-  const { c } = await ssoLogin(srv.base);
-  assert.equal((await c.get('/api/me')).status, 200); ok('OIDC_TRUST_UNVERIFIED_EMAIL=1 accepts providers without the email_verified claim');
-  console.log(`\n${n} checks passed`);
-} finally { srv.stop(); idp.close(); }
+  // providers that never send email_verified can be trusted explicitly
+  describe('OIDC_TRUST_UNVERIFIED_EMAIL', () => {
+    const s = oidcServer({ ...oidcEnv, OIDC_AUTO_CREATE: '1', OIDC_TRUST_UNVERIFIED_EMAIL: '1' });
+    const step = chain();
+    step('OIDC_TRUST_UNVERIFIED_EMAIL=1 accepts providers without the email_verified claim', async () => {
+      nextIdentity = { sub: 'u-4', email: 'noclaim@example.com', name: 'No Claim' };
+      const { c } = await ssoLogin(s.srv.base);
+      assert.equal((await c.get('/api/me')).status, 200);
+    });
+  });
+});

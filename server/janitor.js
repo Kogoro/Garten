@@ -1,6 +1,8 @@
-// Hourly cleanup: expired sessions, OAuth requests/codes/tokens, old invitations, unused dynamic clients, old audit entries.
+// Hourly cleanup: expired sessions, OAuth requests/codes/tokens, old invitations, unused dynamic clients, old audit entries,
+// old closed feedback (see pruneFeedback for what is kept).
 import { db } from './db.js';
 import { pruneAudit } from './audit.js';
+import { pruneFeedback } from './feedback.js';
 
 export function sweepExpired() {
   const t = Math.floor(Date.now() / 1000);
@@ -16,6 +18,7 @@ export function sweepExpired() {
   db.prepare('DELETE FROM claims WHERE expires_at < ?').run(new Date(Date.now() - 86400_000).toISOString()); // run out a day ago
   db.prepare('DELETE FROM agent_activity WHERE last_at < ?').run(new Date(Date.now() - 90 * 86400_000).toISOString());
   pruneAudit();
+  pruneFeedback();
 }
 
 export function startJanitor() {

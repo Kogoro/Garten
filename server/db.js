@@ -12,6 +12,17 @@ for (const f of [DB_FILE, `${DB_FILE}-wal`, `${DB_FILE}-shm`]) { try { chmodSync
   const old = hasUsers && db.prepare("SELECT 1 FROM pragma_table_info('users') WHERE name='role'").get();
   if (old) throw new Error('This data directory was created by Specs v0.2 (no teams). v0.3 changes the schema – start with a fresh volume (docker compose down -v) or export your repo first.');
 }
+// both are no-ops inside a transaction, so they come before the migrations
+db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
+
+const statements = new Map();
+/** A prepared statement, compiled once per SQL text and then reused. Only for fixed SQL texts – the cache is never pruned. */
+export const sql = (text) => {
+  let s = statements.get(text);
+  if (!s) statements.set(text, (s = db.prepare(text)));
+  return s;
+};
+
 const ITEMS_SQL = (name) => `CREATE TABLE IF NOT EXISTS ${name} (
     team_id TEXT NOT NULL,
     id TEXT NOT NULL,
@@ -36,37 +47,35 @@ const ITEMS_SQL = (name) => `CREATE TABLE IF NOT EXISTS ${name} (
     updated_at TEXT NOT NULL,
     PRIMARY KEY (team_id, id)
   );`;
+const hasTable = (table) => !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table);
+const hasCol = (table, col) => !!db.prepare(`SELECT 1 FROM pragma_table_info('${table}') WHERE name=?`).get(col);
+const addColumn = (table, col, ddl) => { if (!hasCol(table, col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${ddl}`); };
 
-// ---- migration v0.3 -> v0.4 (folders as items, pinned documents, team settings)
-{
-  const hasItems = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='items'").get();
-  const hasPinned = hasItems && db.prepare("SELECT 1 FROM pragma_table_info('items') WHERE name='pinned'").get();
-  if (hasItems && !hasPinned) {
-    db.exec('BEGIN');
-    try {
+/**
+ * The schema up to 0.11.0. Databases of those versions record no schema version, so every step here checks what is
+ * there before it changes anything: it brings a database of any earlier state (v0.3 onwards) to the 0.11.0 schema.
+ * Do not change it – new schema changes are new entries in MIGRATIONS.
+ */
+function baseline() {
+  // ---- v0.3 -> v0.4 (folders as items, pinned documents, team settings)
+  if (hasTable('items') && !hasCol('items', 'pinned')) {
     db.exec('ALTER TABLE items RENAME TO items_v3');
     db.exec(ITEMS_SQL('items'));
     db.exec(`INSERT INTO items (team_id,id,deleted,kind,title,body,links,rev,seq,status,version,released_rev,released_at,released_by,updated_by,fetched_at,created_at,updated_at)
              SELECT team_id,id,deleted,kind,title,body,links,rev,seq,status,version,released_rev,released_at,released_by,updated_by,fetched_at,created_at,updated_at FROM items_v3`);
     db.exec('DROP TABLE items_v3');
     db.exec('CREATE INDEX IF NOT EXISTS items_seq ON items(team_id, seq)');
-    db.exec('COMMIT');
-    } catch (e) { db.exec('ROLLBACK'); throw e; }
   }
-  if (hasItems && !db.prepare("SELECT 1 FROM pragma_table_info('items') WHERE name='updated_via'").get()) db.exec('ALTER TABLE items ADD COLUMN updated_via TEXT');
-  if (hasItems && !db.prepare("SELECT 1 FROM pragma_table_info('items') WHERE name='spec_type'").get()) {
-    db.exec("ALTER TABLE items ADD COLUMN spec_type TEXT NOT NULL DEFAULT 'feature'");
+  if (hasTable('items')) {
+    addColumn('items', 'updated_via', 'TEXT');
+    addColumn('items', 'spec_type', "TEXT NOT NULL DEFAULT 'feature'");
   }
-  const hasTeams = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='teams'").get();
-  const hasCol = (table, col) => db.prepare(`SELECT 1 FROM pragma_table_info('${table}') WHERE name=?`).get(col);
-  if (hasTeams && !hasCol('teams', 'foundation_auto')) db.exec('ALTER TABLE teams ADD COLUMN foundation_auto INTEGER NOT NULL DEFAULT 1');
-  if (hasTeams && !hasCol('teams', 'created_by')) db.exec('ALTER TABLE teams ADD COLUMN created_by TEXT');
-}
+  if (hasTable('teams')) {
+    addColumn('teams', 'foundation_auto', 'INTEGER NOT NULL DEFAULT 1');
+    addColumn('teams', 'created_by', 'TEXT');
+  }
 
-db.exec(`
-  PRAGMA journal_mode = WAL;
-  PRAGMA foreign_keys = ON;
-
+  db.exec(`
   CREATE TABLE IF NOT EXISTS teams (
     id TEXT PRIMARY KEY,
     key TEXT NOT NULL UNIQUE COLLATE NOCASE,
@@ -178,7 +187,7 @@ db.exec(`
     updated_at TEXT NOT NULL,
     updated_by TEXT
   );
-  -- team-defined spec types (the built-in ones live in public/spectypes.js)
+  -- team-defined spec types (the built-in ones live in shared/spectypes.js)
   CREATE TABLE IF NOT EXISTS spec_types (
     team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
     key TEXT NOT NULL,
@@ -220,20 +229,18 @@ db.exec(`
     expires_at INTEGER NOT NULL,
     accepted_at TEXT
   );
-`);
+  `);
 
+  // v0.8 -> v0.9: spec types can carry a form schema
+  addColumn('spec_types', 'form', 'TEXT');
+  addColumn('spec_types', 'view', "TEXT NOT NULL DEFAULT 'editor'");
 
-// v0.8 -> v0.9: spec types can carry a form schema
-for (const [col, ddl] of [['form', 'ALTER TABLE spec_types ADD COLUMN form TEXT'], ['view', "ALTER TABLE spec_types ADD COLUMN view TEXT NOT NULL DEFAULT 'editor'"]]) {
-  if (!db.prepare("SELECT 1 FROM pragma_table_info('spec_types') WHERE name=?").get(col)) db.exec(ddl);
-}
+  // v0.9: feedback author + team switch for feedback e-mails
+  addColumn('feedback', 'author_id', 'TEXT');
+  addColumn('teams', 'feedback_mail', 'INTEGER NOT NULL DEFAULT 1');
 
-// v0.9: feedback author + team switch for feedback e-mails
-if (!db.prepare("SELECT 1 FROM pragma_table_info('feedback') WHERE name='author_id'").get()) db.exec('ALTER TABLE feedback ADD COLUMN author_id TEXT');
-if (!db.prepare("SELECT 1 FROM pragma_table_info('teams') WHERE name='feedback_mail'").get()) db.exec('ALTER TABLE teams ADD COLUMN feedback_mail INTEGER NOT NULL DEFAULT 1');
-
-// v0.10: the gardener loop – implementation reports, decision requests (stored as feedback) and a webhook per team
-db.exec(`
+  // v0.10: the gardener loop – implementation reports, decision requests (stored as feedback) and a webhook per team
+  db.exec(`
   CREATE TABLE IF NOT EXISTS reports (
     id TEXT PRIMARY KEY,
     team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
@@ -250,36 +257,35 @@ db.exec(`
     created_at TEXT NOT NULL
   );
   CREATE INDEX IF NOT EXISTS reports_spec ON reports(team_id, spec_id, created_at);
-`);
-const addColumn = (table, col, ddl) => { if (!db.prepare(`SELECT 1 FROM pragma_table_info('${table}') WHERE name=?`).get(col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${ddl}`); };
-addColumn('feedback', 'blocking', 'INTEGER NOT NULL DEFAULT 0'); // decision requests: the agent waits for the answer
-addColumn('feedback', 'options', 'TEXT');                         // decision requests: JSON [{label, detail}]
-addColumn('feedback', 'recommended', 'INTEGER');                  // index into options
-addColumn('feedback', 'answer', 'INTEGER');                       // index of the chosen option, -1 = answered in the reply only
-addColumn('teams', 'hook_url', 'TEXT');
-addColumn('teams', 'hook_secret', 'TEXT');                        // encrypted bearer token
-addColumn('teams', 'hook_headers', 'TEXT');                       // encrypted "Name: value" lines
-addColumn('teams', 'hook_events', "TEXT NOT NULL DEFAULT 'release,answer'");
-addColumn('teams', 'hook_format', "TEXT NOT NULL DEFAULT 'full'"); // full | text (only {"text": …})
-addColumn('teams', 'hook_last_at', 'TEXT');
-addColumn('teams', 'hook_last_ok', 'INTEGER');
-addColumn('teams', 'hook_last_info', 'TEXT');
-addColumn('teams', 'garden_rev', 'INTEGER NOT NULL DEFAULT 0');   // bumped whenever feedback, decisions or reports change
+  `);
+  addColumn('feedback', 'blocking', 'INTEGER NOT NULL DEFAULT 0'); // decision requests: the agent waits for the answer
+  addColumn('feedback', 'options', 'TEXT');                         // decision requests: JSON [{label, detail}]
+  addColumn('feedback', 'recommended', 'INTEGER');                  // index into options
+  addColumn('feedback', 'answer', 'INTEGER');                       // index of the chosen option, -1 = answered in the reply only
+  addColumn('teams', 'hook_url', 'TEXT');
+  addColumn('teams', 'hook_secret', 'TEXT');                        // encrypted bearer token
+  addColumn('teams', 'hook_headers', 'TEXT');                       // encrypted "Name: value" lines
+  addColumn('teams', 'hook_events', "TEXT NOT NULL DEFAULT 'release,answer'");
+  addColumn('teams', 'hook_format', "TEXT NOT NULL DEFAULT 'full'"); // full | text (only {"text": …})
+  addColumn('teams', 'hook_last_at', 'TEXT');
+  addColumn('teams', 'hook_last_ok', 'INTEGER');
+  addColumn('teams', 'hook_last_info', 'TEXT');
+  addColumn('teams', 'garden_rev', 'INTEGER NOT NULL DEFAULT 0');   // bumped whenever feedback, decisions or reports change
 
-// Events for a team's webhook wait here until they were delivered, so a restart or a receiver that is briefly down loses nothing.
-db.exec(`CREATE TABLE IF NOT EXISTS hook_outbox (
-  team_id TEXT NOT NULL,
-  kind TEXT NOT NULL,
-  key TEXT NOT NULL,
-  entry TEXT NOT NULL,
-  created_at TEXT NOT NULL,
-  PRIMARY KEY (team_id, kind, key)
-)`);
-addColumn('teams', 'agent_paused', 'INTEGER NOT NULL DEFAULT 0');   // a person paused the agents: empty work list, no webhook calls
+  // Events for a team's webhook wait here until they were delivered, so a restart or a receiver that is briefly down loses nothing.
+  db.exec(`CREATE TABLE IF NOT EXISTS hook_outbox (
+    team_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    key TEXT NOT NULL,
+    entry TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (team_id, kind, key)
+  )`);
+  addColumn('teams', 'agent_paused', 'INTEGER NOT NULL DEFAULT 0');   // a person paused the agents: empty work list, no webhook calls
 
-// v0.12: re-runnable evidence. A check says how a claim of an agent can be verified again (a test, a CI job, a metric, a command);
-// every run of it is kept. Checks belong to a spec and survive new versions, so they can be run after every change.
-db.exec(`
+  // 0.11: re-runnable evidence. A check says how a claim of an agent can be verified again (a test, a CI job, a metric, a command);
+  // its runs are kept (the newest 50). Checks belong to a spec and survive new versions, so they can be run after every change.
+  db.exec(`
   CREATE TABLE IF NOT EXISTS checks (
     id TEXT PRIMARY KEY,
     team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
@@ -313,71 +319,104 @@ db.exec(`
     at TEXT NOT NULL
   );
   CREATE INDEX IF NOT EXISTS check_runs_check ON check_runs(check_id, at);
-`);
+  `);
 
-// v0.12 (security review): sessions record their last use, refresh tokens remember their predecessor (reuse detection), audit log
-addColumn('sessions', 'last_seen_at', 'INTEGER');
-addColumn('oauth_tokens', 'prev_refresh_hash', 'TEXT');
-db.exec(`CREATE TABLE IF NOT EXISTS audit_log (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  at TEXT NOT NULL,
-  actor_id TEXT,
-  actor TEXT,
-  team_id TEXT,
-  action TEXT NOT NULL,
-  target TEXT,
-  ip TEXT,
-  detail TEXT
-);
-CREATE INDEX IF NOT EXISTS audit_at ON audit_log(at);`);
+  // 0.11 (security review): sessions record their last use, refresh tokens remember their predecessor (reuse detection), audit log
+  addColumn('sessions', 'last_seen_at', 'INTEGER');
+  addColumn('oauth_tokens', 'prev_refresh_hash', 'TEXT');
+  db.exec(`CREATE TABLE IF NOT EXISTS audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    at TEXT NOT NULL,
+    actor_id TEXT,
+    actor TEXT,
+    team_id TEXT,
+    action TEXT NOT NULL,
+    target TEXT,
+    ip TEXT,
+    detail TEXT
+  );
+  CREATE INDEX IF NOT EXISTS audit_at ON audit_log(at);`);
+
+  // 0.11: who works on what. agent_activity: the last MCP call of every agent (one row per user, kind of access and client name);
+  // claims: an agent says it is building a spec – a lease it renews while it works, so two runs do not build the same spec
+  // and a crashed agent does not look busy forever.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_activity (
+      team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+      agent TEXT NOT NULL,                       -- "<user id>|<pat|oauth>|<client or token name>"
+      name TEXT NOT NULL,                        -- what people see, e.g. "token: Builder agent"
+      user_name TEXT,
+      last_at TEXT NOT NULL,
+      last_tool TEXT,
+      calls INTEGER NOT NULL DEFAULT 0,
+      token_expires_at INTEGER,                  -- personal tokens only (seconds); OAuth tokens are refreshed
+      PRIMARY KEY (team_id, agent)
+    );
+    CREATE TABLE IF NOT EXISTS claims (
+      team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+      spec_id TEXT NOT NULL,
+      agent TEXT NOT NULL,
+      name TEXT NOT NULL,
+      note TEXT NOT NULL DEFAULT '',
+      claimed_at TEXT NOT NULL,
+      heartbeat_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      PRIMARY KEY (team_id, spec_id)
+    );
+  `);
+  addColumn('checks', 'stale_notified', 'TEXT');   // id of the last run the agent trigger was told is stale (once per run)
+
+  // 0.11: only results reported by CI prove a check (an agent's own "pass" then leaves it unverified)
+  addColumn('teams', 'ci_required', 'INTEGER NOT NULL DEFAULT 0');
+
+  // 0.11: the guardrails a report was built against ({ "G1": "text" }); NULL for reports made before this was recorded
+  addColumn('reports', 'guardrails', 'TEXT');
+
+  // 0.11: people steer the agents per spec: priority, hold (do not start or continue), dependencies (build after these specs)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS spec_steering (
+      team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+      spec_id TEXT NOT NULL,
+      priority TEXT NOT NULL DEFAULT 'normal',   -- high | normal | low
+      hold INTEGER NOT NULL DEFAULT 0,
+      hold_note TEXT NOT NULL DEFAULT '',
+      depends TEXT NOT NULL DEFAULT '[]',        -- JSON list of spec ids that must be implemented first
+      updated_by TEXT,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (team_id, spec_id)
+    );
+  `);
+}
+
+/** How many implementation reports are kept per spec (the newest; listReports and the History view show at most this many). */
+export const REPORTS_KEPT = 50;
+
+/**
+ * Schema migrations, in order. PRAGMA user_version holds how many of them a database has run; each runs once, in its own
+ * transaction, together with the update of that number. To change the schema, append a function – never edit one that shipped.
+ */
+const MIGRATIONS = [
+  /* 1 */ baseline,
+  /* 2 */ () => {
+    // fetched_at no longer moves an item in the sync sequence: clients ask for the changes since the newest fetched_at they know
+    db.exec('CREATE INDEX IF NOT EXISTS items_fetched ON items(team_id, fetched_at)');
+    // the report history is bounded per spec from now on; trim what grew before (reports_spec serves "newest per spec")
+    db.prepare(`DELETE FROM reports WHERE rowid IN (SELECT rowid FROM (
+      SELECT rowid, ROW_NUMBER() OVER (PARTITION BY team_id, spec_id ORDER BY created_at DESC, rowid DESC) AS n FROM reports) WHERE n > ?)`).run(REPORTS_KEPT);
+  },
+];
+export const SCHEMA_VERSION = MIGRATIONS.length;
+
+{
+  const have = db.prepare('PRAGMA user_version').get().user_version;
+  if (have > SCHEMA_VERSION) throw new Error(`This data directory was written by a newer version of Specs (schema ${have}, this server knows ${SCHEMA_VERSION}). Update the server, or restore a backup.`);
+  for (let v = have; v < SCHEMA_VERSION; v++) {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      MIGRATIONS[v]();
+      db.exec(`PRAGMA user_version = ${v + 1}`);
+      db.exec('COMMIT');
+    } catch (e) { db.exec('ROLLBACK'); throw new Error(`database migration ${v + 1} failed: ${e.message}`, { cause: e }); }
+  }
+}
 for (const f of [`${DB_FILE}-wal`, `${DB_FILE}-shm`]) { try { chmodSync(f, 0o600); } catch { /* no WAL file */ } }
-
-// v0.13: who works on what. agent_activity: the last MCP call of every agent (one row per user, kind of access and client name);
-// claims: an agent says it is building a spec – a lease it renews while it works, so two runs do not build the same spec
-// and a crashed agent does not look busy forever.
-db.exec(`
-  CREATE TABLE IF NOT EXISTS agent_activity (
-    team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
-    agent TEXT NOT NULL,                       -- "<user id>|<pat|oauth>|<client or token name>"
-    name TEXT NOT NULL,                        -- what people see, e.g. "token: Builder agent"
-    user_name TEXT,
-    last_at TEXT NOT NULL,
-    last_tool TEXT,
-    calls INTEGER NOT NULL DEFAULT 0,
-    token_expires_at INTEGER,                  -- personal tokens only (seconds); OAuth tokens are refreshed
-    PRIMARY KEY (team_id, agent)
-  );
-  CREATE TABLE IF NOT EXISTS claims (
-    team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
-    spec_id TEXT NOT NULL,
-    agent TEXT NOT NULL,
-    name TEXT NOT NULL,
-    note TEXT NOT NULL DEFAULT '',
-    claimed_at TEXT NOT NULL,
-    heartbeat_at TEXT NOT NULL,
-    expires_at TEXT NOT NULL,
-    PRIMARY KEY (team_id, spec_id)
-  );
-`);
-addColumn('checks', 'stale_notified', 'TEXT');   // id of the last run the agent trigger was told is stale (once per run)
-
-// v0.13: only results reported by CI prove a check (an agent's own "pass" then leaves it unverified)
-addColumn('teams', 'ci_required', 'INTEGER NOT NULL DEFAULT 0');
-
-// v0.13: the guardrails a report was built against ({ "G1": "text" }); NULL for reports made before this was recorded
-addColumn('reports', 'guardrails', 'TEXT');
-
-// v0.13: people steer the agents per spec: priority, hold (do not start or continue), dependencies (build after these specs)
-db.exec(`
-  CREATE TABLE IF NOT EXISTS spec_steering (
-    team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
-    spec_id TEXT NOT NULL,
-    priority TEXT NOT NULL DEFAULT 'normal',   -- high | normal | low
-    hold INTEGER NOT NULL DEFAULT 0,
-    hold_note TEXT NOT NULL DEFAULT '',
-    depends TEXT NOT NULL DEFAULT '[]',        -- JSON list of spec ids that must be implemented first
-    updated_by TEXT,
-    updated_at TEXT NOT NULL,
-    PRIMARY KEY (team_id, spec_id)
-  );
-`);

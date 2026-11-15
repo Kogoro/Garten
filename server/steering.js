@@ -1,5 +1,5 @@
 // People steer what agents build next, per spec: priority, hold, and dependencies on other specs.
-import { db } from './db.js';
+import { sql } from './db.js';
 import * as store from './store.js';
 import { ApiError } from './store.js';
 import { bumpGarden } from './feedback.js';
@@ -11,7 +11,7 @@ const DEFAULT = { priority: 'normal', hold: false, depends: [] };
 
 /** { SPEC-1: { priority, hold, holdNote, depends } } – only specs someone steered. */
 export function steeringOf(teamId) {
-  return Object.fromEntries(db.prepare('SELECT * FROM spec_steering WHERE team_id=?').all(teamId).map((r) => [r.spec_id, view(r)]));
+  return Object.fromEntries(sql('SELECT * FROM spec_steering WHERE team_id=?').all(teamId).map((r) => [r.spec_id, view(r)]));
 }
 export const steeringFor = (teamId, specId) => steeringOf(teamId)[specId] ?? DEFAULT;
 
@@ -44,7 +44,7 @@ export function setSteering(teamId, specId, { priority, hold, holdNote, depends 
       stack.push(...(all[x]?.depends ?? []));
     }
   }
-  db.prepare(`INSERT INTO spec_steering (team_id,spec_id,priority,hold,hold_note,depends,updated_by,updated_at) VALUES (?,?,?,?,?,?,?,?)
+  sql(`INSERT INTO spec_steering (team_id,spec_id,priority,hold,hold_note,depends,updated_by,updated_at) VALUES (?,?,?,?,?,?,?,?)
     ON CONFLICT (team_id, spec_id) DO UPDATE SET priority=excluded.priority, hold=excluded.hold, hold_note=excluded.hold_note, depends=excluded.depends, updated_by=excluded.updated_by, updated_at=excluded.updated_at`)
     .run(teamId, specId, p, h ? 1 : 0, note, JSON.stringify(deps), user?.name ?? null, new Date().toISOString());
   bumpGarden(teamId);

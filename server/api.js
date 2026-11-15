@@ -255,7 +255,7 @@ export function apiRouter() {
 
   // one round trip: push local changes, pull everything newer than `since`
   team.post('/sync', requireTeam('read'), wrap(async (req, res) => {
-    const { since = 0, changes = [], feedbackOps, gardenRev: have } = req.body ?? {};
+    const { since = 0, changes = [], feedbackOps, gardenRev: have, fetchedSince } = req.body ?? {};
     if (!Array.isArray(changes)) return res.status(400).json({ error: 'changes must be an array' });
     if (changes.length > 2000) return res.status(413).json({ error: 'Too many changes in one sync (2000 at most)' });
     const results = [];
@@ -293,9 +293,23 @@ export function apiRouter() {
       }
     }
     const rev = gardenRev(t);
+    const from = Number(since) || 0;
+    // what the garden view needs offline; only sent when it changed
+    const garden = async () => {
+      const checks = checksBySpec(t);
+      const reports = latestReports(t, checks);
+      return {
+        rev, feedback: gardenFeedback(t), reports, checks, agents: listAgents(t), claims: activeClaims(t), steering: steeringOf(t),
+        guardrailDrift: Object.fromEntries(Object.entries(await guardrailDrift(req.team, reports)).map(([k, v]) => [k, v.map((r) => r.id)])),
+      };
+    };
+    const gardenData = have === rev ? null : await garden();
     res.json({
-      results, fbResults, items: store.itemsSince(t, Number(since) || 0), cursor: store.maxSeq(t), me: me(req.user), project: PROJECT_NAME, mcpUrl: `${PUBLIC_URL}/mcp`, specTypes: listTypes(t), feedbackOpen: openCounts(t),
-      ...(have === rev ? {} : { garden: { rev, feedback: gardenFeedback(t), reports: latestReports(t), checks: checksBySpec(t), agents: listAgents(t), claims: activeClaims(t), steering: steeringOf(t), guardrailDrift: Object.fromEntries(Object.entries(await guardrailDrift(req.team)).map(([k, v]) => [k, v.map((r) => r.id)])) } }), // what the garden view needs offline; only sent when it changed
+      results, fbResults, items: store.itemsSince(t, from), cursor: store.maxSeq(t), me: me(req.user), project: PROJECT_NAME, mcpUrl: `${PUBLIC_URL}/mcp`, specTypes: listTypes(t), feedbackOpen: openCounts(t),
+      // Agent reads (fetched_at) travel apart from the items and from the garden: a read sends neither the item's body nor the whole
+      // garden again. Clients that do not send fetchedSince (older clients) get none; a full sync (since 0) has them in the items already.
+      ...(typeof fetchedSince === 'string' ? { fetched: from ? store.fetchedSince(t, fetchedSince) : {}, fetchedCursor: store.lastFetched(t) } : {}),
+      ...(gardenData ? { garden: gardenData } : {}),
     });
   }));
 
