@@ -19,6 +19,7 @@ export function readSource(t, source) {
 }
 
 /** key(term/alias) -> { term, definition, where } over released files and all working copies (proposals included, except their own file). */
+/** @param {any} team @param {(item: any) => boolean} [skip] */
 async function knownTerms(team, skip = () => false) {
   const known = new Map();
   const add = (d, where) => {
@@ -33,7 +34,7 @@ async function knownTerms(team, skip = () => false) {
 }
 
 /** Proposed term files of the team: key(term) -> item */
-const proposals = (t) => new Map(store.allDocs(t).filter((d) => isProposedPath(d.id)).map((d) => [key(parseTermFile(d.body)?.term ?? d.id), d]).filter(([k]) => k));
+const proposals = (t) => new Map(store.allDocs(t).filter((d) => isProposedPath(d.id)).map((d) => /** @type {[string, any]} */ ([key(parseTermFile(d.body)?.term ?? d.id), d])).filter(([k]) => k));
 
 /**
  * entries: [{ term, definition, aliases?, see_also?, avoid?, folder? }] -> proposed term files (one per term).

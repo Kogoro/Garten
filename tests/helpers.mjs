@@ -90,10 +90,12 @@ export async function makeUser(ctx, role, tag = '', team = ctx.T1) {
  */
 export function chain() {
   let failed = null;
-  return (name, fn, options = {}) => test(name, options, async (t) => {
-    if (failed) return t.skip(`needs "${failed}", which failed`);
-    try { await fn(t); } catch (e) { failed = name; throw e; }
-  });
+  return (name, fn, options = {}) => {
+    test(name, options, async (t) => {
+      if (failed) return t.skip(`needs "${failed}", which failed`);
+      try { await fn(t); } catch (e) { failed = name; throw e; }
+    });
+  };
 }
 
 // ---- MCP

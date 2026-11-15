@@ -72,7 +72,6 @@ export function GardenPage() {
   const needs = decisions.length + feedback.length;
   const blocking = decisions.filter((d) => d.blocking).length;
   const paused = !!S.team()?.agentPaused;
-  const working = rows.filter((x) => x.st.key === 'in_progress');
   const git = info?.git, gitFailed = !!git?.url && git.lastOk === false;
   async function setPaused(on: boolean) {
     try { await S.teamApi('PATCH', '', { agentPaused: on }); await S.refreshMe(); toast(on ? 'Agents paused' : 'Agents resumed'); } catch (e: any) { toast(e instanceof TypeError ? 'Pausing needs a connection to the server.' : e.message); }

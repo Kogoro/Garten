@@ -140,9 +140,19 @@ describe('the gardener loop', () => {
       const s3 = (await gEd.c.post(syncUrl, { since: 1e9, changes: [] })).data;
       assert.equal(s3.garden.reports[gid].status, 'implemented'); assert.equal(s3.garden.reports[gid].specVersion, 1);
     });
+    // an agent reading a spec reaches the devices as a time, without the spec (and its body) being sent again
+    step('agent reads travel as fetched times apart from the items; full syncs and older clients still see fetchedAt on the item', async () => {
+      assert.equal(JSON.parse((await call(ro, 'list_reports', { spec_id: gid })).text).length, 2);
+      const fs0 = (await gEd.c.post(syncUrl, { since: 0, changes: [], fetchedSince: '' })).data;
+      await call(ro, 'get_spec', { id: gid });
+      const fs1 = (await gEd.c.post(syncUrl, { since: fs0.cursor, changes: [], fetchedSince: fs0.fetchedCursor })).data;
+      assert.equal(fs1.items.some((x) => x.id === gid), false); assert.ok(fs1.fetched[gid] > fs0.fetchedCursor); assert.equal(fs1.fetchedCursor, fs1.fetched[gid]);
+      assert.deepEqual((await gEd.c.post(syncUrl, { since: fs1.cursor, changes: [], fetchedSince: fs1.fetchedCursor })).data.fetched, {});
+      assert.equal((await gEd.c.sync([], 0)).data.items.find((x) => x.id === gid).fetchedAt, fs1.fetched[gid]);
+      assert.equal((await gEd.c.sync([], fs0.cursor)).data.fetched, undefined);
+    });
     // a new release makes it work again, and shows what changed
     step('a newer release puts the spec back on the work list as changed, with the changed sections and a diff', async () => {
-      assert.equal(JSON.parse((await call(ro, 'list_reports', { spec_id: gid })).text).length, 2);
       await release('## GOAL\nExport invoices\n\n## ACCEPTANCE CRITERIA\n- [ ] CSV export\n- [ ] PDF export\n- [ ] XLSX export\n\n## OUT OF SCOPE\nPrinting\n');
       w = (await work()).work.find((x) => x.spec_id === gid); assert.equal(w.state, 'changed'); assert.equal(w.changed_from, 1); assert.equal(w.version, 2);
       const ch = JSON.parse((await call(ro, 'get_spec_changes', { id: gid })).text);

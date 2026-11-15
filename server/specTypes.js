@@ -1,4 +1,4 @@
-import { db } from './db.js';
+import { sql } from './db.js';
 import { cleanForm, formTemplate } from '../shared/specForm.js';
 import { BUILTIN_TYPES, builtinKeys, DEFAULT_TYPE } from '../shared/spectypes.js';
 
@@ -7,13 +7,14 @@ export class TypeError_ extends Error {
 }
 
 const custom = (r) => ({ key: r.key, label: r.label, short: r.label, description: r.description, template: r.template, form: r.form ? JSON.parse(r.form) : null, view: r.form ? r.view : 'editor', builtin: false });
+/** @returns {Array<{ key: string, label: string, short?: string, group?: string, description?: string, template?: string, form?: any, view?: string, builtin: boolean }>} */
 export function listTypes(teamId) {
-  const mine = db.prepare('SELECT * FROM spec_types WHERE team_id=? ORDER BY label COLLATE NOCASE').all(teamId).map(custom);
+  const mine = sql('SELECT * FROM spec_types WHERE team_id=? ORDER BY label COLLATE NOCASE').all(teamId).map(custom);
   return [...BUILTIN_TYPES.map((t) => ({ ...t, builtin: true })), ...mine];
 }
-export const isKnownType = (teamId, key) => key === DEFAULT_TYPE || builtinKeys.has(key) || !!db.prepare('SELECT 1 FROM spec_types WHERE team_id=? AND key=?').get(teamId, key);
+export const isKnownType = (teamId, key) => key === DEFAULT_TYPE || builtinKeys.has(key) || !!sql('SELECT 1 FROM spec_types WHERE team_id=? AND key=?').get(teamId, key);
 export const typeLabel = (teamId, key) => listTypes(teamId).find((t) => t.key === key)?.label ?? key;
-export const specsUsingType = (teamId, key) => db.prepare("SELECT COUNT(*) AS n FROM items WHERE team_id=? AND kind='spec' AND deleted=0 AND spec_type=?").get(teamId, key).n;
+export const specsUsingType = (teamId, key) => sql("SELECT COUNT(*) AS n FROM items WHERE team_id=? AND kind='spec' AND deleted=0 AND spec_type=?").get(teamId, key).n;
 
 function clean(b) {
   const label = String(b?.label ?? '').replace(/\s+/g, ' ').trim();
@@ -35,20 +36,20 @@ export function createType(teamId, body) {
   const key = slug(String(body?.key ?? t.label));
   if (!/^[a-z][a-z0-9-]{1,23}$/.test(key)) throw new TypeError_('Could not derive a key from that name – use letters and digits');
   if (builtinKeys.has(key) || isKnownType(teamId, key)) throw new TypeError_(`A type with the key “${key}” already exists`, 409);
-  db.prepare('INSERT INTO spec_types (team_id,key,label,description,template,form,view,created_at) VALUES (?,?,?,?,?,?,?,?)').run(teamId, key, t.label, t.description, t.template, t.form ? JSON.stringify(t.form) : null, t.view, new Date().toISOString());
+  sql('INSERT INTO spec_types (team_id,key,label,description,template,form,view,created_at) VALUES (?,?,?,?,?,?,?,?)').run(teamId, key, t.label, t.description, t.template, t.form ? JSON.stringify(t.form) : null, t.view, new Date().toISOString());
   return listTypes(teamId).find((x) => x.key === key);
 }
 export function updateType(teamId, key, body) {
   if (builtinKeys.has(key)) throw new TypeError_('Built-in types cannot be changed', 403);
-  const cur = db.prepare('SELECT * FROM spec_types WHERE team_id=? AND key=?').get(teamId, key);
+  const cur = sql('SELECT * FROM spec_types WHERE team_id=? AND key=?').get(teamId, key);
   if (!cur) throw new TypeError_('Unknown type', 404);
   const t = clean({ ...cur, form: cur.form ? JSON.parse(cur.form) : null, ...body });
-  db.prepare('UPDATE spec_types SET label=?, description=?, template=?, form=?, view=? WHERE team_id=? AND key=?').run(t.label, t.description, t.template, t.form ? JSON.stringify(t.form) : null, t.view, teamId, key);
+  sql('UPDATE spec_types SET label=?, description=?, template=?, form=?, view=? WHERE team_id=? AND key=?').run(t.label, t.description, t.template, t.form ? JSON.stringify(t.form) : null, t.view, teamId, key);
   return listTypes(teamId).find((x) => x.key === key);
 }
 export function deleteType(teamId, key) {
   if (builtinKeys.has(key)) throw new TypeError_('Built-in types cannot be deleted', 403);
   const n = specsUsingType(teamId, key);
   if (n) throw new TypeError_(`${n} spec${n === 1 ? ' uses' : 's use'} this type – change their type first`, 409);
-  return db.prepare('DELETE FROM spec_types WHERE team_id=? AND key=?').run(teamId, key).changes > 0;
+  return sql('DELETE FROM spec_types WHERE team_id=? AND key=?').run(teamId, key).changes > 0;
 }

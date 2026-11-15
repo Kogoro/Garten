@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { db } from './db.js';
+import { sql } from './db.js';
 import { ApiError, getItem, events } from './store.js';
 import { members } from './auth.js';
 import { getTeam } from './teams.js';
@@ -19,22 +19,23 @@ const view = (r) => ({
   status: r.status, author: r.author, via: r.via, createdAt: r.created_at, resolvedBy: r.resolved_by, resolvedAt: r.resolved_at, reply: r.reply,
   ...(r.kind === DECISION ? { blocking: !!r.blocking, options: json(r.options, []), recommended: r.recommended, answer: r.answer } : {}),
 });
-const row = (teamId, id) => db.prepare('SELECT * FROM feedback WHERE team_id=? AND id=?').get(teamId, id);
+const row = (teamId, id) => sql('SELECT * FROM feedback WHERE team_id=? AND id=?').get(teamId, id);
 
 /** Everything the garden view shows changes with this counter (feedback, decisions, reports). */
-export const bumpGarden = (teamId) => db.prepare('UPDATE teams SET garden_rev = garden_rev + 1 WHERE id=?').run(teamId);
-export const gardenRev = (teamId) => db.prepare('SELECT garden_rev AS n FROM teams WHERE id=?').get(teamId)?.n ?? 0;
+export const bumpGarden = (teamId) => sql('UPDATE teams SET garden_rev = garden_rev + 1 WHERE id=?').run(teamId);
+export const gardenRev = (teamId) => sql('SELECT garden_rev AS n FROM teams WHERE id=?').get(teamId)?.n ?? 0;
 
 function specFor(teamId, specId) {
   const spec = getItem(teamId, specId);
   if (!spec || spec.kind !== 'spec') throw new ApiError(`No spec "${specId}".`, 404);
   return spec;
 }
+/** @returns {ReturnType<typeof view> & { duplicate?: boolean }} */
 function insert(teamId, spec, f, by) {
-  const open = db.prepare("SELECT COUNT(*) AS n FROM feedback WHERE team_id=? AND spec_id=? AND status='open'").get(teamId, spec.id).n;
+  const open = sql("SELECT COUNT(*) AS n FROM feedback WHERE team_id=? AND spec_id=? AND status='open'").get(teamId, spec.id).n;
   if (open >= 50) throw new ApiError('This spec already has 50 open entries – ask a person to triage them first.', 429);
   const id = randomUUID();
-  db.prepare('INSERT INTO feedback (id,team_id,spec_id,spec_version,kind,section,text,evidence,status,author,author_id,via,created_at,blocking,options,recommended) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+  sql('INSERT INTO feedback (id,team_id,spec_id,spec_version,kind,section,text,evidence,status,author,author_id,via,created_at,blocking,options,recommended) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
     .run(id, teamId, spec.id, spec.version || 0, f.kind, f.section, f.text, f.evidence, 'open', by?.name ?? null, by?.id ?? null, by?.via ?? null, new Date().toISOString(),
       f.blocking ? 1 : 0, f.options ? JSON.stringify(f.options) : null, f.recommended ?? null);
   bumpGarden(teamId);
@@ -52,7 +53,7 @@ export function addFeedback(teamId, { specId, kind, section, text, evidence }, b
   if (!KINDS.includes(kind)) throw new ApiError(`kind must be one of: ${KINDS.join(', ')}`);
   section = String(section ?? '').trim().slice(0, 80);
   evidence = String(evidence ?? '').trim().slice(0, 1000);
-  const dup = db.prepare("SELECT * FROM feedback WHERE team_id=? AND spec_id=? AND status='open'").all(teamId, specId)
+  const dup = sql("SELECT * FROM feedback WHERE team_id=? AND spec_id=? AND status='open'").all(teamId, specId)
     .find((r) => r.kind !== DECISION && norm(r.section) === norm(section) && norm(r.text) === norm(text));
   if (dup) return { ...view(dup), duplicate: true };
   return insert(teamId, spec, { kind, section, text, evidence }, by);
@@ -70,7 +71,7 @@ export function requestDecision(teamId, { specId, question, options, recommended
   if (new Set(opts.map((o) => norm(o.label))).size !== opts.length) throw new ApiError('The options must differ.');
   const rec = recommended === undefined || recommended === null ? null : Number(recommended);
   if (rec !== null && !(Number.isInteger(rec) && rec >= 0 && rec < opts.length)) throw new ApiError(`recommended must be the index (0–${opts.length - 1}) of one of the options.`);
-  const dup = db.prepare("SELECT * FROM feedback WHERE team_id=? AND spec_id=? AND kind=? AND status='open'").all(teamId, specId, DECISION).find((r) => norm(r.text) === norm(text));
+  const dup = sql("SELECT * FROM feedback WHERE team_id=? AND spec_id=? AND kind=? AND status='open'").all(teamId, specId, DECISION).find((r) => norm(r.text) === norm(text));
   if (dup) return { ...view(dup), duplicate: true };
   return insert(teamId, spec, { kind: DECISION, section: String(section ?? '').trim().slice(0, 80), text, evidence: String(context ?? '').trim().slice(0, 2000), blocking: blocking !== false, options: opts, recommended: rec }, by);
 }
@@ -83,19 +84,21 @@ export function addProposal(teamId, { specId, action, reason }, by) {
   if (!reason) throw new ApiError('Say why – a person decides based on your reason.');
   if (reason.length > 4000) throw new ApiError('Keep the reason under 4000 characters.');
   if (action === 'release' && spec.status === 'approved' && spec.rev === spec.releasedRev) throw new ApiError(`${specId} is already released in its current form – there is nothing to release.`);
-  const dup = db.prepare("SELECT * FROM feedback WHERE team_id=? AND spec_id=? AND kind=? AND status='open'").get(teamId, specId, kind);
+  const dup = sql("SELECT * FROM feedback WHERE team_id=? AND spec_id=? AND kind=? AND status='open'").get(teamId, specId, kind);
   if (dup) return { ...view(dup), duplicate: true };
   return insert(teamId, spec, { kind, section: '', text: reason, evidence: '' }, by);
 }
 
 export const getFeedback = (teamId, id) => { const r = row(teamId, id); return r ? view(r) : null; };
 
+/** @param {string} teamId @param {{ specId?: any, status?: any, kind?: any }} [opts] Values may come straight from the query string. */
 export function listFeedback(teamId, { specId, status, kind } = {}) {
-  const rows = db.prepare('SELECT * FROM feedback WHERE team_id=? ORDER BY created_at DESC').all(teamId).map(view);
+  const rows = sql('SELECT * FROM feedback WHERE team_id=? ORDER BY created_at DESC').all(teamId).map(view);
   return rows.filter((f) => (!specId || f.specId === specId) && (!status || f.status === status) && (!kind || f.kind === kind));
 }
 
 /** People triage feedback (status + reply) and answer decisions (answer = option index, or -1 with the answer written into the reply). */
+/** @param {string} teamId @param {string} id @param {{ status?: string, reply?: string, answer?: number }} change @param {any} user @param {{ execute?: boolean }} [opts] */
 export function setFeedback(teamId, id, { status, reply, answer }, user, { execute = false } = {}) {
   const cur = row(teamId, id);
   if (!cur) throw new ApiError('Unknown feedback', 404);
@@ -120,7 +123,7 @@ export function setFeedback(teamId, id, { status, reply, answer }, user, { execu
     if (st === 'accepted' && cur.status !== 'accepted' && !execute) throw new ApiError(`Accepting this proposal carries it out (${PROPOSALS[cur.kind]} the spec); it must go through the proposal endpoint or a sync by an approver.`, 409);
   } else if (!STATUSES.includes(st)) throw new ApiError(`status must be one of: ${STATUSES.join(', ')}`);
   const closed = st !== 'open';
-  db.prepare('UPDATE feedback SET status=?, reply=?, answer=?, resolved_by=?, resolved_at=? WHERE id=?').run(st, rp, ans, closed ? user.name : null, closed ? new Date().toISOString() : null, id);
+  sql('UPDATE feedback SET status=?, reply=?, answer=?, resolved_by=?, resolved_at=? WHERE id=?').run(st, rp, ans, closed ? user.name : null, closed ? new Date().toISOString() : null, id);
   bumpGarden(teamId);
   const out = view(row(teamId, id));
   if (decision && st === 'answered' && (cur.status !== 'answered' || cur.answer !== ans || cur.reply !== rp)) events.emit('answered', { teamId, decision: out, by: user.name });
@@ -135,13 +138,29 @@ export function applyFeedbackOps(teamId, ops, user) {
   });
 }
 
-export const openCounts = (teamId) => Object.fromEntries(db.prepare("SELECT spec_id, COUNT(*) AS n FROM feedback WHERE team_id=? AND status='open' GROUP BY spec_id").all(teamId).map((r) => [r.spec_id, r.n]));
+export const openCounts = (teamId) => Object.fromEntries(sql("SELECT spec_id, COUNT(*) AS n FROM feedback WHERE team_id=? AND status='open' GROUP BY spec_id").all(teamId).map((r) => [r.spec_id, r.n]));
 
 /** What a device keeps for offline use: everything open, plus the decisions answered most recently (so they can be reread or changed). */
 export function gardenFeedback(teamId) {
-  const open = db.prepare("SELECT * FROM feedback WHERE team_id=? AND status='open' ORDER BY created_at DESC").all(teamId);
-  const answered = db.prepare("SELECT * FROM feedback WHERE team_id=? AND kind=? AND status='answered' ORDER BY resolved_at DESC LIMIT 30").all(teamId, DECISION);
+  const open = sql("SELECT * FROM feedback WHERE team_id=? AND status='open' ORDER BY created_at DESC").all(teamId);
+  const answered = sql("SELECT * FROM feedback WHERE team_id=? AND kind=? AND status='answered' ORDER BY resolved_at DESC LIMIT 30").all(teamId, DECISION);
   return [...open, ...answered].map(view);
+}
+
+/**
+ * Retention (hourly, from the janitor): closed feedback – dismissed, done, accepted, withdrawn – is history. A spec keeps its 100
+ * most recently closed entries; older ones go once they have been closed for half a year. Decisions a person answered or dismissed
+ * are never removed: they are the record of what people decided (agents read them with list_decisions, the work list shows the ones
+ * reported on since, and writing one into the spec under DECISIONS is optional and done on a device). Open entries stay, too.
+ */
+export const FEEDBACK_KEEP = { perSpec: 100, days: 180 };
+export function pruneFeedback() {
+  const before = new Date(Date.now() - FEEDBACK_KEEP.days * 86400_000).toISOString();
+  return sql(`DELETE FROM feedback WHERE rowid IN (
+    SELECT rowid FROM (SELECT rowid, resolved_at, ROW_NUMBER() OVER (PARTITION BY team_id, spec_id ORDER BY resolved_at DESC, created_at DESC) AS n
+      FROM feedback WHERE status<>'open' AND resolved_at IS NOT NULL AND (kind<>? OR status='withdrawn'))
+    WHERE n > ? AND resolved_at < ?)`)
+    .run(DECISION, FEEDBACK_KEEP.perSpec, before).changes;
 }
 
 /** An agent takes back its own open feedback or decision request (e.g. it was wrong). People's decisions are never overridden. */
@@ -150,7 +169,7 @@ export function withdrawFeedback(teamId, id, by) {
   if (!cur) throw new ApiError('Unknown feedback', 404);
   if (cur.author_id !== by?.id || (cur.via ?? null) !== (by?.via ?? null)) throw new ApiError('You can only withdraw feedback you left yourself.', 403);
   if (cur.status !== 'open') throw new ApiError(`This entry is already ${cur.status} – a person decided about it.`, 409);
-  db.prepare("UPDATE feedback SET status='withdrawn', resolved_by=?, resolved_at=? WHERE id=?").run(by.name, new Date().toISOString(), id);
+  sql("UPDATE feedback SET status='withdrawn', resolved_by=?, resolved_at=? WHERE id=?").run(by.name, new Date().toISOString(), id);
   bumpGarden(teamId);
   pending.get(teamId)?.items.delete(id);
   return view(row(teamId, id));
@@ -174,7 +193,7 @@ async function flush(teamId) {
   pending.delete(teamId);
   const team = getTeam(teamId);
   if (!q || !team || !team.row.feedback_mail) return;
-  const items = [...q.items.values()].filter((f) => db.prepare("SELECT status FROM feedback WHERE id=?").get(f.id)?.status === 'open');
+  const items = [...q.items.values()].filter((f) => sql("SELECT status FROM feedback WHERE id=?").get(f.id)?.status === 'open');
   if (!items.length) return;
   const to = members(teamId).filter((m) => !m.disabled && ['approver', 'admin'].includes(m.role) && !(q.authors.size === 1 && q.authors.has(m.id))).map((m) => m.email);
   if (!to.length) return;

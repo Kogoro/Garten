@@ -4,7 +4,7 @@
 import express from 'express';
 import { randomBytes } from 'node:crypto';
 import { InvalidGrantError, InvalidTokenError } from '@modelcontextprotocol/sdk/server/auth/errors.js';
-import { db } from './db.js';
+import { db, sql } from './db.js';
 import { PUBLIC_URL, OIDC } from './config.js';
 import {
   sha, allowedScopes, getUser, userFromRequest, loginWithPassword, startSession, verifyPat, AuthError, MCP_SCOPES, roleIn, teamsFor,
@@ -20,13 +20,13 @@ const REFRESH_TTL = 30 * 86400;
 
 export const clientsStore = {
   getClient(id) {
-    const r = db.prepare('SELECT data FROM oauth_clients WHERE client_id=?').get(id);
+    const r = sql('SELECT data FROM oauth_clients WHERE client_id=?').get(id);
     return r ? JSON.parse(r.data) : undefined;
   },
   registerClient(client) {
     client.client_id ??= crypto.randomUUID();
     client.client_id_issued_at ??= now();
-    db.prepare('INSERT INTO oauth_clients (client_id,data,created_at) VALUES (?,?,?)').run(client.client_id, JSON.stringify(client), iso());
+    sql('INSERT INTO oauth_clients (client_id,data,created_at) VALUES (?,?,?)').run(client.client_id, JSON.stringify(client), iso());
     return client;
   },
 };
@@ -36,7 +36,7 @@ export const provider = {
 
   async authorize(client, params, res) {
     const id = randomBytes(18).toString('base64url');
-    db.prepare('INSERT INTO oauth_requests (id,client_id,data,expires_at) VALUES (?,?,?,?)').run(
+    sql('INSERT INTO oauth_requests (id,client_id,data,expires_at) VALUES (?,?,?,?)').run(
       id, client.client_id,
       JSON.stringify({ state: params.state, scopes: params.scopes ?? [], codeChallenge: params.codeChallenge, redirectUri: params.redirectUri, resource: params.resource?.href }),
       now() + 600,
@@ -45,14 +45,14 @@ export const provider = {
   },
 
   async challengeForAuthorizationCode(_client, code) {
-    const r = db.prepare('SELECT challenge, expires_at FROM oauth_codes WHERE hash=?').get(sha(code));
+    const r = sql('SELECT challenge, expires_at FROM oauth_codes WHERE hash=?').get(sha(code));
     if (!r || r.expires_at < now()) throw new InvalidGrantError('Invalid or expired authorization code');
     return r.challenge;
   },
 
   async exchangeAuthorizationCode(client, code, _verifier, redirectUri) {
-    const r = db.prepare('SELECT * FROM oauth_codes WHERE hash=?').get(sha(code));
-    db.prepare('DELETE FROM oauth_codes WHERE hash=?').run(sha(code)); // single use
+    const r = sql('SELECT * FROM oauth_codes WHERE hash=?').get(sha(code));
+    sql('DELETE FROM oauth_codes WHERE hash=?').run(sha(code)); // single use
     if (!r || r.expires_at < now() || r.client_id !== client.client_id) throw new InvalidGrantError('Invalid or expired authorization code');
     if (redirectUri && redirectUri !== r.redirect_uri) throw new InvalidGrantError('redirect_uri mismatch');
     return issue({ clientId: client.client_id, userId: r.user_id, teamId: r.team_id, scopes: r.scopes.split(' '), resource: r.resource });
@@ -60,11 +60,11 @@ export const provider = {
 
   async exchangeRefreshToken(client, refreshToken, scopes) {
     const h = sha(refreshToken);
-    const r = db.prepare('SELECT * FROM oauth_tokens WHERE refresh_hash=? AND revoked=0').get(h);
+    const r = sql('SELECT * FROM oauth_tokens WHERE refresh_hash=? AND revoked=0').get(h);
     if (!r) {
       // A refresh token that was already exchanged is shown again: it was copied. The whole grant ends, the thief and the owner must sign in again.
-      const reused = db.prepare('SELECT id, user_id, team_id FROM oauth_tokens WHERE prev_refresh_hash=? AND client_id=?').get(h, client.client_id);
-      if (reused) { db.prepare('UPDATE oauth_tokens SET revoked=1 WHERE id=?').run(reused.id); audit(null, 'oauth.refresh.reuse', { team: reused.team_id, target: reused.user_id }); }
+      const reused = sql('SELECT id, user_id, team_id FROM oauth_tokens WHERE prev_refresh_hash=? AND client_id=?').get(h, client.client_id);
+      if (reused) { sql('UPDATE oauth_tokens SET revoked=1 WHERE id=?').run(reused.id); audit(null, 'oauth.refresh.reuse', { team: reused.team_id, target: reused.user_id }); }
       throw new InvalidGrantError('Invalid refresh token');
     }
     if (r.client_id !== client.client_id || r.refresh_expires_at < now()) throw new InvalidGrantError('Invalid refresh token');
@@ -78,7 +78,7 @@ export const provider = {
     }
     const access = rand('spo');
     const refresh = rand('spr');
-    db.prepare('UPDATE oauth_tokens SET access_hash=?, refresh_hash=?, prev_refresh_hash=?, scopes=?, expires_at=?, refresh_expires_at=?, last_used_at=? WHERE id=?')
+    sql('UPDATE oauth_tokens SET access_hash=?, refresh_hash=?, prev_refresh_hash=?, scopes=?, expires_at=?, refresh_expires_at=?, last_used_at=? WHERE id=?')
       .run(sha(access), sha(refresh), h, granted.join(' '), now() + ACCESS_TTL, now() + REFRESH_TTL, iso(), r.id); // rotate in place
     return { access_token: access, token_type: 'Bearer', expires_in: ACCESS_TTL, refresh_token: refresh, scope: granted.join(' ') };
   },
@@ -89,26 +89,27 @@ export const provider = {
       if (!p) throw new InvalidTokenError('Invalid or expired token');
       return { token, clientId: 'personal-token', scopes: p.scopes, expiresAt: p.expiresAt, extra: { userId: p.user.id, teamId: p.teamId, via: 'pat', label: p.name, tokenExpiresAt: p.expiresAt } };
     }
-    const r = db.prepare('SELECT * FROM oauth_tokens WHERE access_hash=? AND revoked=0').get(sha(token));
+    const r = sql('SELECT * FROM oauth_tokens WHERE access_hash=? AND revoked=0').get(sha(token));
     if (!r || r.expires_at < now()) throw new InvalidTokenError('Invalid or expired token');
     const user = getUser(r.user_id);
     const role = user && !user.disabled ? roleIn(user, r.team_id) : null;
     if (!role) throw new InvalidTokenError('User is disabled or no longer in this team');
-    db.prepare('UPDATE oauth_tokens SET last_used_at=? WHERE id=?').run(iso(), r.id);
+    sql('UPDATE oauth_tokens SET last_used_at=? WHERE id=?').run(iso(), r.id);
     const allowed = allowedScopes(role);
     return { token, clientId: r.client_id, scopes: r.scopes.split(' ').filter((s) => allowed.includes(s)), expiresAt: r.expires_at, extra: { userId: r.user_id, teamId: r.team_id, via: 'oauth', label: clientsStore.getClient(r.client_id)?.client_name ?? 'OAuth client' } };
   },
 
   async revokeToken(client, { token }) {
     const h = sha(token);
-    db.prepare('UPDATE oauth_tokens SET revoked=1 WHERE (access_hash=? OR refresh_hash=?) AND client_id=?').run(h, h, client.client_id);
+    sql('UPDATE oauth_tokens SET revoked=1 WHERE (access_hash=? OR refresh_hash=?) AND client_id=?').run(h, h, client.client_id);
   },
 };
 
+/** @param {{ clientId: string, userId: string, teamId: string, scopes: string[], resource?: string, reuseId?: string, createdAt?: number }} grant */
 function issue({ clientId, userId, teamId, scopes, resource, reuseId, createdAt }) {
   const access = rand('spo');
   const refresh = rand('spr');
-  db.prepare(
+  sql(
     `INSERT INTO oauth_tokens (id,access_hash,refresh_hash,client_id,user_id,team_id,scopes,resource,expires_at,refresh_expires_at,created_at,last_used_at)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
   ).run(reuseId ?? crypto.randomUUID(), sha(access), sha(refresh), clientId, userId, teamId, scopes.join(' '), resource ?? null, now() + ACCESS_TTL, now() + REFRESH_TTL, createdAt ?? iso(), iso());
@@ -127,7 +128,7 @@ export function listConnections(userId) {
     }));
 }
 export function revokeConnection(userId, id) {
-  return db.prepare('UPDATE oauth_tokens SET revoked=1 WHERE id=? AND user_id=?').run(id, userId).changes > 0;
+  return sql('UPDATE oauth_tokens SET revoked=1 WHERE id=? AND user_id=?').run(id, userId).changes > 0;
 }
 
 // ------------------------------------------------------------------ consent screen (server-rendered)
@@ -147,7 +148,7 @@ input[type=email],input[type=password],select{height:48px;padding:0 12px;border:
 </style></head><body><div class="c">${body}</div></body></html>`;
 
 const loadRequest = (id) => {
-  const r = db.prepare('SELECT * FROM oauth_requests WHERE id=?').get(String(id ?? ''));
+  const r = sql('SELECT * FROM oauth_requests WHERE id=?').get(String(id ?? ''));
   return r && r.expires_at >= now() ? { id: r.id, clientId: r.client_id, ...JSON.parse(r.data) } : null;
 };
 /** The form posts come from our own pages: Origin must be this server's public origin; without Origin the browser's Fetch-Metadata must say so. */
@@ -211,7 +212,7 @@ export function consentRouter() {
     const reqd = loadRequest(req.body.request);
     const user = userFromRequest(req);
     if (!reqd || !user || !sameOrigin(req)) return res.status(400).send('Bad request');
-    db.prepare('DELETE FROM oauth_requests WHERE id=?').run(reqd.id); // one decision per request
+    sql('DELETE FROM oauth_requests WHERE id=?').run(reqd.id); // one decision per request
     const target = new URL(reqd.redirectUri);
     if (reqd.state) target.searchParams.set('state', reqd.state);
     if (req.body.decision !== 'allow') {
@@ -227,7 +228,7 @@ export function consentRouter() {
     let scopes = ['mcp:read', ...picked].filter((s, i, a) => a.indexOf(s) === i && wanted.includes(s) && allowed.includes(s));
     if (scopes.includes('mcp:write') && !scopes.includes('mcp:drafts') && allowed.includes('mcp:drafts')) scopes = [...scopes, 'mcp:drafts']; // writing implies reading drafts
     const code = rand('spa');
-    db.prepare('INSERT INTO oauth_codes (hash,client_id,user_id,team_id,challenge,redirect_uri,scopes,resource,expires_at) VALUES (?,?,?,?,?,?,?,?,?)').run(
+    sql('INSERT INTO oauth_codes (hash,client_id,user_id,team_id,challenge,redirect_uri,scopes,resource,expires_at) VALUES (?,?,?,?,?,?,?,?,?)').run(
       sha(code), reqd.clientId, user.id, String(req.body.team), reqd.codeChallenge, reqd.redirectUri, scopes.join(' '), reqd.resource ?? null, now() + 300,
     );
     target.searchParams.set('code', code);

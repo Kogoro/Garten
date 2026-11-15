@@ -1,10 +1,10 @@
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
 import { DATA_DIR } from './config.js';
-import { db } from './db.js';
+import { sql } from './db.js';
 import { Repo } from './git.js';
 import { parseDefinitions, glossaryMarkdown, hasContent } from '../shared/glossary.js';
-import { parseTermFile, isTermPath, isProposedPath, isGlossaryPath, splitGlossaryMd, formatTermFile, termPath, folderSegment } from '../shared/glossaryFiles.js';
+import { parseTermFile, isTermPath, isProposedPath, splitGlossaryMd, formatTermFile, termPath, folderSegment } from '../shared/glossaryFiles.js';
 import { getTeam, listTeams } from './teams.js';
 import { isKnownType } from './specTypes.js';
 import { DEFAULT_TYPE } from '../shared/spectypes.js';
@@ -48,28 +48,47 @@ const toItem = (r) =>
     updatedBy: r.updated_by, fetchedAt: r.fetched_at, createdAt: r.created_at, updatedAt: r.updated_at, deleted: !!r.deleted,
   };
 
-const nextSeq = (t) => db.prepare('SELECT COALESCE(MAX(seq),0)+1 AS n FROM items WHERE team_id=?').get(t).n;
-export const maxSeq = (t) => db.prepare('SELECT COALESCE(MAX(seq),0) AS n FROM items WHERE team_id=?').get(t).n;
-export const count = (t) => db.prepare('SELECT COUNT(*) AS n FROM items WHERE team_id=? AND deleted=0').get(t).n;
-const rawItem = (t, id) => toItem(db.prepare('SELECT * FROM items WHERE team_id=? AND id=?').get(t, id));
+const nextSeq = (t) => sql('SELECT COALESCE(MAX(seq),0)+1 AS n FROM items WHERE team_id=?').get(t).n;
+export const maxSeq = (t) => sql('SELECT COALESCE(MAX(seq),0) AS n FROM items WHERE team_id=?').get(t).n;
+export const count = (t) => sql('SELECT COUNT(*) AS n FROM items WHERE team_id=? AND deleted=0').get(t).n;
+const rawItem = (t, id) => toItem(sql('SELECT * FROM items WHERE team_id=? AND id=?').get(t, id));
 /** live item or undefined (tombstones are invisible here) */
 export const getItem = (t, id) => { const i = rawItem(t, id); return i && !i.deleted ? i : undefined; };
 /** Everything changed after `seq`, including tombstones so clients can drop deleted items. */
 export const itemsSince = (t, seq) =>
-  db.prepare('SELECT * FROM items WHERE team_id=? AND seq>? ORDER BY seq').all(t, seq).map(toItem)
+  sql('SELECT * FROM items WHERE team_id=? AND seq>? ORDER BY seq').all(t, seq).map(toItem)
     .map((i) => (i.deleted ? { id: i.id, kind: i.kind, deleted: true, rev: i.rev } : i));
-const live = (t, kind) => db.prepare('SELECT * FROM items WHERE team_id=? AND kind=? AND deleted=0 ORDER BY id').all(t, kind).map(toItem);
-export const allSpecs = (t) => live(t, 'spec');
-export const allDocs = (t) => live(t, 'doc');
-export const allFolders = (t) => live(t, 'folder');
-export const pinnedDocs = (t) => allDocs(t).filter((d) => d.pinned);
-export const approvedSpecs = (t) => allSpecs(t).filter((s) => s.status === 'approved');
+// every column but the body: for lists that only need the metadata (items without `body`)
+const META = 'id,kind,title,links,pinned,spec_type,updated_via,rev,status,version,released_rev,released_at,released_by,updated_by,fetched_at,created_at,updated_at,deleted';
+const live = (t, kind, body) => sql(`SELECT ${body ? '*' : META} FROM items WHERE team_id=? AND kind=? AND deleted=0 ORDER BY id`).all(t, kind).map(toItem);
+/** Live items of a kind. `{ body: false }` leaves the bodies out. */
+export const allSpecs = (t, { body = true } = {}) => live(t, 'spec', body);
+export const allDocs = (t, { body = true } = {}) => live(t, 'doc', body);
+export const allFolders = (t) => live(t, 'folder', false);
+/** Foundation documents, without bodies (getItem has the body). */
+export const pinnedDocs = (t) => sql(`SELECT ${META} FROM items WHERE team_id=? AND kind='doc' AND deleted=0 AND pinned=1 ORDER BY id`).all(t).map(toItem);
+/** Released specs, without bodies (agents read the released text from Git; getItem has the working copy). */
+export const approvedSpecs = (t) => sql(`SELECT ${META} FROM items WHERE team_id=? AND kind='spec' AND deleted=0 AND status='approved' ORDER BY id`).all(t).map(toItem);
+/** Released version of every live spec: { id: version }. */
+export const currentVersions = (t) => new Map(sql("SELECT id, version FROM items WHERE team_id=? AND kind='spec' AND deleted=0").all(t).map((r) => [r.id, r.version]));
 
+/**
+ * An agent read a spec. This is not an edit: the item keeps its place in the sync sequence (which would send its whole body
+ * to every device again). Devices ask for the reads since the newest fetched_at they know instead (fetchedSince), so fetched_at
+ * is kept strictly increasing per team.
+ */
 export function touchFetched(t, id) {
-  db.prepare('UPDATE items SET fetched_at=?, seq=? WHERE team_id=? AND id=?').run(new Date().toISOString(), nextSeq(t), t, id);
+  const last = sql('SELECT MAX(fetched_at) AS at FROM items WHERE team_id=?').get(t).at;
+  const at = new Date(Math.max(Date.now(), last ? Date.parse(last) + 1 : 0)).toISOString();
+  sql('UPDATE items SET fetched_at=? WHERE team_id=? AND id=?').run(at, t, id);
 }
+/** { id: fetched_at } of the items read by an agent after `since` (an ISO time; '' = all). */
+export const fetchedSince = (t, since) =>
+  Object.fromEntries(sql('SELECT id, fetched_at FROM items WHERE team_id=? AND fetched_at>? ORDER BY fetched_at').all(t, String(since)).map((r) => [r.id, r.fetched_at]));
+export const lastFetched = (t) => sql('SELECT MAX(fetched_at) AS at FROM items WHERE team_id=?').get(t).at ?? '';
 
 /** Create or update an item. `baseRev` must equal the current revision (0 = create). */
+/** @param {any} t @param {{ id: string, kind: string, title?: string, body?: string, links?: string[], pinned?: boolean, specType?: string }} item @param {number} [baseRev] @param {any} [by] */
 export function saveItem(t, { id, kind, title, body, links, pinned, specType }, baseRev, by = null) {
   if (specType !== undefined && kind === 'spec' && !isKnownType(t, specType)) throw new ApiError(`unknown spec type: ${specType}`);
   const st = kind === 'spec' ? specType : undefined;
@@ -84,15 +103,15 @@ export function saveItem(t, { id, kind, title, body, links, pinned, specType }, 
     if (kind === 'folder' && !FOLDER_ID.test(id)) throw new ApiError(`invalid folder path: ${id}`);
     if (kind === 'folder' && rawItem(t, id)?.kind === 'doc') throw new ApiError(`${id} is a document`);
     if (cur?.deleted) {
-      db.prepare("UPDATE items SET updated_via=?, spec_type=?, kind=?, title=?, body=?, links=?, pinned=?, deleted=0, rev=rev+1, seq=?, status='draft', released_rev=0, released_at=NULL, released_by=NULL, updated_at=?, updated_by=? WHERE team_id=? AND id=?")
+      sql("UPDATE items SET updated_via=?, spec_type=?, kind=?, title=?, body=?, links=?, pinned=?, deleted=0, rev=rev+1, seq=?, status='draft', released_rev=0, released_at=NULL, released_by=NULL, updated_at=?, updated_by=? WHERE team_id=? AND id=?")
         .run(by?.via ?? null, st ?? DEFAULT_TYPE, kind, title ?? '', body ?? '', JSON.stringify(links ?? []), pin ?? 0, nextSeq(t), now, who, t, id);
     } else {
-      db.prepare('INSERT INTO items (team_id,id,kind,title,body,links,pinned,spec_type,rev,seq,created_at,updated_at,updated_by,updated_via) VALUES (?,?,?,?,?,?,?,?,1,?,?,?,?,?)')
+      sql('INSERT INTO items (team_id,id,kind,title,body,links,pinned,spec_type,rev,seq,created_at,updated_at,updated_by,updated_via) VALUES (?,?,?,?,?,?,?,?,1,?,?,?,?,?)')
         .run(t, id, kind, title ?? '', body ?? '', JSON.stringify(links ?? []), pin ?? 0, st ?? DEFAULT_TYPE, nextSeq(t), now, now, who, by?.via ?? null);
     }
   } else {
     if (cur.rev !== baseRev) throw new ApiError('conflict', 409);
-    db.prepare('UPDATE items SET title=?, body=?, links=?, pinned=?, spec_type=?, rev=rev+1, seq=?, updated_at=?, updated_by=?, updated_via=? WHERE team_id=? AND id=?').run(
+    sql('UPDATE items SET title=?, body=?, links=?, pinned=?, spec_type=?, rev=rev+1, seq=?, updated_at=?, updated_by=?, updated_via=? WHERE team_id=? AND id=?').run(
       title ?? cur.title, body ?? cur.body, JSON.stringify(links ?? cur.links), pin ?? (cur.pinned ? 1 : 0), st ?? cur.specType, nextSeq(t), now, who ?? cur.updatedBy, by?.via ?? null, t, id,
     );
   }
@@ -106,21 +125,21 @@ export function deleteItem(t, id, baseRev) {
   if (cur.rev !== baseRev) throw new ApiError('conflict', 409);
   if (cur.kind === 'spec' && cur.status === 'approved') throw new ApiError(`${id} is released – revoke it before deleting`, 409);
   if (cur.kind === 'doc' && isCoreDoc(id)) throw new ApiError(`${id} is a foundation document every team has – it cannot be deleted`, 409);
-  if (cur.kind === 'folder' && [...allDocs(t), ...allFolders(t)].some((x) => x.id.startsWith(`${id}/`))) throw new ApiError(`Folder ${id} is not empty`, 409);
+  if (cur.kind === 'folder' && sql("SELECT 1 FROM items WHERE team_id=? AND kind IN ('doc','folder') AND deleted=0 AND substr(id, 1, ?)=? LIMIT 1").get(t, id.length + 1, `${id}/`)) throw new ApiError(`Folder ${id} is not empty`, 409);
   if (cur.kind === 'doc') {
     const users = approvedSpecs(t).filter((s) => s.links.includes(id)).map((s) => s.id);
     if (users.length) throw new ApiError(`${id} is still used by released spec(s): ${users.join(', ')}`, 409);
-    for (const s of allSpecs(t).filter((x) => x.links.includes(id))) { // drop dangling links from drafts
-      db.prepare('UPDATE items SET links=?, rev=rev+1, seq=? WHERE team_id=? AND id=?').run(JSON.stringify(s.links.filter((l) => l !== id)), nextSeq(t), t, s.id);
+    for (const s of allSpecs(t, { body: false }).filter((x) => x.links.includes(id))) { // drop dangling links from drafts
+      sql('UPDATE items SET links=?, rev=rev+1, seq=? WHERE team_id=? AND id=?').run(JSON.stringify(s.links.filter((l) => l !== id)), nextSeq(t), t, s.id);
     }
   }
-  db.prepare("UPDATE items SET deleted=1, title='', body='', links='[]', rev=rev+1, seq=?, updated_at=? WHERE team_id=? AND id=?").run(nextSeq(t), new Date().toISOString(), t, id);
+  sql("UPDATE items SET deleted=1, title='', body='', links='[]', rev=rev+1, seq=?, updated_at=? WHERE team_id=? AND id=?").run(nextSeq(t), new Date().toISOString(), t, id);
   if (cur.kind === 'spec') { // nothing may outlive its spec: comments, decisions, reports and checks would show up on the garden with no spec behind them
-    db.prepare('DELETE FROM feedback WHERE team_id=? AND spec_id=?').run(t, id);
-    db.prepare('DELETE FROM reports WHERE team_id=? AND spec_id=?').run(t, id);
-    db.prepare('DELETE FROM check_runs WHERE team_id=? AND spec_id=?').run(t, id);
-    db.prepare('DELETE FROM checks WHERE team_id=? AND spec_id=?').run(t, id);
-    db.prepare('UPDATE teams SET garden_rev = garden_rev + 1 WHERE id=?').run(t);
+    sql('DELETE FROM feedback WHERE team_id=? AND spec_id=?').run(t, id);
+    sql('DELETE FROM reports WHERE team_id=? AND spec_id=?').run(t, id);
+    sql('DELETE FROM check_runs WHERE team_id=? AND spec_id=?').run(t, id);
+    sql('DELETE FROM checks WHERE team_id=? AND spec_id=?').run(t, id);
+    sql('UPDATE teams SET garden_rev = garden_rev + 1 WHERE id=?').run(t);
   }
 }
 
@@ -153,6 +172,7 @@ export async function glossaryEntries(team, repo = repoFor(team)) {
 }
 
 /** Documents that must stay in the repository: linked by a released spec, or released foundation documents. */
+/** @param {any} t @param {{ excludeSpec?: string, excludeDoc?: string, extra?: string[] }} [opts] */
 function keepSet(t, { excludeSpec, excludeDoc, extra = [] } = {}) {
   return new Set([
     ...approvedSpecs(t).filter((s) => s.id !== excludeSpec).flatMap((s) => s.links),
@@ -193,7 +213,7 @@ export async function releaseSpec(team, id, by = null) {
   const sha = await repo.commit({ write, message: `Release ${id} v${version}: ${spec.title}`, tag, author: by, post: tidy(team, keep) });
   if (!sha) await repo.tag(tag);
 
-  db.prepare("UPDATE items SET status='approved', version=?, released_rev=?, released_at=?, released_by=?, seq=? WHERE team_id=? AND id=?")
+  sql("UPDATE items SET status='approved', version=?, released_rev=?, released_at=?, released_by=?, seq=? WHERE team_id=? AND id=?")
     .run(version, relRev, at, by?.name ?? null, nextSeq(t), t, id);
   events.emit('committed', t);
   events.emit('released', { teamId: t, id, version, title: spec.title, by: by?.name ?? null });
@@ -208,7 +228,7 @@ export async function revokeSpec(team, id, by = null) {
   if (spec.status !== 'approved') return spec;
   const keep = keepSet(t, { excludeSpec: id });
   await repoFor(team).commit({ remove: [specPath(team, id)], message: `Revoke ${id}`, author: by, post: tidy(team, keep) });
-  db.prepare("UPDATE items SET status='draft', seq=? WHERE team_id=? AND id=?").run(nextSeq(t), t, id);
+  sql("UPDATE items SET status='draft', seq=? WHERE team_id=? AND id=?").run(nextSeq(t), t, id);
   events.emit('committed', t);
   return getItem(t, id);
 }
@@ -237,7 +257,7 @@ export async function releaseDocs(team, ids, by = null, message) {
     : terms.length === docs.length ? `Glossary: update ${docs.length} terms` : `Update ${docs.length} foundation documents`);
   await repoFor(team).commit({ write, message: msg, author: by, post: tidy(team, keepSet(t, { extra: docs.map((d) => d.id) })) });
   for (const d of docs) {
-    db.prepare("UPDATE items SET status='approved', version=?, released_rev=?, released_at=?, released_by=?, seq=? WHERE team_id=? AND id=?")
+    sql("UPDATE items SET status='approved', version=?, released_rev=?, released_at=?, released_by=?, seq=? WHERE team_id=? AND id=?")
       .run(d.version + 1, d.rev, at, by?.name ?? null, nextSeq(t), t, d.id);
   }
   events.emit('committed', t);
@@ -251,7 +271,7 @@ export async function unreleaseDoc(team, id, by = null) {
   const doc = getItem(t, id);
   if (!doc || doc.status !== 'approved') return doc;
   await repoFor(team).commit({ message: `Withdraw ${id}`, author: by, post: tidy(team, keepSet(t, { excludeDoc: id })) });
-  db.prepare("UPDATE items SET status='draft', released_rev=0, seq=? WHERE team_id=? AND id=?").run(nextSeq(t), t, id);
+  sql("UPDATE items SET status='draft', released_rev=0, seq=? WHERE team_id=? AND id=?").run(nextSeq(t), t, id);
   events.emit('committed', t);
   return getItem(t, id);
 }
@@ -282,7 +302,7 @@ export function ensureFoundation(team) {
   for (const [id, body] of Object.entries(CORE_DOCS)) {
     const cur = rawItem(t, id);
     if (!cur || cur.deleted) saveItem(t, { id, kind: 'doc', title: id, body, links: [] }, 0);
-    else if (!cur.pinned) db.prepare('UPDATE items SET pinned=1, seq=? WHERE team_id=? AND id=?').run(nextSeq(t), t, id);
+    else if (!cur.pinned) sql('UPDATE items SET pinned=1, seq=? WHERE team_id=? AND id=?').run(nextSeq(t), t, id);
   }
 }
 
@@ -310,7 +330,7 @@ export async function migrateGlossary(team) {
         written.push(id);
       }
       const wasLive = old.status === 'approved';
-      db.prepare("UPDATE items SET deleted=1, title='', body='', links='[]', pinned=0, rev=rev+1, seq=?, updated_at=? WHERE team_id=? AND id=?").run(nextSeq(t), new Date().toISOString(), t, 'glossary.md');
+      sql("UPDATE items SET deleted=1, title='', body='', links='[]', pinned=0, rev=rev+1, seq=?, updated_at=? WHERE team_id=? AND id=?").run(nextSeq(t), new Date().toISOString(), t, 'glossary.md');
       if (written.length && (wasLive || team.row.foundation_auto)) await releaseDocs(team, written, null, `Glossary: one file per term (${written.length} terms)`);
       else if (wasLive) await repoFor(team).commit({ message: 'Glossary: one file per term', post: tidy(team, keepSet(t)) });
       n += written.length;
@@ -335,7 +355,7 @@ export async function startupSweep() {
     try { const n = await migrateGlossary(team); if (n) console.log(`glossary of ${team.key}: ${n} terms moved to glossary/`); } catch (e) { console.error('glossary migration', team.key, e); }
     ensureFoundation(team);
     if (!team.row.foundation_auto) continue;
-    const due = pinnedDocs(team.id).filter((d) => d.rev > d.releasedRev && hasContent(d.body)).map((d) => d.id);
+    const due = pinnedDocs(team.id).filter((d) => d.rev > d.releasedRev && hasContent(getItem(team.id, d.id).body)).map((d) => d.id);
     await releaseDocs(team, due).catch((e) => console.error('sweep', e.message));
   }
 }
@@ -352,7 +372,7 @@ export async function deleteTeamData(team) {
   repos.delete(team.id);
 }
 
-export const hasReleases = (t) => db.prepare("SELECT 1 FROM items WHERE team_id=? AND (status='approved' OR version>0) LIMIT 1").get(t) !== undefined;
+export const hasReleases = (t) => sql("SELECT 1 FROM items WHERE team_id=? AND (status='approved' OR version>0) LIMIT 1").get(t) !== undefined;
 export const listTags = (team, id) => repoFor(team).tags(`${id}/v`);
 /** Released versions of a spec, newest first: the Git tag, the commit, who released it and when. */
 export async function specVersions(team, id) {
@@ -377,7 +397,7 @@ export async function releasedDocs(team) {
 
 /** Next free spec id for a team, e.g. SPEC-015 (used when an agent creates a draft; people number specs on their device). */
 export function nextSpecId(team) {
-  const rows = db.prepare("SELECT id FROM items WHERE team_id=? AND kind='spec'").all(team.id);
+  const rows = sql("SELECT id FROM items WHERE team_id=? AND kind='spec'").all(team.id);
   const n = Math.max(0, ...rows.map((r) => (r.id.startsWith(`${team.key}-`) ? Number(/(\d+)$/.exec(r.id)?.[1] ?? 0) : 0))) + 1;
   return `${team.key}-${String(n).padStart(3, '0')}`;
 }

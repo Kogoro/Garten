@@ -9,11 +9,13 @@ optional in dessen Entwicklungs-Repository gepusht und über einen **MCP-Server*
 **Docker**
 
 ```bash
-ADMIN_PASSWORD='mein-passwort' docker compose up -d --build   # ohne ADMIN_PASSWORD: wird erzeugt und im Log angezeigt
+ADMIN_PASSWORD='mein-passwort' docker compose up -d   # ohne ADMIN_PASSWORD: wird erzeugt und im Log angezeigt
 docker compose logs specs
 ```
 
 <http://localhost:3000> → `admin@localhost`. `SEED_DEMO=1` (Default) füllt das erste Team mit Beispieldaten. Konfiguration per Umgebungsvariablen, siehe `docker-compose.yml`.
+
+Compose startet das veröffentlichte Image `ghcr.io/kogoro/garten:latest` (amd64 und arm64). Aktualisieren: `docker compose pull && docker compose up -d`. Eine feste Version: `GARTEN_IMAGE=ghcr.io/kogoro/garten:0.12.0`. Selbst bauen aus dem Checkout: `GARTEN_IMAGE=garten:local docker compose up -d --build`.
 
 **Debian 12/13 / Ubuntu 24.04 (VM, Server, LXC), als root:**
 
@@ -21,16 +23,30 @@ docker compose logs specs
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/Kogoro/Garten/main/scripts/install-debian.sh)"
 ```
 
-Installiert den **neuesten Release** nach `/opt/garten`, Daten unter `/var/lib/garten/data`, Einstellungen in `/etc/garten/garten.env` (dieselben Variablen wie in `docker-compose.yml`), Dienst `garten` auf `http://<IP>:3000`. Zugangsdaten stehen in `/root/garten.creds`.
+Installiert den **neuesten Release** nach `/opt/garten`, Daten unter `/var/lib/garten/data`, Einstellungen in `/etc/garten/garten.env` (dieselben Variablen wie in `docker-compose.yml`), Dienst `garten` auf `http://<IP>:3000`. Zugangsdaten stehen in `/root/garten.creds`. Der Installer lädt das fertig gebaute Release-Archiv (`garten-<tag>.tar.gz`, geprüft gegen die `.sha256`-Datei) und installiert nur noch die Server-Abhängigkeiten – kein Frontend-Build auf dem Server. Gibt es kein Archiv (Branch, ältere Releases), baut er wie bisher aus dem Quellcode (einige Minuten, rund 1 GB RAM).
 
 | Befehl | |
 |---|---|
 | `garten update` | auf den neuesten Release aktualisieren (Daten und Einstellungen bleiben) |
 | `garten info` · `garten logs` | Adresse, Version, Status · Log |
-| `garten backup` | Archiv in `/root` |
+| `garten backup` | Archiv in `/root`, im laufenden Betrieb |
 | `garten url https://spec.example.org` | eigene Adresse (Reverse-Proxy mit HTTPS) |
 
-`GARTEN_REF=v0.11.0 garten update` installiert eine bestimmte Version, `GARTEN_REF=main` den Entwicklungsstand. Plain HTTP funktioniert nur online – Offline-Modus und Handy-Installation brauchen HTTPS (siehe unten). Nur per VPN erreichbar heißt: Cloud-Routinen von Claude Code erreichen den Server nicht.
+`GARTEN_REF=v0.11.0 garten update` installiert eine bestimmte Version, `GARTEN_REF=main` den Entwicklungsstand (immer aus dem Quellcode gebaut).
+
+**Update:** Die neue Version wird in `/opt/garten.new` vorbereitet, während die alte weiterläuft. Erst wenn sie vollständig ist, wird der Dienst gestoppt und das Verzeichnis getauscht; die vorige Version bleibt als `/opt/garten.old`. Antwortet die neue Version nicht auf `/healthz`, kommt automatisch die vorige zurück. Schlägt Download oder Build fehl, läuft die alte Version einfach weiter. Die Datenbank von unmittelbar vor dem Update liegt in `/var/lib/garten/pre-update.db`.
+
+**Backup und Wiederherstellung:** `garten backup` stoppt den Server nicht. Es schreibt einen konsistenten Schnappschuss der SQLite-Datenbank (`VACUUM INTO`), dazu den Rest von `data/` (Git-Repos der Teams unter `data/repos`, `secret.key`, `known_hosts`) und `garten.env` nach `/root/garten-backup-<Zeit>.tar.gz`. Wiederherstellen:
+
+```bash
+systemctl stop garten
+rm -rf /var/lib/garten/data                        # auch alte specs.db-wal/-shm, die nicht zum Schnappschuss passen
+tar xzf /root/garten-backup-<Zeit>.tar.gz -C /var/lib/garten data
+chown -R garten:garten /var/lib/garten/data
+systemctl start garten
+```
+
+`garten.env` liegt ebenfalls im Archiv (`tar xzf … -C /etc/garten garten.env`), falls die Einstellungen verloren sind. Plain HTTP funktioniert nur online – Offline-Modus und Handy-Installation brauchen HTTPS (siehe unten). Nur per VPN erreichbar heißt: Cloud-Routinen von Claude Code erreichen den Server nicht.
 
 ## Releases
 
@@ -40,7 +56,12 @@ Version in `package.json` erhöhen, committen, dann Tag setzen und pushen:
 git tag v0.12.0 && git push origin v0.12.0
 ```
 
-Der Workflow `.github/workflows/release.yml` prüft, dass der Tag zur `package.json`-Version passt, und legt den GitHub-Release mit automatisch erzeugten Notizen an (Tags mit `-`, z. B. `v0.12.0-rc.1`, sind Vorab-Releases und werden von `garten update` nicht gewählt). Ohne veröffentlichten Release bricht `garten update` ab, statt auf `main` auszuweichen.
+Der Workflow `.github/workflows/release.yml` führt zuerst dieselben Prüfungen wie CI aus (Tests, Installer-Skript, Docker-Build, Audit) und prüft, dass der Tag zur `package.json`-Version passt. Erst dann veröffentlicht er:
+
+* das Docker-Image `ghcr.io/kogoro/garten:<version>` für amd64 und arm64, bei regulären Releases zusätzlich `:latest`,
+* den GitHub-Release mit automatisch erzeugten Notizen und dem fertig gebauten Archiv `garten-<tag>.tar.gz` samt `garten-<tag>.tar.gz.sha256` (Server, `shared/`, gebautes `web/dist`, `package.json`, `package-lock.json`, `scripts/`; ohne `node_modules`). Lokal erzeugt es `scripts/release-tarball.sh <tag>` nach einem `npm --prefix web run build`.
+
+Tags mit `-`, z. B. `v0.12.0-rc.1`, sind Vorab-Releases: kein `:latest`, und `garten update` wählt sie nicht. Ohne veröffentlichten Release bricht `garten update` ab, statt auf `main` auszuweichen. Das Image-Paket ist nach dem ersten Release in GitHub einmalig auf *public* zu stellen, damit `docker compose pull` ohne Anmeldung funktioniert.
 
 ## Teams, Einladungen, Rollen
 
@@ -62,7 +83,7 @@ Der Workflow `.github/workflows/release.yml` prüft, dass der Tag zur `package.j
 
 * **Spec-Typen:** Feature, API, UI, Data model, NFR, Integration, dazu Architecture spec und ADR – jeweils mit Vorlage. Teams definieren eigene Typen (*Members & Git → Spec types*). Der Typ steht im Front-Matter (`type: api`) und ist per MCP filterbar.
 * **Formular statt Editor:** Ein Typ kann seinen Inhalt als Formular mit Feldern, Listen und Tabs beschreiben (Feldtypen u. a. Requirements, API-Endpoints, Mermaid-Diagramm, Checkliste). Gespeichert wird immer Markdown (`## FELDNAME`); über das Overflow-Menü wechselt man zwischen **Form**, **Blocks** und **Markdown**. Unbekannte Abschnitte bleiben erhalten („Other content“).
-* **Editor:** Blöcke auf Basis von BlockNote (Text, Überschriften, Requirement, Checkliste, Liste, Definition, Zitat, Code, Diagramm, API-Endpoint), `/` öffnet das Block-Menü, `@` verlinkt Dokumente, `#` Glossarbegriffe. Mermaid-Diagramme rendern auch offline; andere Textformate gehen als Code-Block an den Agenten.
+* **Editor:** Blöcke auf Basis von BlockNote (Text, Überschriften, Requirement, Checkliste, Liste, Definition, Zitat, Code, Diagramm, API-Endpoint), `/` öffnet das Block-Menü, `@` verlinkt Dokumente, `#` Glossarbegriffe. Mermaid-Diagramme rendern auch offline, sobald die Diagrammart auf dem Gerät einmal online angezeigt wurde (die Diagramm-Engines lädt die App erst bei Bedarf); andere Textformate gehen als Code-Block an den Agenten.
 * **Foundation-Dokumente:** Jedes Team hat `vision.md`, `strategy.md` und `guardrails.md`; weitere lassen sich anheften (auch jeder Glossarbegriff ist ein Foundation-Dokument). Sie gehören keinem Spec, gehen nach der letzten Änderung automatisch live (pro Team umstellbar auf „Publish now“) und landen unter `<Ordner>/docs/`. `get_team_context()` liefert sie Agenten in einem Aufruf.
 * **Leitplanken:** Abschnitte *Always* / *Never* (`- G1: …`) in `guardrails.md` sind für Agenten verbindlich; würde eine Aufgabe eine Regel brechen, fragt der Agent per `request_decision`. Jeder Bericht hält fest, gegen welche Regeln gebaut wurde. Kommt eine Regel hinzu oder ändert sich ihr Wortlaut, steht ein umgesetzter Spec wieder in der Arbeitsliste (`guardrails_changed` mit `rules_changed`), der Garden zeigt ihn unter *Needs attention*, und der Agent-Trigger meldet die neuen Leitplanken als Freigabe. Gestrichene Regeln lösen nichts aus. Aus Feedback oder Abweichungen wird per **Make it a rule** eine Regel.
 * **Aus Text ableiten:** Im Menü (⋯) eines Specs oder Dokuments gibt es *New spec from selection / this document…* und *Glossary term from selection / this document…*. Ohne Markierung gilt das ganze Dokument. Beim Spec wählt man Typ und Titel; der Text wird kopiert und bekommt einen Abschnitt `## SOURCE`. Beim Begriff öffnet sich der Glossar-Dialog vorbefüllt (kurze Markierung = Begriff, längere = Definition, ganzes Dokument = Titel und erster Absatz). Enthält ein Dokument schon Definitionen, übernimmt *Add N definitions … to the glossary* sie auf einmal. Das Original bleibt unverändert; Agenten tun dasselbe über `derive_from_document`.
@@ -163,7 +184,12 @@ npm run build                # Frontend bauen (web/dist)
 cd web && npm run dev        # Vite-Dev-Server mit Proxy auf :3000 (Server separat: npm start)
 npm test                     # baut das Frontend und führt alle Tests aus
 npm run ux-audit             # Barrierefreiheit/Performance auf Handy und Desktop (axe-core, WCAG 2.2 AA)
+npm run lint                 # ESLint (server, shared, tests, scripts, web/src)
+npm run typecheck            # TypeScript-Prüfung von server/ + shared/ (JSDoc, tsconfig.json) und web/
+npm run format               # Prettier schreibt die Formatierung; format:check prüft nur
 ```
+
+Vorher `npm ci` und `npm --prefix web ci` (Lint und Typprüfung von `web/src` brauchen die Web-Abhängigkeiten). `lint` und `typecheck` laufen in der CI. ESLint prüft nur auf Fehler (ungenutzte Variablen, unbekannte Namen, unbehandelte Promises, Hook-Regeln …), die Formatierung übernimmt Prettier (`.prettierrc.json`, Zeilenbreite 140). Der Server wird ohne Build per `checkJs` geprüft; Typen stehen als JSDoc im Code, Ergänzungen für Express und `node:sqlite` in `server/types.d.ts`. `tsconfig.json` nennt die noch abgeschalteten strikten Prüfungen mit ihrer aktuellen Fehlerzahl.
 
 Einzelne Suiten: `tests/api.test.mjs`, `tests/oidc.test.mjs`, `tests/unit.test.mjs`, `web` (Vitest), `web/e2e/ui.test.mjs` (Playwright). Weitere Dokumente: `docs/DESIGN-SYSTEM.md`, `docs/UI-VOCABULARY.md`, `docs/UX-SCORECARD.md`, `web/PARITY.md`.
 

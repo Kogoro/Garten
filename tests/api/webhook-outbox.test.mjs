@@ -20,7 +20,7 @@ describe('webhook outbox', () => {
     const ra = await ca.push([{ id: 'SPEC-001', kind: 'spec', baseRev: 0, approve: true, fields: { title: 'Outbox spec', body: '## GOAL\nx\n' } }]);
     assert.equal(ra[0].item.version, 1);
     await new Promise((r) => setTimeout(r, 1200)); // one delivery attempt fails: nobody listens yet
-    a.stop(); await new Promise((r) => setTimeout(r, 600));
+    void a.stop(); await new Promise((r) => setTimeout(r, 600));
     const got = [];
     late = createHttpServer((req, res) => { let b = ''; req.on('data', (d) => (b += d)); req.on('end', () => { got.push(JSON.parse(b || '{}')); res.writeHead(200); res.end('{}'); }); });
     await new Promise((r) => late.listen(hookPort, '127.0.0.1', r));

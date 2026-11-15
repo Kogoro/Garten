@@ -101,7 +101,7 @@ describe('glossary', () => {
       await sleep(800);
       repo = path.join(dataDir, 'repos', ca.tid, 'specs');
       assert.ok(existsSync(path.join(repo, 'docs', 'glossary.md')));
-      a.stop(); await sleep(600);
+      void a.stop(); await sleep(600);
       b = await startServer(env);
       const cb = new Client(b.base); await cb.login('admin@localhost', 'adminpass1');
       items = (await cb.sync()).data.items;

@@ -1,7 +1,7 @@
 import express from 'express';
 import compression from 'compression';
 import path from 'node:path';
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js';
 import { mcpAuthRouter, getOAuthProtectedResourceMetadataUrl } from '@modelcontextprotocol/sdk/server/auth/router.js';
@@ -86,16 +86,39 @@ app.all('/mcp', (_req, res) =>
 // ---- static app: the React build (web/dist, or WEB_DIR)
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const webDir = [process.env.WEB_DIR, path.join(root, 'web/dist')].filter(Boolean).find((d) => existsSync(path.join(d, 'index.html')));
+const cacheHeaders = (res, file) => {
+  if (/(^|\/)(sw\.js|index\.html|workbox-[^/]*\.js|manifest\.webmanifest|theme-init\.js)$/.test(file)) res.setHeader('Cache-Control', 'no-cache');
+  else if (/\/assets\//.test(file)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable'); // file names carry a content hash
+  else res.setHeader('Cache-Control', 'public, max-age=86400');
+};
+// The build writes .br / .gz next to compressible files (web/vite.config.ts): serve those to clients that accept them instead of
+// compressing on every request. Files without a precompressed variant (or clients without br/gzip) go on to express.static + compression.
+const PRECOMPRESSED = [['br', '.br'], ['gzip', '.gz']];
+function precompressed(dir) {
+  const base = path.resolve(dir);
+  return (req, res, next) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+    let rel;
+    try { rel = decodeURIComponent(req.path); } catch { return next(); }
+    if (rel.endsWith('/')) rel += 'index.html';
+    const file = path.join(base, rel);
+    if (!file.startsWith(base + path.sep) || /\0|(^|\/)\./.test(rel) || !isFile(file)) return next(); // as express.static: no dotfiles
+    const [enc, ext] = PRECOMPRESSED.find(([e, x]) => req.acceptsEncodings(e) === e && isFile(file + x)) ?? [];
+    if (!enc) return next();
+    res.setHeader('Content-Encoding', enc);
+    res.append('Vary', 'Accept-Encoding');
+    res.type(path.extname(file));
+    cacheHeaders(res, file);
+    res.sendFile(file + ext, { cacheControl: false, dotfiles: 'allow' }, (err) => {
+      if (!err || res.headersSent) return;
+      res.removeHeader('Content-Encoding'); res.removeHeader('Content-Type');
+      next(err.code === 'ENOENT' ? undefined : err);                    // gone since the check (rebuild): serve the plain file
+    });
+  };
+}
+const isFile = (f) => { try { return statSync(f).isFile(); } catch { return false; } };
 if (!webDir) console.warn('No web build found – run "npm run build" (web/dist) or set WEB_DIR.');
-else app.use(
-  express.static(webDir, {
-    setHeaders: (res, file) => {
-      if (/(^|\/)(sw\.js|index\.html|workbox-[^/]*\.js|manifest\.webmanifest|theme-init\.js)$/.test(file)) res.setHeader('Cache-Control', 'no-cache');
-      else if (/\/assets\//.test(file)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable'); // file names carry a content hash
-      else res.setHeader('Cache-Control', 'public, max-age=86400');
-    },
-  }),
-);
+else app.use(precompressed(webDir), express.static(webDir, { setHeaders: cacheHeaders }));
 
 app.use((err, _req, res, _next) => {
   const status = Number(err?.status ?? err?.statusCode);
@@ -106,6 +129,7 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ error: 'internal error' });
 });
 
+// @ts-expect-error -- the optional host is spread in, which the listen() overloads cannot express
 const server = app.listen(PORT, ...(HOST ? [HOST] : []), () => {
   console.log(`specs listening on ${HOST || ''}:${PORT}  (data: ${DATA_DIR}, public url: ${PUBLIC_URL}${OIDC ? ', sso: ' + OIDC.name : ''})`);
 });
