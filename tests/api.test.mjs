@@ -13,6 +13,7 @@ import { Client as McpClient } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { startServer, Client, startSmtpSink } from './helpers.mjs';
 import { parseGlossaryFile } from '../shared/glossaryImport.js';
+import { formatTermFile } from '../shared/glossaryFiles.js';
 
 const tmp = mkdtempSync(path.join(process.env.TEST_TMP || tmpdir(), 'specs-remote-'));
 const smtp = await startSmtpSink();
@@ -70,6 +71,9 @@ try {
   const rev = (await approver.c.sync()).data.items.find((i) => i.id === id).rev;
   r = await approver.c.push([{ id, kind: 'spec', baseRev: rev, approve: true, fields: {} }]);
   assert.equal(r[0].item.status, 'approved'); assert.equal(r[0].item.releasedBy, 'approver user'); ok('approver can release');
+  { const v = await approver.c.get(`/api/teams/${T1}/versions?spec=${encodeURIComponent(id)}`);
+    assert.equal(v.status, 200); assert.equal(v.data.versions.length, 1); assert.equal(v.data.versions[0].version, 1); assert.equal(v.data.versions[0].tag, `${id}/v1`); assert.equal(v.data.versions[0].by, 'approver user');
+    assert.equal((await approver.c.get(`/api/teams/${T1}/versions?spec=${encodeURIComponent('*')}`)).status, 400); ok('the released versions of a spec are listed from its Git tags'); }
 
   // ---------------------------------------------------------------- team isolation
   const t2 = (await admin.post('/api/teams', { name: 'Payments', key: 'PAY' })).data.team;
@@ -132,7 +136,7 @@ try {
   const draftTok = (await editor.c.post('/api/me/tokens', { name: 'drafts', scopes: ['mcp:read', 'mcp:drafts'], teamId: T1 })).data;
 
   let c0; let c = await mcp(readTok.token);
-  assert.deepEqual(await toolNames(c), ['get_document', 'get_glossary', 'get_spec', 'get_spec_changes', 'get_team_context', 'get_work_list', 'list_checks', 'list_decisions', 'list_documents', 'list_reports', 'list_spec_types', 'list_specs']);
+  assert.deepEqual(await toolNames(c), ['get_criteria', 'get_document', 'get_glossary', 'get_spec', 'get_spec_changes', 'get_team_context', 'get_work_list', 'list_checks', 'list_decisions', 'list_documents', 'list_reports', 'list_spec_types', 'list_specs']);
   assert.equal(await hasParam(c, 'list_specs', 'include_drafts'), false); ok('read token: no draft parameters exposed');
   assert.ok(JSON.parse((await call(c, 'list_specs')).text).find((s) => s.id === id && s.approved_by === 'approver user'));
   assert.match((await call(c, 'get_spec', { id })).text, /```mermaid\nflowchart LR/); ok('agent receives released spec incl. mermaid block');
@@ -173,7 +177,7 @@ try {
   const own2 = (await editor.c.get('/api/teams')).data.teams.find((x) => x.name === 'Editor Lab');
   const lab = new Client(BASE); lab.cookie = editor.c.cookie; lab.tid = own2.id;
   const labDocs = (await lab.sync()).data.items.filter((i) => i.kind === 'doc');
-  assert.deepEqual(labDocs.map((d) => d.id).sort(), ['glossary.md', 'guardrails.md', 'strategy.md', 'vision.md']); assert.ok(labDocs.every((d) => d.pinned && d.core)); ok('every new team starts with vision, strategy, guardrails and glossary');
+  assert.deepEqual(labDocs.map((d) => d.id).sort(), ['guardrails.md', 'strategy.md', 'vision.md']); assert.ok(labDocs.every((d) => d.pinned && d.core)); ok('every new team starts with vision, strategy and guardrails (the glossary is a folder of term files)');
   const labTok = (await editor.c.post('/api/me/tokens', { name: 'lab', scopes: ['mcp:read'], teamId: own2.id })).data.token;
   assert.match(await ctxTool(labTok), /Nothing has been written down yet/); ok('empty foundation documents are not served (template-only = empty)');
   const vis = labDocs.find((d) => d.id === 'vision.md');
@@ -182,12 +186,22 @@ try {
   await sleep(700);
   const ctx1 = await ctxTool(labTok);
   assert.match(ctx1, /calmest billing system/); ok('a foundation document goes live automatically after the edit – no spec, no link, no approval');
-  const gl2 = labDocs.find((d) => d.id === 'glossary.md');
-  await lab.push([{ id: 'glossary.md', kind: 'doc', baseRev: gl2.rev, fields: { body: '# Glossary\n\nDunning\n: Reminding customers about unpaid invoices.\n' } }]);
+  const dun = await lab.push([
+    { id: 'glossary/Billing', kind: 'folder', baseRev: 0, fields: {} },
+    { id: 'glossary/Billing/dunning.md', kind: 'doc', baseRev: 0, fields: { title: 'dunning', body: formatTermFile({ term: 'Dunning', avoid: ['reminder run'], distinct: ['Retry budget'], body: 'Reminding customers about **unpaid** invoices.\n\n- step 1: e-mail\n- step 2: letter' }) } },
+  ]);
+  assert.equal(dun[1].item.pinned, true); ok('a term file under glossary/ is pinned by the server (a foundation document)');
   await sleep(700);
   const cl2 = await mcp(labTok);
   const lg = JSON.parse((await call(cl2, 'get_glossary')).text);
-  assert.deepEqual(lg.map((g) => g.term), ['Dunning']); assert.match(await ctxTool(labTok), /\*\*Dunning\*\*: Reminding customers/);
+  assert.deepEqual(lg.map((g) => g.term), ['Dunning']); assert.match(lg[0].definition, /- step 2: letter/); assert.deepEqual(lg[0].avoid, ['reminder run']); assert.deepEqual(lg[0].not_to_be_confused_with, ['Retry budget']); assert.equal(lg[0].folder, 'Billing'); assert.equal(lg[0].source, 'glossary/Billing/dunning.md');
+  ok('get_glossary returns the full Markdown definition, words to avoid, distinctions and the folder');
+  const labCtx = await ctxTool(labTok);
+  assert.match(labCtx, /\*\*Dunning\*\*: Reminding customers about unpaid invoices\. — do not say: reminder run/); assert.doesNotMatch(labCtx, /step 2/); ok('get_team_context lists each term with its first paragraph and the words to avoid');
+  const labRepo = `${srv.dir}/repos/${own2.id}`;
+  assert.ok(existsSync(`${labRepo}/specs/docs/glossary/Billing/dunning.md`)); assert.match(readFileSync(`${labRepo}/specs/GLOSSARY.md`, 'utf8'), /- step 1: e-mail[\s\S]*Avoid: reminder run/); ok('the term file is released to docs/glossary/<folder>/ and GLOSSARY.md carries the full definition');
+  const hist = await lab.get(`/api/teams/${own2.id}/doc-history?path=${encodeURIComponent('glossary/Billing/dunning.md')}`);
+  assert.equal(hist.status, 200); assert.equal(hist.data.history.length, 1); assert.match(hist.data.history[0].message, /glossary\/Billing\/dunning\.md/); ok('the history of a term is the Git log of its file');
   const lst = JSON.parse((await call(cl2, 'list_documents')).text);
   assert.ok(lst.find((d) => d.path === 'vision.md' && d.always === true)); ok('the glossary is queryable via MCP without being linked to any spec; foundation docs are flagged "always"');
   await cl2.close();
@@ -210,8 +224,7 @@ try {
   assert.match(await ctxTool(labTok), /Zero double charges/); ok('with auto-release off a foundation document needs an explicit approval');
 
   // ---------------------------------------------------------------- glossary: aliases, references, global glossary
-  const glDoc = (await admin.sync()).data.items.find((i) => i.id === 'glossary.md');
-  await admin.push([{ id: 'glossary.md', kind: 'doc', baseRev: glDoc.rev, fields: { body: `${glDoc.body}\nRetry horizon\n: How long a retry stays idempotent. See [[Idempotency key]] and [[Ledger|the ledger]].\n: Aliases: horizon, retry cut-off\n: See also: Ledger entry\n` } }]);
+  await admin.push([{ id: 'glossary/retry-horizon.md', kind: 'doc', baseRev: 0, fields: { title: 'x', body: formatTermFile({ term: 'Retry horizon', body: 'How long a retry stays idempotent. See [[Idempotency key]] and [[Ledger|the ledger]].', aliases: ['horizon', 'retry cut-off'], see: ['Ledger entry'] }) } }]);
   await sleep(700);
   const cg = await mcp(tokA);
   const viaAlias = JSON.parse((await call(cg, 'get_glossary', { term: 'cut-off' })).text);
@@ -458,7 +471,8 @@ try {
   assert.match((await call(w, 'update_draft_spec', { id: created.id, body: 'stale', base_rev: created.rev })).text, /Conflict/); ok('update with a stale base_rev is rejected');
   const dA1 = JSON.parse((await call(w, 'create_draft_document', { path: 'adr/agent-note.md', body: 'Note' })).text); assert.equal(dA1.status, 'draft');
   assert.equal((await call(w, 'update_draft_document', { path: 'vision.md', body: 'hijack' })).isError, true);
-  assert.equal((await call(w, 'create_draft_document', { path: 'glossary.md', body: 'x' })).isError, true); ok('agents can write documents but never the foundation documents');
+  assert.equal((await call(w, 'create_draft_document', { path: 'vision.md', body: 'x' })).isError, true); ok('agents can write documents but never the foundation documents');
+  assert.match((await call(w, 'create_draft_document', { path: 'glossary/x.md', body: 'x' })).text, /propose_term/); ok('agents cannot write into the glossary folder: they propose terms');
   // derive glossary entries and specs from a document
   await call(w, 'create_draft_document', { path: 'notes/payments.md', body: 'Retries of one run are grouped. Attempt window is a bucket; Settlement run is the nightly batch.' });
   assert.ok(!(await toolNames(await mcp(rdTok.token))).includes('derive_from_document')); ok('derive_from_document needs the write scope');
@@ -468,13 +482,17 @@ try {
     glossary: [{ term: 'Settlement run', definition: 'The nightly batch that books payments.', aliases: ['nightly run'], see_also: ['Attempt window'] }, { term: 'Attempt window', definition: 'Dup of a released term.' }, { term: 'Batch cut-off', definition: 'Latest time a payment joins the run.' }],
     specs: [{ title: 'Nightly settlement', body: 'R1 Payments are booked once per night.\n- [ ] Run is idempotent' }],
   })).text);
-  assert.equal(dv.glossary.document, 'glossary/from-notes-payments.md'); assert.deepEqual(dv.glossary.added.sort(), ['Batch cut-off', 'Settlement run']);
-  assert.equal(dv.glossary.exists[0].term, 'Attempt window'); assert.match(dv.specs[0].id, /-\d{3}$/); assert.deepEqual(dv.specs[0].documents, ['glossary/from-notes-payments.md']); ok('derive_from_document writes a glossary draft, skips known terms, creates linked spec drafts');
-  const dvDoc = (await call(w, 'get_document', { name: 'glossary/from-notes-payments.md', draft: true })).text;
-  assert.match(dvDoc, /Settlement run\n: The nightly batch that books payments\.\n: Aliases: nightly run\n: See also: Attempt window/); assert.doesNotMatch(dvDoc, /Dup of a released/);
-  assert.match((await call(w, 'get_spec', { id: dv.specs[0].id, draft: true })).text, /## SOURCE\n\nDerived from `notes\/payments\.md`/); ok('derived content carries a definition list and a source section');
+  assert.deepEqual(dv.glossary.proposed.sort(), ['glossary/_proposed/batch-cut-off.md', 'glossary/_proposed/settlement-run.md']); assert.deepEqual(dv.glossary.added.sort(), ['Batch cut-off', 'Settlement run']);
+  assert.equal(dv.glossary.exists[0].term, 'Attempt window'); assert.match(dv.specs[0].id, /-\d{3}$/); assert.deepEqual(dv.specs[0].documents, []); ok('derive_from_document proposes terms (one file each), skips known terms and creates spec drafts');
+  const dvDoc = (await call(w, 'get_document', { name: 'glossary/_proposed/settlement-run.md', draft: true })).text;
+  assert.match(dvDoc, /^---\nterm: "Settlement run"\naliases: \["nightly run"\]\nsee: \["Attempt window"\]\nproposed_by: "[^"]+"\nfrom: "notes\/payments\.md"\n---\n\nThe nightly batch that books payments\.\n$/);
+  assert.match((await call(w, 'get_spec', { id: dv.specs[0].id, draft: true })).text, /## SOURCE\n\nDerived from `notes\/payments\.md`/); ok('a proposed term carries who proposed it and its source; specs carry a source section');
   const dv2 = JSON.parse((await call(w, 'derive_from_document', { source: 'notes/payments.md', glossary: [{ term: 'Settlement run', definition: 'Better wording.' }, { term: 'Ledger lock', definition: 'Blocks writes.' }] })).text);
-  assert.deepEqual(dv2.glossary.updated, ['Settlement run']); assert.deepEqual(dv2.glossary.added, ['Ledger lock']); assert.match(dv2.note, /not linked to any spec/); ok('a second call merges by term and warns about an unlinked glossary draft');
+  assert.deepEqual(dv2.glossary.updated, ['Settlement run']); assert.deepEqual(dv2.glossary.added, ['Ledger lock']); ok('a second call updates the proposal of the same term instead of duplicating it');
+  const pt = JSON.parse((await call(w, 'propose_term', { term: 'Payout batch', definition: 'All payouts of one day.\n\n- created at 18:00', folder: 'Payments' })).text);
+  assert.equal(pt.proposed, 'glossary/_proposed/payout-batch.md');
+  assert.equal(JSON.parse((await call(w, 'propose_term', { term: 'Retry window', definition: 'x' })).text).refused, 'already defined'); ok('propose_term adds one proposal and refuses known terms and synonyms');
+  assert.ok(!JSON.parse((await call(w, 'get_glossary')).text).some((g) => g.term === 'Payout batch')); ok('proposed terms never reach agents before an approver accepts them');
   assert.equal((await call(w, 'derive_from_document', { source: 'nope.md', glossary: [{ term: 'X', definition: 'y' }] })).isError, true);
   assert.equal((await call(w, 'derive_from_document', { source: 'notes/payments.md' })).isError, true); ok('unknown source / empty derivation are refused');
   // human approves the agent's draft
@@ -646,6 +664,9 @@ try {
     const reps = (await gView.c.get(`/api/teams/${T1}/reports?spec=${gid}`)).data.reports;
     assert.equal(reps.length, 1); assert.equal(reps[0].criteria[1].status, 'open'); assert.equal(reps[0].evidence[0].ref, 'abc1234'); assert.match(reps[0].via, /Builder agent/); assert.match(reps[0].deviations, /ISO/); ok('an agent reports criteria, evidence and deviations; everyone in the team can read the report');
     w = (await work()).work.find((x) => x.spec_id === gid); assert.equal(w.state, 'partial'); assert.equal(w.last_report.status, 'partial');
+    const gc = JSON.parse((await call(ro, 'get_criteria', { spec_id: gid })).text);
+    assert.deepEqual(gc.criteria.map((c) => [c.id, c.text, c.last_reported]), [['AC1', 'CSV export', 'met'], ['AC2', 'PDF export', 'open']]); assert.equal(reps[0].criteria[0].id, 'AC1');
+    assert.equal((await call(ro, 'get_criteria', { spec_id: draftId })).isError, true); ok('get_criteria: the spec\'s own checklist with stable ids and what the last report said; reports are matched to it');
     await call(ag, 'report_implementation', { spec_id: gid, status: 'implemented', summary: 'CSV and PDF export are done.', criteria: crit.map((c) => ({ text: c.text, status: 'met' })), evidence: [{ kind: 'pr', ref: 'https://git.example/pr/7' }] });
     const wl = await work(); assert.equal(wl.work.find((x) => x.spec_id === gid), undefined); assert.ok(wl.up_to_date >= 1);
     const s3 = (await gEd.c.post(syncUrl, { since: 1e9, changes: [] })).data;
@@ -657,6 +678,15 @@ try {
     const ch = JSON.parse((await call(ro, 'get_spec_changes', { id: gid })).text);
     assert.equal(ch.from, 1); assert.equal(ch.to, 2); assert.deepEqual(ch.sections_changed, [{ section: 'ACCEPTANCE CRITERIA', change: 'changed' }, { section: 'OUT OF SCOPE', change: 'added' }]); assert.match(ch.diff, /\+- \[ \] XLSX export/);
     assert.equal((await call(ro, 'get_spec_changes', { id: gid, from: 2, to: 2 })).isError, true); assert.equal((await call(ro, 'get_spec_changes', { id: 'NOPE-9' })).isError, true); ok('a newer release puts the spec back on the work list as changed, with the changed sections and a diff');
+    const short = await call(ag, 'report_implementation', { spec_id: gid, status: 'implemented', summary: 'All done', criteria: [{ id: 'AC1', status: 'met' }, { text: 'pdf export.', status: 'met' }] });
+    assert.equal(short.isError, true); assert.match(short.text, /leaves out 1: AC3 "XLSX export"/); ok('"implemented" is refused while a criterion of the spec is missing from the report');
+    assert.match((await call(ag, 'report_implementation', { spec_id: gid, status: 'partial', summary: 'x', criteria: [{ id: 'AC9', status: 'met' }] })).text, /no criterion "AC9"/);
+    assert.match((await call(ag, 'report_implementation', { spec_id: gid, status: 'partial', summary: 'x', criteria: [{ id: 'AC1', status: 'met' }, { text: 'CSV export', status: 'met' }] })).text, /both AC1/); ok('unknown ids and the same criterion twice are refused');
+    const r2 = JSON.parse((await call(ag, 'report_implementation', { spec_id: gid, status: 'partial', summary: 'CSV and PDF', criteria: [{ id: 'AC1', status: 'met' }, { text: 'PDF export', status: 'met' }, { text: 'Faster than before', status: 'met' }] })).text);
+    assert.deepEqual(r2.not_reported, ['AC3']); assert.equal(r2.not_in_spec, 1);
+    const lr2 = (await gView.c.get(`/api/teams/${T1}/reports?spec=${gid}`)).data.reports[0];
+    assert.deepEqual(lr2.criteria.map((c) => [c.id ?? null, c.status]), [['AC1', 'met'], ['AC2', 'met'], ['AC3', 'open'], [null, 'met']]); assert.equal(lr2.criteria[2].missing, true); assert.equal(lr2.criteria[0].text, 'CSV export');
+    ok('criteria left out are stored as open in the spec\'s order; extra lines of the agent are kept');
 
     // webhook: tells an agent runner about releases and answers
     const hookOf = async (c = admin) => (await c.get(`/api/teams/${T1}`)).data.team.hook;
@@ -797,6 +827,34 @@ try {
     } finally { b.stop(); late.close(); }
   }
 
+  // migration: the single glossary.md of older versions becomes a folder of term files on the next start
+  {
+    const dataDir = mkdtempSync(path.join(process.env.TEST_TMP || tmpdir(), 'specs-migrate-'));
+    const env = { DATA_DIR: dataDir, SEED_DEMO: '0', FOUNDATION_DEBOUNCE_MS: '100' };
+    const a = await startServer(env);
+    const ca = new Client(a.base); await ca.login('admin@localhost', 'adminpass1');
+    const old = '# Glossary\n\nLedger\n: The book of record.\n\n## Payments & Billing\n\nSettlement\n: Funds move to our bank.\n: Aliases: payout\n\n### Cards\n\nChargeback\n: A forced reversal. See [[Settlement]].\n';
+    await ca.push([{ id: 'glossary.md', kind: 'doc', baseRev: 0, fields: { title: 'glossary.md', body: old, pinned: true } }, { id: 'glossary/from-notes.md', kind: 'doc', baseRev: 0, fields: { title: 'x', body: '# Terms derived from notes.md\n\nRefund window\n: How long a refund stays possible.\n' } }]);
+    await sleep(800);
+    const repo = path.join(dataDir, 'repos', ca.tid, 'specs');
+    assert.ok(existsSync(path.join(repo, 'docs', 'glossary.md')));
+    a.stop(); await sleep(600);
+    const b = await startServer(env);
+    try {
+      const cb = new Client(b.base); await cb.login('admin@localhost', 'adminpass1');
+      const items = (await cb.sync()).data.items;
+      const live = items.filter((i) => !i.deleted && i.kind === 'doc').map((i) => i.id).sort();
+      assert.deepEqual(live.filter((x) => x.startsWith('glossary/')), ['glossary/Payments-Billing/Cards/chargeback.md', 'glossary/Payments-Billing/settlement.md', 'glossary/_proposed/refund-window.md', 'glossary/ledger.md']);
+      assert.ok(items.some((i) => i.id === 'glossary.md' && i.deleted)); assert.ok(items.some((i) => i.id === 'glossary/Payments-Billing' && i.kind === 'folder' && !i.deleted));
+      const st = items.find((i) => i.id === 'glossary/Payments-Billing/settlement.md');
+      assert.match(st.body, /^---\nterm: "Settlement"\naliases: \["payout"\]\n---\n\nFunds move to our bank\.\n$/); assert.equal(st.pinned, true); assert.equal(st.status, 'approved');
+      ok('migration: every definition of glossary.md becomes a term file, headings become (nested) folders, agent drafts become proposals');
+      assert.ok(existsSync(path.join(repo, 'docs', 'glossary', 'Payments-Billing', 'Cards', 'chargeback.md'))); assert.ok(!existsSync(path.join(repo, 'docs', 'glossary.md')));
+      assert.match(git(path.join(dataDir, 'repos', ca.tid), 'log', '-1', '--format=%s'), /Glossary: one file per term \(3 terms\)/); ok('migration: the released glossary is released again in one commit and glossary.md leaves the repository');
+      assert.ok(!items.find((i) => i.id === 'glossary/_proposed/refund-window.md').pinned); ok('migration: proposals are never live');
+    } finally { b.stop(); }
+  }
+
   // pausing the agents: empty work list, no webhook calls, a person can resume
   {
     const pEd = await mk('editor', 'pz');
@@ -859,10 +917,13 @@ try {
     r = await admin.push([{ id: sid, kind: 'spec', baseRev: cur.rev, fields: { body: cur.body + '\n- [ ] Third criterion\n' } }]);
     r = await admin.push([{ id: sid, kind: 'spec', baseRev: r[0].item.rev, approve: true, fields: {} }]); assert.equal(r[0].item.version, 2);
     w = await wl(); assert.equal(w.state, 'changed');
-    await call(ag, 'report_implementation', { spec_id: sid, version: 2, status: 'implemented', summary: 'v2', criteria: [{ text: 'Rotation works', status: 'met', checks: ['unit: rotation'] }] });
+    const v2rep = await call(ag, 'report_implementation', { spec_id: sid, version: 2, status: 'implemented', summary: 'v2', criteria: [{ text: 'Rotation works', status: 'met', checks: ['unit: rotation'] }, { id: 'AC2', status: 'met' }, { id: 'AC3', status: 'deviating', note: 'only for v2 keys' }] });
+    assert.ok(!v2rep.isError, v2rep.text);
     w = await wl(); assert.equal(w.state, 'recheck'); assert.equal(w.checks_to_run[0].state, 'stale'); ok('a passing result for an older spec version is stale after a new release');
     assert.equal(JSON.parse((await call(ag, 'retire_check', { spec_id: sid, name: 'unit: rotation' })).text).retired, 'unit: rotation');
     assert.equal((await call(ro, 'list_checks', { spec_id: sid })).text, '[]'); ok('a retired check no longer counts');
+    const rv = (await kEd.c.get(`/api/teams/${T1}/reports?spec=${sid}`)).data.reports[0];
+    assert.equal(rv.criteria[0].checkStates[0].state, 'retired'); assert.deepEqual(rv.verification, { met: 2, verified: 0, claimed: 1, failing: 0, stale: 1 }); ok('a criterion whose check was retired counts as stale: every met criterion is in exactly one bucket');
     await ag.close(); await ro.close();
 
     // guardrails: a foundation document every agent receives; agents cannot edit it
@@ -876,6 +937,178 @@ try {
     const ctx = (await call(agent2, 'get_team_context')).text;
     assert.match(ctx, /GUARDRAILS below are binding/); assert.match(ctx, /G1: Verify webhook signatures/); assert.ok(ctx.indexOf('guardrails.md') < ctx.indexOf('## Glossary') || !ctx.includes('## Glossary')); ok('released guardrails reach agents with the team context, with a note that they are binding');
     await agent2.close();
+  }
+
+  // a blocked spec comes back to the top of the work list when a person answers or dismisses the question
+  {
+    const bEd = await mk('editor', 'bl');
+    const ag = await mcp((await bEd.c.post('/api/me/tokens', { name: 'Blocked agent', scopes: ['mcp:read', 'mcp:drafts', 'mcp:write'], teamId: T1 })).data.token);
+    const sid = 'SPEC-871';
+    let r = await admin.push([{ id: sid, kind: 'spec', baseRev: 0, fields: { title: 'Blocked spec', body: '## REQUIREMENTS\nR1 Do the thing\n\n## ACCEPTANCE CRITERIA\n- [ ] It works\n' } }]);
+    await admin.push([{ id: sid, kind: 'spec', baseRev: r[0].item.rev, approve: true, fields: {} }]);
+    const wl = async () => JSON.parse((await call(ag, 'get_work_list')).text).work.find((x) => x.spec_id === sid);
+    const q1 = JSON.parse((await call(ag, 'request_decision', { spec_id: sid, question: 'Which thing?', options: ['A', 'B'] })).text);
+    const blocked = JSON.parse((await call(ag, 'report_implementation', { spec_id: sid, status: 'blocked', summary: 'Waiting for the choice', criteria: [{ id: 'R1', status: 'open' }] })).text);
+    assert.deepEqual(blocked.not_reported, ['AC1']);
+    let w = await wl(); assert.equal(w.state, 'blocked');
+    await new Promise((res) => setTimeout(res, 5));
+    await bEd.c.req('PATCH', `/api/teams/${T1}/feedback/${q1.id}`, { answer: 1 });
+    w = await wl(); assert.equal(w.state, 'decision_answered'); assert.equal(w.decisions_answered[0].outcome, 'answered'); assert.equal(w.decisions_answered[0].answer, 'B'); assert.equal(w.last_report.status, 'blocked');
+    ok('an answer moves a blocked spec to "decision_answered" at the top of the work list');
+    await call(ag, 'report_implementation', { spec_id: sid, status: 'blocked', summary: 'Still stuck on something else', criteria: [{ id: 'R1', status: 'open' }] });
+    const q2 = JSON.parse((await call(ag, 'request_decision', { spec_id: sid, question: 'Which colour?', options: ['Red', 'Blue'] })).text);
+    await new Promise((res) => setTimeout(res, 5));
+    await bEd.c.req('PATCH', `/api/teams/${T1}/feedback/${q2.id}`, { status: 'dismissed', reply: 'Not a product question – pick one.' });
+    w = await wl(); assert.equal(w.state, 'decision_answered'); assert.deepEqual([w.decisions_answered[0].outcome, w.decisions_answered[0].answer, w.decisions_answered[0].note], ['dismissed', null, 'Not a product question – pick one.']);
+    ok('a dismissed question reaches the agent too, with the note, and unblocks the spec');
+    for (let i = 0; i < 65; i++) assert.ok(!(await call(ag, 'list_feedback', { spec_id: sid })).isError);
+    assert.ok(!(await call(ag, 'add_feedback', { spec_id: sid, kind: 'gap', text: 'Colour is not specified' })).isError); ok('reading feedback does not use up the hourly write budget');
+    await ag.close();
+  }
+
+  // claims, liveness and the new trigger events (check, resume)
+  {
+    const hits = [];
+    const sink = createHttpServer((req, res) => { let b = ''; req.on('data', (d) => (b += d)); req.on('end', () => { hits.push(JSON.parse(b || '{}')); res.writeHead(200); res.end('{}'); }); });
+    await new Promise((r) => sink.listen(0, '127.0.0.1', r));
+    const waitHits = async (count, ms = 4000) => { const t0 = Date.now(); while (hits.length < count && Date.now() - t0 < ms) await new Promise((r) => setTimeout(r, 50)); return hits.length; };
+    const cEd = await mk('editor', 'cl');
+    const tokA = (await cEd.c.post('/api/me/tokens', { name: 'Agent A', scopes: ['mcp:read', 'mcp:drafts', 'mcp:write'], teamId: T1 })).data;
+    const tokB = (await cEd.c.post('/api/me/tokens', { name: 'Agent B', scopes: ['mcp:read', 'mcp:drafts', 'mcp:write'], teamId: T1 })).data;
+    const A = await mcp(tokA.token); const B = await mcp(tokB.token);
+    const sid = 'SPEC-872';
+    const body = (n) => `## ACCEPTANCE CRITERIA\n- [ ] Works (${n})\n`;
+    const release = async (n) => { const cur = (await admin.sync()).data.items.find((i) => i.id === sid); const r = await admin.push([{ id: sid, kind: 'spec', baseRev: cur?.rev ?? 0, approve: true, fields: { title: 'Claimed spec', body: body(n) } }]); assert.equal(r[0].status, 'applied', JSON.stringify(r)); };
+    await release(1);
+    const listOf = async (c) => JSON.parse((await call(c, 'get_work_list')).text);
+    const cA = JSON.parse((await call(A, 'claim_spec', { spec_id: sid, note: 'writing the parser' })).text);
+    assert.equal(cA.renewed, false); assert.ok(Date.parse(cA.until) - Date.now() > 25 * 60_000);
+    const wB = await listOf(B);
+    assert.ok(!wB.work.some((x) => x.spec_id === sid)); const other = wB.claimed_by_others.find((x) => x.spec_id === sid); assert.match(other.by, /Agent A/); assert.equal(other.doing, 'writing the parser');
+    const refusedB = await call(B, 'claim_spec', { spec_id: sid }); assert.equal(refusedB.isError, true); assert.match(refusedB.text, /being built by token: Agent A/);
+    assert.ok((await listOf(A)).work.find((x) => x.spec_id === sid).claimed_by_you_until); ok('claims: a claimed spec is listed apart for other agents, and a second claim is refused');
+    assert.equal(JSON.parse((await call(A, 'claim_spec', { spec_id: sid, minutes: 60 })).text).renewed, true);
+    assert.equal((await call(A, 'claim_spec', { spec_id: 'NOPE-1' })).isError, true); ok('claims: the holder renews its claim (heartbeat); only released specs can be claimed');
+    const g = (await cEd.c.post(`/api/teams/${T1}/sync`, { since: 1e9, changes: [] })).data.garden;
+    const ga = g.agents.find((x) => x.name === 'token: Agent A');
+    assert.equal(ga.connected, true); assert.equal(ga.lastTool, 'claim_spec'); assert.ok(Date.parse(ga.tokenExpiresAt) > Date.now()); assert.equal(ga.claims[0].specId, sid); assert.match(g.claims[sid].by, /Agent A/);
+    assert.ok(g.agents.find((x) => x.name === 'token: Agent B')); ok('liveness: the garden knows every agent, its last call, what it builds and when its token runs out');
+    assert.ok(JSON.parse((await call(A, 'report_implementation', { spec_id: sid, status: 'in_progress', summary: 'Started' })).text).claimed_until);
+    await call(A, 'report_implementation', { spec_id: sid, status: 'partial', summary: 'Half', criteria: [{ id: 'AC1', status: 'open' }] });
+    assert.equal(JSON.parse((await call(B, 'claim_spec', { spec_id: sid })).text).renewed, false);
+    assert.equal(JSON.parse((await call(B, 'unclaim_spec', { spec_id: sid })).text).released, true); assert.equal(JSON.parse((await call(A, 'unclaim_spec', { spec_id: sid })).text).released, false);
+    ok('claims: an in_progress report renews the claim, any other report gives it back; unclaim_spec only frees the own claim');
+
+    // trigger: failing CI results, stale checks (once per run) and resuming paused agents
+    await admin.req('PATCH', `/api/teams/${T1}`, { hook: { url: `http://127.0.0.1:${sink.address().port}/fire`, events: ['check', 'resume'], format: 'full' } });
+    await call(A, 'register_check', { spec_id: sid, name: 'unit: parser', kind: 'test', how: 'npm test' });
+    const ci = (st) => fetch(`${BASE}/api/ci/checks/results`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${tokA.token}` }, body: JSON.stringify({ spec_id: sid, name: 'unit: parser', status: st, value: st === 'fail' ? '3 failed' : '9 passed' }) });
+    await ci('fail');
+    assert.equal(await waitHits(1), 1); assert.equal(hits[0].event, 'check'); assert.deepEqual([hits[0].checks[0].state, hits[0].checks[0].source], ['failing', 'ci']); assert.match(hits[0].text, /unit: parser": failing in CI \(3 failed\)/);
+    await call(A, 'report_check_result', { spec_id: sid, name: 'unit: parser', status: 'fail' }); await new Promise((r) => setTimeout(r, 600)); assert.equal(hits.length, 1);
+    ok('trigger: a failing check from CI calls the trigger; one the agent reported itself does not');
+    await ci('pass'); await release(2);
+    assert.equal(await waitHits(2), 2); assert.equal(hits[1].checks[0].state, 'stale'); assert.match(hits[1].text, /stale – run it again/);
+    await release(3); await new Promise((r) => setTimeout(r, 600)); assert.equal(hits.length, 2); ok('trigger: a check that went stale is announced once per run');
+    await admin.req('PATCH', `/api/teams/${T1}`, { agentPaused: true }); await admin.req('PATCH', `/api/teams/${T1}`, { agentPaused: false });
+    assert.equal(await waitHits(3), 3); assert.equal(hits[2].event, 'resume'); assert.equal(hits[2].resumed, true); ok('trigger: resuming paused agents calls the trigger');
+    await admin.req('PATCH', `/api/teams/${T1}`, { hook: { url: '' } });
+    await A.close(); await B.close(); sink.close();
+  }
+
+  // the CI loop: a pipeline lists the checks to run, reports per tested version, and can be the only proof
+  {
+    const cEd = await mk('editor', 'ci');
+    const wTok = (await cEd.c.post('/api/me/tokens', { name: 'CI', scopes: ['mcp:read', 'mcp:drafts', 'mcp:write'], teamId: T1 })).data.token;
+    const rTok = (await cEd.c.post('/api/me/tokens', { name: 'CI read', scopes: ['mcp:read'], teamId: T1 })).data.token;
+    const ag = await mcp(wTok);
+    const sid = 'SPEC-895';
+    const rel = async (body) => { const cur = (await admin.sync()).data.items.find((i) => i.id === sid); const r = await admin.push([{ id: sid, kind: 'spec', baseRev: cur?.rev ?? 0, approve: true, fields: { title: 'CI spec', body } }]); assert.equal(r[0].status, 'applied'); };
+    await rel('## ACCEPTANCE CRITERIA\n- [ ] Fast\n');
+    await call(ag, 'register_check', { spec_id: sid, name: 'perf: p95', kind: 'metric', how: 'k6 run perf.js', expect: 'p95 < 200 ms' });
+    const list = async (tok, q = '') => fetch(`${BASE}/api/ci/checks${q}`, { headers: tok ? { authorization: `Bearer ${tok}` } : {} });
+    assert.equal((await list(null)).status, 401);
+    let lj = await (await list(rTok, `?spec=${sid}`)).json();
+    assert.deepEqual(lj.checks.map((c) => [c.spec_id, c.spec_version, c.name, c.how, c.state]), [[sid, 1, 'perf: p95', 'k6 run perf.js', 'unverified']]); assert.match(lj.report_to, /\/api\/ci\/checks\/results$/);
+    assert.equal((await (await list(rTok, `?spec=${sid}&state=failing`)).json()).checks.length, 0); ok('CI: a pipeline lists the checks to run with any team token, filtered by state or spec');
+    const post = (body) => fetch(`${BASE}/api/ci/checks/results`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${wTok}` }, body: JSON.stringify(body) }).then((r) => r.json());
+    await rel('## ACCEPTANCE CRITERIA\n- [ ] Fast\n- [ ] Cheap\n');
+    let out = await post({ spec_id: sid, name: 'perf: p95', status: 'pass', spec_version: 1, commit: 'old' });
+    assert.equal(out.results[0].state, 'stale'); assert.match((await post({ spec_id: sid, name: 'perf: p95', status: 'pass', spec_version: 9 })).results[0].error, /spec_version/);
+    out = await post({ spec_id: sid, name: 'perf: p95', status: 'pass', commit: 'new' }); assert.equal(out.results[0].state, 'passing'); ok('CI: a result counts for the spec version the tested code implements');
+    assert.equal((await cEd.c.req('PATCH', `/api/teams/${T1}`, { ciRequired: true })).status, 403);
+    assert.equal((await admin.req('PATCH', `/api/teams/${T1}`, { ciRequired: true })).data.team.ciRequired, true);
+    assert.equal((await admin.get('/api/me')).data.me.teams.find((t) => t.id === T1).ciRequired, true);
+    const mine = JSON.parse((await call(ag, 'report_check_result', { spec_id: sid, name: 'perf: p95', status: 'pass', value: '150 ms' })).text);
+    assert.equal(mine.state, 'unverified'); assert.equal(mine.needs_ci, true); assert.match(mine.note, /only results reported by CI/);
+    lj = await (await list(rTok, `?spec=${sid}`)).json(); assert.equal(lj.ci_required, true); assert.equal(lj.checks[0].needs_ci, true);
+    assert.equal((await post({ spec_id: sid, name: 'perf: p95', status: 'pass' })).results[0].state, 'passing'); ok('CI: where a team requires it, only results from CI prove a check; only admins switch it');
+    await admin.req('PATCH', `/api/teams/${T1}`, { ciRequired: false });
+    await ag.close();
+  }
+
+  // guardrails that change after a spec was built put it back on the work list
+  {
+    const gEd2 = await mk('editor', 'gd');
+    const ag = await mcp((await gEd2.c.post('/api/me/tokens', { name: 'Rule agent', scopes: ['mcp:read', 'mcp:drafts', 'mcp:write'], teamId: T1 })).data.token);
+    const sid = 'SPEC-891';
+    const r0 = await admin.push([{ id: sid, kind: 'spec', baseRev: 0, fields: { title: 'Rule-bound spec', body: '## ACCEPTANCE CRITERIA\n- [ ] Done\n' } }]);
+    await admin.push([{ id: sid, kind: 'spec', baseRev: r0[0].item.rev, approve: true, fields: {} }]);
+    const setRules = async (body) => { const g = (await admin.sync()).data.items.find((i) => i.id === 'guardrails.md'); const r = await admin.push([{ id: 'guardrails.md', kind: 'doc', baseRev: g.rev, approve: true, fields: { body } }]); assert.equal(r[0].status, 'applied'); };
+    await setRules('# Guardrails\n\n## Always\n- G1: Verify webhook signatures.\n\n## Never\n- G2: Log secrets.\n');
+    const report = () => call(ag, 'report_implementation', { spec_id: sid, status: 'implemented', summary: 'Built', criteria: [{ id: 'AC1', status: 'met' }] });
+    await report();
+    const entry = async () => JSON.parse((await call(ag, 'get_work_list')).text).work.find((x) => x.spec_id === sid);
+    assert.equal(await entry(), undefined);
+    const rep = (await admin.get(`/api/teams/${T1}/reports?spec=${sid}`)).data.reports[0]; assert.deepEqual(rep.guardrails, { G1: 'Verify webhook signatures.', G2: 'Log secrets.' }); ok('guardrails: a report records the rules it was built against');
+    await setRules('# Guardrails\n\n## Always\n- G1: Verify webhook signatures in constant time.\n\n## Never\n- G2: Log secrets.\n- G3: Store card numbers.\n');
+    const e = await entry();
+    assert.equal(e.state, 'guardrails_changed'); assert.deepEqual(e.rules_changed.map((r) => [r.id, r.kind, r.change]), [['G1', 'always', 'changed'], ['G3', 'never', 'added']]); assert.match(e.hint, /report again/);
+    const g = (await admin.post(`/api/teams/${T1}/sync`, { since: 1e9, changes: [] })).data.garden; assert.deepEqual(g.guardrailDrift[sid], ['G1', 'G3']);
+    ok('guardrails: new or reworded rules put an implemented spec back on the work list, with the rules to check; the garden knows');
+    await report(); assert.equal(await entry(), undefined);
+    await setRules('# Guardrails\n\n## Always\n- G1: Verify webhook signatures in constant time.\n\n## Never\n- G3: Store card numbers.\n');
+    assert.equal(await entry(), undefined); ok('guardrails: reporting again clears it; removing a rule asks nothing');
+    await ag.close();
+  }
+
+  // steering: priority, hold and dependencies decide what agents build next
+  {
+    const sEd = await mk('editor', 'st');
+    const ag = await mcp((await sEd.c.post('/api/me/tokens', { name: 'Steered agent', scopes: ['mcp:read', 'mcp:drafts', 'mcp:write'], teamId: T1 })).data.token);
+    const ids = ['SPEC-881', 'SPEC-882', 'SPEC-883'];
+    for (const id of ids) { const r = await admin.push([{ id, kind: 'spec', baseRev: 0, fields: { title: `Steered ${id}`, body: '## ACCEPTANCE CRITERIA\n- [ ] Done\n' } }]); await admin.push([{ id, kind: 'spec', baseRev: r[0].item.rev, approve: true, fields: {} }]); }
+    const steer = (c, id, body) => c.req('PATCH', `/api/teams/${T1}/steering/${id}`, body);
+    const wl = async () => JSON.parse((await call(ag, 'get_work_list')).text);
+    const pos = (w, id) => w.work.findIndex((x) => x.spec_id === id);
+    assert.equal((await steer(sEd.c, ids[0], { priority: 'high' })).status, 403); ok('steering: only approvers and admins steer');
+    assert.equal((await steer(admin, ids[2], { priority: 'urgent' })).status, 400);
+    assert.equal((await steer(admin, ids[2], { priority: 'high' })).data.steering.priority, 'high');
+    let w = await wl(); assert.ok(pos(w, ids[2]) < pos(w, ids[0])); assert.equal(w.work[pos(w, ids[2])].priority, 'high'); assert.equal(w.work[0].priority, 'high'); ok('steering: high priority comes first in the work list');
+    await steer(admin, ids[0], { hold: true, holdNote: 'Waiting for legal' });
+    w = await wl(); assert.equal(pos(w, ids[0]), -1); assert.deepEqual(w.on_hold.find((x) => x.spec_id === ids[0]).note, 'Waiting for legal'); ok('steering: a spec on hold leaves the work list, with the note');
+    await steer(admin, ids[1], { depends: [ids[2]] });
+    assert.equal((await steer(admin, ids[2], { depends: [ids[1]] })).status, 400); assert.equal((await steer(admin, ids[1], { depends: ['NOPE-1'] })).status, 400); assert.equal((await steer(admin, ids[1], { depends: [ids[1]] })).status, 400);
+    w = await wl(); assert.equal(pos(w, ids[1]), -1); assert.deepEqual(w.waiting_on_specs.find((x) => x.spec_id === ids[1]).waits_for, [ids[2]]); ok('steering: a spec waits until its dependencies are implemented; unknown specs and cycles are refused');
+    await call(ag, 'report_implementation', { spec_id: ids[2], status: 'implemented', summary: 'Done', criteria: [{ id: 'AC1', status: 'met' }] });
+    w = await wl(); assert.ok(pos(w, ids[1]) >= 0); assert.deepEqual(w.work[pos(w, ids[1])].built_after, [ids[2]]);
+    const g = (await admin.post(`/api/teams/${T1}/sync`, { since: 1e9, changes: [] })).data.garden;
+    assert.equal(g.steering[ids[0]].hold, true); assert.equal(g.steering[ids[2]].priority, 'high'); ok('steering: an implemented dependency releases the waiting spec; steering travels with the sync');
+    await steer(admin, ids[0], { hold: false }); assert.ok(pos(await wl(), ids[0]) >= 0);
+    await ag.close();
+  }
+
+  // spec quality: per type, how much agents had to ask, object, deviate and report again
+  {
+    const m = (await admin.get(`/api/teams/${T1}/metrics`)).data.metrics;
+    const q = m.quality;
+    assert.equal(q.types.reduce((a, t) => a + t.specs, 0), m.releasedSpecs); ok('quality: every released spec counts under its type');
+    const feat = q.types.find((t) => t.type === 'feature'); const api = q.types.find((t) => t.type === 'api');
+    assert.ok(feat.questionsPerSpec > 0 && feat.label === 'Feature spec' && feat.reportsPerSpec >= 1); assert.ok(api && api.specs >= 1);
+    const load = (t) => t.questionsPerSpec + t.feedbackPerSpec;
+    assert.ok(q.types.every((t, i) => !i || load(q.types[i - 1]) >= load(t))); ok('quality: types are ordered by how much agents had to ask or object');
+    assert.ok(q.unclear.length > 0 && q.unclear.length <= 5); assert.ok(q.unclear.every((x, i) => x.questions + x.feedback > 0 && (!i || q.unclear[i - 1].questions + q.unclear[i - 1].feedback >= x.questions + x.feedback)));
+    assert.ok(q.types.every((t) => t.deviationRate === null || (t.deviationRate >= 0 && t.deviationRate <= 1))); ok('quality: the specs agents struggled with most are listed, rates stay between 0 and 1');
   }
 
   // glossary lookup: input is validated before any third party is asked; sign-in is required

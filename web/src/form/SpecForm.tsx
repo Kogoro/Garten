@@ -62,7 +62,6 @@ function Rows({ items, onChange, ro, label, placeholder, prefix, renderPrefix, c
 
 type EpTab = 'text' | 'req' | 'res';
 function Endpoint({ e, onChange, onRemove, ro, n }: { e: Ep; onChange: (e: Ep) => void; onRemove: () => void; ro: boolean; n: number }) {
-  const [tab, setTab] = useState<EpTab>('text');
   const tabs: [EpTab, string, string][] = [['text', 'Description', 'What does this endpoint do? Preconditions, side effects, idempotency …'], ['req', 'Request', 'Parameters, headers, body …'], ['res', 'Responses', '200 OK – … · 404 – …']];
   return (
     <div className="endpoint ff-endpoint" data-content-type="endpoint">
@@ -71,8 +70,7 @@ function Endpoint({ e, onChange, onRemove, ro, n }: { e: Ep; onChange: (e: Ep) =
         <input className="ep-path" aria-label={`Path ${n}`} placeholder="/resources/{id}" spellCheck={false} autoComplete="off" readOnly={ro} value={e.path} onChange={(x) => onChange({ ...e, path: x.target.value })} />
         {!ro && <button type="button" className="icon-btn sm" aria-label={`Remove endpoint ${n}`} onClick={onRemove}>×</button>}
       </div>
-      <div className="tabs" role="tablist" aria-label="Endpoint sections">{tabs.map(([k, l]) => <button key={k} type="button" role="tab" aria-selected={tab === k} className={`tab${tab === k ? ' on' : ''}`} onClick={() => setTab(k)}>{l}{e[k]?.trim() ? <i className="dot" aria-hidden /> : null}</button>)}</div>
-      {tabs.map(([k, l, ph]) => tab === k && <Area key={k} label={`Endpoint ${n} ${l.toLowerCase()}`} mono={k !== 'text'} placeholder={ph} ro={ro} value={e[k] ?? ''} onChange={(v) => onChange({ ...e, [k]: v })} />)}
+      {tabs.map(([k, l, ph]) => (ro && !e[k]?.trim()) ? null : <div className="ep-section" key={k}><span className="ep-l">{l}</span><Area label={`Endpoint ${n} ${l.toLowerCase()}`} mono={k !== 'text'} placeholder={ph} ro={ro} value={e[k] ?? ''} onChange={(v) => onChange({ ...e, [k]: v })} /></div>)}
     </div>
   );
 }
@@ -127,7 +125,7 @@ export function SpecForm({ docKey, schema, value, readOnly, onChange }: { docKey
   return (
     <div className="specform" data-testid="spec-form" data-ro={readOnly ? '' : undefined}>
       {showTabs && (
-        <div className="tabs form-tabs" role="tablist" aria-label="Spec sections">
+        <div className="tabs form-tabs seg-tabs" role="tablist" aria-label="Spec sections">
           {tabs.map((t) => <button key={t.key} type="button" role="tab" aria-selected={tab === t.key} className={`tab${tab === t.key ? ' on' : ''}`} onClick={() => setTab(t.key)}>{t.label}{schema.fields.some((f) => (f.tab ?? tabs[0].key) === t.key && filled(f)) ? <i className="dot" aria-hidden /> : null}</button>)}
         </div>
       )}

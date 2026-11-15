@@ -70,5 +70,30 @@ sweepExpired();
 assert.deepEqual(db.prepare('SELECT id FROM sessions').all().map((r) => r.id), ['new']); assert.equal(db.prepare('SELECT COUNT(*) n FROM oauth_requests').get().n, 0);
 assert.deepEqual(db.prepare('SELECT client_id FROM oauth_clients').all().map((r) => r.client_id), ['fresh']); ok('janitor: expired sessions, requests and unused clients are removed');
 
+// ---- criteria: the checklist a report is held against
+{
+  const { specCriteria, findCriterion } = await import('../shared/criteria.js');
+  const md = '---\nid: X\n---\n\n# X\n\n## REQUIREMENTS\nR1 Keys rotate.\nR2 Window is 24h\n\n- not a criterion\n\n## ACCEPTANCE CRITERIA\n- [ ] Old key accepted\n- [x] **Revoked** key rejected\n* plain bullet\n\n```\n- [ ] in a fence\nR9 in a fence\n```\n\n## Definition of done\n- Docs updated\n\n## OUT OF SCOPE\n- Printing\n';
+  const c = specCriteria(md);
+  assert.deepEqual(c.map((x) => x.id), ['R1', 'R2', 'AC1', 'AC2', 'AC3', 'AC4']);
+  assert.equal(c[3].text, '**Revoked** key rejected'); assert.equal(c[5].section, 'Definition of done');
+  assert.equal(findCriterion(c, { id: 'r2' }).id, 'R2'); assert.equal(findCriterion(c, { text: 'R1: keys rotate' }).id, 'R1');
+  assert.equal(findCriterion(c, { text: 'revoked key rejected.' }).id, 'AC2'); assert.equal(findCriterion(c, { text: 'AC1 – done' }).id, 'AC1');
+  assert.equal(findCriterion(c, { text: 'Verified: old key accepted for 24 h' }).id, 'AC1'); assert.equal(findCriterion(c, { text: 'Something else' }), null);
+  assert.deepEqual(specCriteria('## GOAL\nnothing\n'), []); ok('criteria: requirements and acceptance items get stable ids; fences and other sections are ignored; reports match by id or text');
+}
+
+// ---- guardrails: rules and what changed since a report
+{
+  const { parseRules, ruleSnapshot, rulesChanged } = await import('../shared/guardrails.js');
+  const md = '# Guardrails\n\n<!-- - G9: in a comment -->\n## Always\n- G1: Verify signatures.\n* G2) Log in UTC\n\n## Never\n- G3: Log secrets.\n- G3: duplicate\n```\n- G7: in a fence\n```\n';
+  const r = parseRules(md);
+  assert.deepEqual(r.map((x) => [x.id, x.kind, x.text]), [['G1', 'always', 'Verify signatures.'], ['G2', 'always', 'Log in UTC'], ['G3', 'never', 'Log secrets.']]);
+  const snap = ruleSnapshot(r.slice(0, 2));
+  assert.deepEqual(rulesChanged(r, snap).map((x) => [x.id, x.change]), [['G3', 'added']]);
+  assert.deepEqual(rulesChanged(parseRules('- G1: Verify  signatures.\n- G2: Log in local time\n'), snap).map((x) => [x.id, x.change]), [['G2', 'changed']]);
+  assert.deepEqual(rulesChanged(r, null), []); ok('guardrails: rules are parsed by section; new and reworded rules count, whitespace and removed rules do not');
+}
+
 console.log(`\n${n} checks passed`);
 process.exit(0);

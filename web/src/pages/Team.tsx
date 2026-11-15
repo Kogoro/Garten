@@ -8,7 +8,7 @@ import { usePref } from '../prefs';
 import { Icon, ago, copy, toast, useStore } from '../ui';
 import { FIELD_KINDS, KIND_LABELS } from '@shared/specForm.js';
 import { ROLES, RIGHTS, ROLE_RIGHTS } from './Account';
-import { ROUTINE_HEADERS, ROUTINE_URL_HINT, mcpJson, routinePrompt } from '../agentSetup';
+import { ROUTINE_HEADERS, ROUTINE_URL_HINT, ciWorkflow, mcpJson, routinePrompt } from '../agentSetup';
 
 type Store = ReturnType<typeof useStore>;
 
@@ -111,7 +111,7 @@ function GitForm({ g, S, reload, res, setRes }: { g: any; S: Store; reload: () =
       </div>
       <label className="check"><input type="checkbox" id="g-auto" name="auto" defaultChecked={g.autoPush} disabled={ro} /> Push automatically after every approval or revoke</label>
       {g.url && (g.lastOk === false ? <span className="err-text">Last push failed: {g.lastError ?? ''}</span> : g.lastPushAt ? <span className="muted" style={{ fontSize: 13 }}>Last push {ago(Date.parse(g.lastPushAt))}{g.lastSha ? ` · ${g.lastSha.slice(0, 7)}` : ''}{g.lastError ? ` · ${g.lastError}` : ''}</span> : <span className="muted" style={{ fontSize: 13 }}>Nothing pushed yet.</span>)}
-      {res && <span className={res.ok ? '' : 'err-text'} style={{ fontSize: 13, ...(res.ok ? { color: 'var(--green)' } : {}) }}>{res.text}</span>}
+      {res && <span className={res.ok ? '' : 'err-text'} style={{ fontSize: 13, ...(res.ok ? { color: 'var(--text)' } : {}) }}>{res.text}</span>}
       {admin ? <div className="btns"><button className="btn primary" type="submit" disabled={!online}>Save</button><button type="button" className="btn" data-act="git-test" disabled={!online || !g.url} onClick={test}>Test connection</button>{S.can('approve') && <button type="button" className="btn" data-act="git-push" disabled={!online || !g.url} onClick={push}>Push now</button>}</div> : S.can('approve') && g.url && <div className="btns"><button type="button" className="btn" data-act="git-push" onClick={push}>Push now</button></div>}
       <p className="note" style={{ fontSize: 12 }}>Specs writes only inside <span className="mono">{g.root}/</span> (<span className="mono">&lt;ID&gt;.md</span>, <span className="mono">docs/</span>, <span className="mono">GLOSSARY.md</span>); everything else in your repository is left alone. If the branch already has commits they are merged in first; on conflicts in files Specs manages, Specs wins. The folder is locked after the first release.</p>
     </form>
@@ -143,7 +143,7 @@ function HookForm({ h, S, reload, res, setRes }: { h: any; S: Store; reload: () 
     if (headers.trim()) hook.headers = headers;
     setRes(null); await S.teamApi('PATCH', '', { hook }); toast(url.trim() ? 'Trigger saved' : 'Trigger removed'); await reload();
   });
-  const preset = () => { setFormat('text'); setHeaders(ROUTINE_HEADERS); if (!ev.length) setEv(['release', 'answer']); toast('Filled in for a Claude Code routine – add the URL and the token of your routine'); };
+  const preset = () => { setFormat('text'); setHeaders(ROUTINE_HEADERS); if (!ev.length) setEv(['release', 'answer', 'check', 'resume']); toast('Filled in for a Claude Code routine – add the URL and the token of your routine'); };
   const test = guard(async () => {
     if (!confirm('Send a test call now? With a Claude Code routine this starts a real (short) run and uses one run of your daily allowance.')) return;
     setRes(null); const r = await S.teamApi('POST', '/hook/test');
@@ -164,9 +164,11 @@ function HookForm({ h, S, reload, res, setRes }: { h: any; S: Store; reload: () 
       <label className="sr" htmlFor="h-headers">Extra headers</label>
       <textarea className="field mono hook-headers" id="h-headers" value={headers} onChange={(e) => setHeaders(e.target.value)} placeholder={h.headerNames.length ? `Saved: ${h.headerNames.join(', ')} – type to replace all` : 'Extra headers, one per line (optional)\nName: value'} autoCapitalize="off" spellCheck={false} />
       <div className="hook-ev"><label className="check"><input type="checkbox" id="h-ev-release" checked={ev.includes('release')} onChange={(e) => flip('release', e.target.checked)} /> Call when a spec is released</label>
-        <label className="check"><input type="checkbox" id="h-ev-answer" checked={ev.includes('answer')} onChange={(e) => flip('answer', e.target.checked)} /> Call when a decision is answered</label></div>
+        <label className="check"><input type="checkbox" id="h-ev-answer" checked={ev.includes('answer')} onChange={(e) => flip('answer', e.target.checked)} /> Call when a decision is answered</label>
+        <label className="check"><input type="checkbox" id="h-ev-check" checked={ev.includes('check')} onChange={(e) => flip('check', e.target.checked)} /> Call when CI reports a failing check or a check goes stale</label>
+        <label className="check"><input type="checkbox" id="h-ev-resume" checked={ev.includes('resume')} onChange={(e) => flip('resume', e.target.checked)} /> Call when paused agents are resumed</label></div>
       <span id="hookStatus" className={h.lastOk === false ? 'err-text' : 'muted'} style={{ fontSize: 13 }}>{!h.url ? 'No trigger yet – agents only work when someone starts them.' : h.lastAt ? <>{h.lastOk ? 'Last call accepted' : 'Last call failed'} {ago(Date.parse(h.lastAt))} · {h.lastInfo}{h.lastUrl && <> · <a href={h.lastUrl} target="_blank" rel="noreferrer noopener">Open the run</a></>}</> : 'Saved – not called yet.'}</span>
-      {res && <span id="hookRes" className={res.ok ? '' : 'err-text'} style={{ fontSize: 13, ...(res.ok ? { color: 'var(--green)' } : {}) }}>{res.text}{res.link && <> <a href={res.link} target="_blank" rel="noreferrer noopener">Open the run</a></>}</span>}
+      {res && <span id="hookRes" className={res.ok ? '' : 'err-text'} style={{ fontSize: 13, ...(res.ok ? { color: 'var(--text)' } : {}) }}>{res.text}{res.link && <> <a href={res.link} target="_blank" rel="noreferrer noopener">Open the run</a></>}</span>}
       <div className="btns"><button className="btn primary" type="submit" disabled={!online || !dirty}>Save</button><button type="button" className="btn" data-act="hook-test" disabled={!online || !h.url || dirty} onClick={test}>Send test</button></div>
       {h.url && <div className="btns">{h.headerNames.length > 0 && <button type="button" className="btn small" data-act="hook-clear-headers" disabled={!online} onClick={clearHeaders}>Remove extra headers</button>}<button type="button" className="btn small" data-act="hook-remove" style={{ color: 'var(--red)', borderColor: 'var(--red-line)' }} disabled={!online} onClick={remove}>Remove trigger</button></div>}
       <p className="note" style={{ fontSize: 12 }}>Token and headers are stored encrypted and never shown again. {h.allowLocal ? 'Local addresses are allowed on this server.' : 'Only public https:// addresses are called.'}</p>
@@ -193,8 +195,27 @@ function AgentSetup({ teamName, mcpUrl }: { teamName: string; mcpUrl: string }) 
       <div className="sect-title"><span>3 · Instruction for the routine</span></div>
       <div className="code as-prompt" id="as-prompt" tabIndex={0} role="region" aria-label="Instruction for the agent">{prompt}</div>
       <div className="btns"><button type="button" className="btn small" data-act="as-copy-prompt" onClick={() => copy(prompt)}>Copy instruction</button></div>
+      <CiSetup baseUrl={mcpUrl.replace(/\/mcp$/, '')} />
     </div>
   );
+}
+
+/** Optional: a pipeline runs the checks and reports the results itself – stronger evidence than the agent's word. */
+function CiSetup({ baseUrl }: { baseUrl: string }) {
+  const S = useStore();
+  const t = S.team();
+  const yaml = ciWorkflow(baseUrl);
+  const toggle = async (on: boolean) => {
+    try { await S.teamApi('PATCH', '', { ciRequired: on }); await S.refreshMe(); toast(on ? 'Only CI results prove a check now' : 'Agent results count again'); }
+    catch (e: any) { toast(e instanceof TypeError ? 'This needs a connection to the server.' : e.message); }
+  };
+  return <>
+    <div className="sect-title"><span>4 · Checks in your CI pipeline (optional)</span></div>
+    <p className="note">Agents register checks for what they built. A pipeline can run them and report the results itself: <span className="mono">GET /api/ci/checks</span> lists what to run, <span className="mono">POST /api/ci/checks/results</span> takes the results. The commands stay in your repository – the pipeline never runs a command it got from this server.</p>
+    <div className="code as-prompt" id="as-ci" tabIndex={0} role="region" aria-label="CI workflow">{yaml}</div>
+    <div className="btns"><button type="button" className="btn small" data-act="as-copy-ci" onClick={() => copy(yaml)}>Copy workflow</button></div>
+    {S.can('admin') && <label className="check"><input type="checkbox" id="ci-required" checked={!!t?.ciRequired} onChange={(e) => toggle(e.target.checked)} /> Only CI results prove a check (an agent’s own “pass” leaves it unverified)</label>}
+  </>;
 }
 
 export function TeamPage() {

@@ -1,8 +1,10 @@
 services:
   specs:
     init: true
+    # The published image of the latest release. GARTEN_IMAGE picks another one (e.g. ghcr.io/kogoro/garten:0.12.0);
+    # "docker compose up -d --build" builds this checkout instead (best with GARTEN_IMAGE=garten:local, so a later pull does not replace it).
+    image: ${GARTEN_IMAGE:-ghcr.io/kogoro/garten:latest}
     build: .
-    image: specs:prototype
     ports:
       - "${PORT:-3000}:3000"
     environment:

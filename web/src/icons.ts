@@ -1,6 +1,9 @@
 export const svg = (d: string, size = 22, sw = 1.8, extra = ''): string =>
   `<svg aria-hidden="true" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" ${extra}>${d}</svg>`;
 export const ic = {
+  close: (s: number = 14) => svg('<path d="M18 6 6 18"/><path d="m6 6 12 12"/>', s, 2),
+  link: (s?: number) => svg('<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>', s),
+  agent: (s?: number) => svg('<rect x="4" y="8" width="16" height="12" rx="2"/><path d="M12 8V4H8"/><path d="M9 13v2"/><path d="M15 13v2"/>', s),
   specs: (s?: number) => svg('<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6"/><path d="M9 17h4"/>', s),
   docs: (s?: number) => svg('<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>', s),
   release: (s?: number) => svg('<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/>', s),
@@ -8,6 +11,7 @@ export const ic = {
   sync: (s?: number) => svg('<path d="M20 12a8 8 0 0 0-14-5.3L4 9"/><path d="M4 4v5h5"/><path d="M4 12a8 8 0 0 0 14 5.3L20 15"/><path d="M20 20v-5h-5"/>', s),
   account: (s?: number) => svg('<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/>', s),
   glossary: (s?: number) => svg('<path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19V5"/><path d="M9 8h6"/><path d="M9 12h4"/>', s),
+  pause: (s?: number) => svg('<path d="M9 5v14"/><path d="M15 5v14"/>', s),
   more: (s: number = 22) => svg('<circle cx="5" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="19" cy="12" r="1.6" fill="currentColor"/>', s, 1),
   filter: (s: number = 22) => svg('<path d="M4 6h16"/><path d="M7 12h10"/><path d="M10 18h4"/>', s),
   shield: (s: number = 22) => svg('<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/>', s),
