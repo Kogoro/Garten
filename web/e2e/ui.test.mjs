@@ -289,6 +289,12 @@ try {
   assert.equal(await page.locator('.sheet .rp-crit li').first().locator('.rp-cid').innerText(), 'R1');
   assert.equal(await page.locator('.sheet .rp-ev a').getAttribute('href'), 'https://git.example.test/acme/api/pull/7');
   assert.ok(await page.locator('.sheet .rp-dev', { hasText: 'audit log' }).isVisible()); ok('garden: the report of the agent lists criteria, evidence and deviations');
+  await page.locator('#rp-steer [data-prio=high]').click();
+  await page.locator('#rp-steer [data-prio=high][aria-pressed=true]').waitFor();
+  await page.locator('#rp-steer [data-act=steer-hold]').check(); await page.locator('#rp-steer [aria-label="Why it is on hold"]').waitFor();
+  const wlSteer = await tool('get_work_list'); assert.ok(wlSteer.on_hold.some((x) => x.spec_id === 'SPEC-012'));
+  await page.locator('#rp-steer [data-act=steer-hold]').uncheck();
+  await page.locator('#gd-impl .gd-row[data-spec="SPEC-012"] [data-steer=priority]', { hasText: 'High priority' }).waitFor(); ok('garden: approvers set priority and hold of a spec in its report sheet; the pipeline shows it');
   await shot(page, '05c-report');
   await page.keyboard.press('Escape');
   // checks: re-runnable evidence next to the report, and "make it a rule" for a deviation

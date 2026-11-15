@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Sheet } from './dialogs';
 import type { Item } from './store/types';
-import { Icon, ago, useStore } from './ui';
+import { Icon, ago, toast, useStore } from './ui';
 import { RuleSheet } from './guardrails';
 
 export type Impl = { key: 'none' | 'outdated' | 'implemented' | 'partial' | 'blocked' | 'in_progress'; cls: string; text: string; rank: number };
@@ -103,6 +103,50 @@ export function ReportBody({ specId }: { specId: string }) {
 }
 
 /** The same report in a dialog (Garden). */
+const PRIO: [string, string][] = [['high', 'High'], ['normal', 'Normal'], ['low', 'Low']];
+/** Chips for a spec's steering: priority, hold, dependencies that are not built yet. */
+export function SteerChips({ specId }: { specId: string }) {
+  const S = useStore();
+  const st = S.specSteering(specId);
+  return <>
+    {st.priority !== 'normal' && <span className={`chip ${st.priority === 'high' ? 'warn' : ''}`} data-steer="priority">{st.priority === 'high' ? 'High priority' : 'Low priority'}</span>}
+    {st.hold && <span className="chip warn" data-steer="hold" title={st.holdNote || 'Agents do not start or continue it'}>On hold</span>}
+    {st.depends.length > 0 && <span className="chip" data-steer="depends">After {st.depends.join(', ')}</span>}
+  </>;
+}
+
+/** Approvers decide what the agents build next: priority, hold, and which specs come first. Needs a connection. */
+function Steering({ specId }: { specId: string }) {
+  const S = useStore();
+  const st = S.specSteering(specId);
+  const [deps, setDeps] = useState(st.depends.join(', '));
+  const [note, setNote] = useState(st.holdNote ?? '');
+  const [err, setErr] = useState('');
+  // shown at once; the server's answer (or a refusal) puts it right afterwards
+  const [view, setView] = useState({ priority: st.priority, hold: st.hold });
+  useEffect(() => setView({ priority: st.priority, hold: st.hold }), [st.priority, st.hold]);
+  if (!S.can('approve')) return null;
+  const save = async (patch: any, msg: string) => {
+    setErr('');
+    setView((v) => ({ ...v, ...('priority' in patch ? { priority: patch.priority } : {}), ...('hold' in patch ? { hold: patch.hold } : {}) }));
+    try { await S.steer(specId, patch); toast(msg); } catch (e: any) { setView({ priority: st.priority, hold: st.hold }); setErr(e instanceof TypeError ? 'Steering needs a connection to the server.' : e.message); }
+  };
+  const depList = deps.split(/[\s,]+/).map((x) => x.trim()).filter(Boolean);
+  return (
+    <section className="rp-steer" id="rp-steer">
+      <div className="sect-title"><span>Steering</span><small>what the agents build next</small></div>
+      <div className="seg" role="group" aria-label="Priority">{PRIO.map(([k, l]) => <button key={k} type="button" className="filter" data-prio={k} aria-pressed={view.priority === k} onClick={() => save({ priority: k }, `Priority: ${l.toLowerCase()}`)}>{l}</button>)}</div>
+      <label className="check"><input type="checkbox" data-act="steer-hold" checked={view.hold} onChange={(e) => save({ hold: e.target.checked, holdNote: note.trim() }, e.target.checked ? 'On hold – agents leave it alone' : 'No longer on hold')} /> On hold: agents do not start or continue it</label>
+      {view.hold && <input className="field" aria-label="Why it is on hold" placeholder="Why (agents see it)" value={note} maxLength={300} onChange={(e) => setNote(e.target.value)} onBlur={() => note.trim() !== (st.holdNote ?? '') && save({ holdNote: note.trim() }, 'Saved')} />}
+      <div className="rp-steer-deps">
+        <input className="field mono" aria-label="Build after these specs" placeholder="Build after (spec ids, e.g. SPEC-012)" value={deps} onChange={(e) => setDeps(e.target.value)} />
+        <button type="button" className="btn small" data-act="steer-deps" disabled={depList.join() === st.depends.join()} onClick={() => save({ depends: depList }, depList.length ? `Built after ${depList.join(', ')}` : 'No dependencies')}>Save</button>
+      </div>
+      {err && <p className="note bad" role="alert">{err}</p>}
+    </section>
+  );
+}
+
 export function ReportSheet({ specId, onClose, link }: { specId: string; onClose: () => void; link?: boolean }) {
   const S = useStore();
   const spec = S.get(specId);
@@ -111,6 +155,7 @@ export function ReportSheet({ specId, onClose, link }: { specId: string; onClose
       <h2>Implementation of {specId}</h2>
       {spec?.title && <p>{spec.title}</p>}
       <ReportBody specId={specId} />
+      {spec?.status === 'approved' && <Steering specId={specId} />}
       {link && <div className="btns" style={{ marginTop: 12 }}><Link className="btn small" to={`/spec/${encodeURIComponent(specId)}`} onClick={onClose}>Open spec</Link></div>}
     </Sheet>
   );
