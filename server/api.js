@@ -238,7 +238,7 @@ export function apiRouter() {
 
   // one round trip: push local changes, pull everything newer than `since`
   team.post('/sync', requireTeam('read'), wrap(async (req, res) => {
-    const { since = 0, changes = [], feedbackOps, gardenRev: have } = req.body ?? {};
+    const { since = 0, changes = [], feedbackOps, gardenRev: have, fetchedSince } = req.body ?? {};
     if (!Array.isArray(changes)) return res.status(400).json({ error: 'changes must be an array' });
     if (changes.length > 2000) return res.status(413).json({ error: 'Too many changes in one sync (2000 at most)' });
     const results = [];
@@ -276,9 +276,14 @@ export function apiRouter() {
       }
     }
     const rev = gardenRev(t);
+    const from = Number(since) || 0;
+    const garden = () => { const checks = checksBySpec(t); return { rev, feedback: gardenFeedback(t), reports: latestReports(t, checks), checks }; };
     res.json({
-      results, fbResults, items: store.itemsSince(t, Number(since) || 0), cursor: store.maxSeq(t), me: me(req.user), project: PROJECT_NAME, mcpUrl: `${PUBLIC_URL}/mcp`, specTypes: listTypes(t), feedbackOpen: openCounts(t),
-      ...(have === rev ? {} : { garden: { rev, feedback: gardenFeedback(t), reports: latestReports(t), checks: checksBySpec(t) } }), // what the garden view needs offline; only sent when it changed
+      results, fbResults, items: store.itemsSince(t, from), cursor: store.maxSeq(t), me: me(req.user), project: PROJECT_NAME, mcpUrl: `${PUBLIC_URL}/mcp`, specTypes: listTypes(t), feedbackOpen: openCounts(t),
+      // agent reads (fetched_at) travel apart from the items, so a read does not send the item's body again. Clients that do not
+      // send fetchedSince (older clients) get none; a full sync (since 0) has them in the items already.
+      ...(typeof fetchedSince === 'string' ? { fetched: from ? store.fetchedSince(t, fetchedSince) : {}, fetchedCursor: store.lastFetched(t) } : {}),
+      ...(have === rev ? {} : { garden: garden() }), // what the garden view needs offline; only sent when it changed
     });
   }));
 

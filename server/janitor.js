@@ -1,6 +1,8 @@
-// Hourly cleanup: expired sessions, OAuth requests/codes/tokens, old invitations, unused dynamic clients, old audit entries.
+// Hourly cleanup: expired sessions, OAuth requests/codes/tokens, old invitations, unused dynamic clients, old audit entries,
+// old closed feedback (see pruneFeedback for what is kept).
 import { db } from './db.js';
 import { pruneAudit } from './audit.js';
+import { pruneFeedback } from './feedback.js';
 
 export function sweepExpired() {
   const t = Math.floor(Date.now() / 1000);
@@ -14,6 +16,7 @@ export function sweepExpired() {
   db.prepare(`DELETE FROM oauth_clients WHERE created_at < ? AND client_id NOT IN (SELECT client_id FROM oauth_tokens)
               AND client_id NOT IN (SELECT client_id FROM oauth_requests) AND client_id NOT IN (SELECT client_id FROM oauth_codes)`).run(old);
   pruneAudit();
+  pruneFeedback();
 }
 
 export function startJanitor() {

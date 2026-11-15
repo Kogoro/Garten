@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { db } from './db.js';
+import { sql, REPORTS_KEPT } from './db.js';
 import * as store from './store.js';
 import { ApiError } from './store.js';
 import { bumpGarden, DECISION } from './feedback.js';
@@ -31,7 +31,8 @@ const view = (r, checks) => {
 };
 const clip = (s, n) => String(s ?? '').trim().slice(0, n);
 
-/** An agent reports what it built for a released spec version: status, each acceptance criterion, evidence, deviations. Reports are append-only. */
+/** An agent reports what it built for a released spec version: status, each acceptance criterion, evidence, deviations. Reports are append-only;
+ *  the newest REPORTS_KEPT per spec are kept (the newest one is the current state, everything else is history). */
 export function addReport(team, { specId, version, status, summary, criteria, evidence, deviations }, by) {
   const spec = store.getItem(team.id, specId);
   if (!spec || spec.kind !== 'spec') throw new ApiError(`No spec "${specId}".`, 404);
@@ -66,25 +67,29 @@ export function addReport(team, { specId, version, status, summary, criteria, ev
   const dev = clip(deviations, 4000);
   if (status === 'implemented' && crit.some((c) => c.status === 'open')) throw new ApiError('A report with open criteria is "partial", not "implemented".');
   const id = randomUUID();
-  db.prepare('INSERT INTO reports (id,team_id,spec_id,spec_version,status,summary,criteria,evidence,deviations,author,author_id,via,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+  sql('INSERT INTO reports (id,team_id,spec_id,spec_version,status,summary,criteria,evidence,deviations,author,author_id,via,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
     .run(id, team.id, specId, v, status, sum, JSON.stringify(crit), JSON.stringify(evid), dev, by?.name ?? null, by?.id ?? null, by?.via ?? null, new Date().toISOString());
+  sql('DELETE FROM reports WHERE team_id=? AND spec_id=? AND rowid NOT IN (SELECT rowid FROM reports WHERE team_id=? AND spec_id=? ORDER BY created_at DESC, rowid DESC LIMIT ?)')
+    .run(team.id, specId, team.id, specId, REPORTS_KEPT);
   bumpGarden(team.id);
-  return view(db.prepare('SELECT * FROM reports WHERE id=?').get(id), checksOf(team.id, specId));
+  return view(sql('SELECT * FROM reports WHERE id=?').get(id), checksOf(team.id, specId));
 }
 
-export function listReports(teamId, { specId, limit = 50 } = {}) {
+export function listReports(teamId, { specId, limit = REPORTS_KEPT } = {}) {
   const rows = specId
-    ? db.prepare('SELECT * FROM reports WHERE team_id=? AND spec_id=? ORDER BY created_at DESC, rowid DESC LIMIT ?').all(teamId, specId, limit)
-    : db.prepare('SELECT * FROM reports WHERE team_id=? ORDER BY created_at DESC, rowid DESC LIMIT ?').all(teamId, limit);
+    ? sql('SELECT * FROM reports WHERE team_id=? AND spec_id=? ORDER BY created_at DESC, rowid DESC LIMIT ?').all(teamId, specId, limit)
+    : sql('SELECT * FROM reports WHERE team_id=? ORDER BY created_at DESC, rowid DESC LIMIT ?').all(teamId, limit);
   const bySpec = checksBySpec(teamId);
   return rows.map((r) => view(r, bySpec[r.spec_id]));
 }
 
-/** The newest report of every spec (what the garden view shows, also offline). */
-export function latestReports(teamId) {
+/** The newest report of every spec (what the garden view shows, also offline). Pass checksBySpec when it is at hand already. */
+export function latestReports(teamId, bySpec = checksBySpec(teamId)) {
   const out = {};
-  const bySpec = checksBySpec(teamId);
-  for (const r of db.prepare('SELECT * FROM reports WHERE team_id=? ORDER BY created_at, rowid').all(teamId)) out[r.spec_id] = view(r, bySpec[r.spec_id]);
+  // one index lookup per spec (reports_spec), so older reports are never read
+  const rows = sql(`SELECT r.* FROM (SELECT DISTINCT spec_id FROM reports WHERE team_id=?) s
+    JOIN reports r ON r.rowid = (SELECT x.rowid FROM reports x WHERE x.team_id=? AND x.spec_id=s.spec_id ORDER BY x.created_at DESC, x.rowid DESC LIMIT 1)`).all(teamId, teamId);
+  for (const r of rows) out[r.spec_id] = view(r, bySpec[r.spec_id]);
   return out;
 }
 
@@ -94,12 +99,13 @@ export function workList(team) {
   if (team.row.agent_paused) {
     return { team: team.name, paused: true, work: [], note: 'A person has paused the agents of this team. Do not start new work; try again later. Answers to your questions and reports are still accepted.' };
   }
-  const latest = latestReports(t);
-  const decisions = db.prepare("SELECT * FROM feedback WHERE team_id=? AND kind=? AND status IN ('open','answered') ORDER BY created_at").all(t, DECISION);
-  const feedbackOpen = Object.fromEntries(db.prepare("SELECT spec_id, COUNT(*) AS n FROM feedback WHERE team_id=? AND status='open' AND kind<>? GROUP BY spec_id").all(t, DECISION).map((r) => [r.spec_id, r.n]));
   const allChecks = checksBySpec(t);
+  const latest = latestReports(t, allChecks);
+  const released = store.approvedSpecs(t);
+  const decisions = sql("SELECT * FROM feedback WHERE team_id=? AND kind=? AND status IN ('open','answered') ORDER BY created_at").all(t, DECISION);
+  const feedbackOpen = Object.fromEntries(sql("SELECT spec_id, COUNT(*) AS n FROM feedback WHERE team_id=? AND status='open' AND kind<>? GROUP BY spec_id").all(t, DECISION).map((r) => [r.spec_id, r.n]));
   const work = []; let done = 0;
-  for (const s of store.approvedSpecs(t)) {
+  for (const s of released) {
     const rep = latest[s.id];
     const mine = decisions.filter((d) => d.spec_id === s.id);
     const open = mine.filter((d) => d.status === 'open');
@@ -130,7 +136,7 @@ export function workList(team) {
   const rank = { decision_answered: 0, changed: 1, recheck: 2, new: 3, in_progress: 4, partial: 5, blocked: 6, implemented: 7 };
   work.sort((a, b) => rank[a.state] - rank[b.state] || a.spec_id.localeCompare(b.spec_id));
   return {
-    team: team.name, released_specs: store.approvedSpecs(t).length, up_to_date: done, work,
+    team: team.name, released_specs: released.length, up_to_date: done, work,
     states: 'new = never reported · changed = a newer version was released since your last report · recheck = implemented, but a check fails, is stale (too old or from an older version) or never ran – run it again · decision_answered = a person answered your question · in_progress / partial / blocked = your last report · implemented = done, listed only because a question is still open',
     note: work.length ? 'Entries with a blocking waiting_for_decision must wait for a person; work on the others.' : 'Nothing to do: every released spec has an "implemented" report for its current version.',
   };
@@ -151,9 +157,9 @@ const sections = (md) => {
 export async function specChanges(team, id, from, to) {
   const spec = store.getItem(team.id, id);
   if (!spec || spec.kind !== 'spec' || spec.version < 1) throw new ApiError(`No released spec "${id}".`, 404);
-  const latest = latestReports(team.id)[id];
+  const latest = sql('SELECT spec_version FROM reports WHERE team_id=? AND spec_id=? ORDER BY created_at DESC, rowid DESC LIMIT 1').get(team.id, id);
   const b = to === undefined || to === null ? spec.version : Number(to);
-  const a = from === undefined || from === null ? (latest && latest.specVersion < b ? latest.specVersion : b - 1) : Number(from);
+  const a = from === undefined || from === null ? (latest && latest.spec_version < b ? latest.spec_version : b - 1) : Number(from);
   if (!Number.isInteger(b) || b < 1 || b > spec.version) throw new ApiError(`to must be a released version of ${id} (1–${spec.version}).`);
   if (!Number.isInteger(a) || a < 0 || a >= b) throw new ApiError(`from must be a version before v${b}.`);
   if (a === 0) return { id, from: null, to: b, note: `v${b} is the first version you see – read it completely with get_spec.`, sections_changed: [], diff: '' };

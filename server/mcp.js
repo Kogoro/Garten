@@ -55,7 +55,7 @@ function buildServer(team, canDrafts, writer) {
       const labels = Object.fromEntries(listTypes(t).map((x) => [x.key, x.label]));
       const rows = store.approvedSpecs(t).map((s) => ({ id: s.id, type: s.specType, type_label: labels[s.specType] ?? s.specType, title: s.title, status: 'approved', version: s.version, approved_at: s.releasedAt, approved_by: s.releasedBy, documents: s.links }));
       if (canDrafts && args?.include_drafts) {
-        for (const s of store.allSpecs(t).filter((x) => x.status !== 'approved')) rows.push({ id: s.id, type: s.specType, type_label: labels[s.specType] ?? s.specType, title: s.title, status: 'draft', version: 0, documents: s.links });
+        for (const s of store.allSpecs(t, { body: false }).filter((x) => x.status !== 'approved')) rows.push({ id: s.id, type: s.specType, type_label: labels[s.specType] ?? s.specType, title: s.title, status: 'draft', version: 0, documents: s.links });
       }
       return text(JSON.stringify(args?.type ? rows.filter((r) => r.type === args.type) : rows, null, 2));
     },
