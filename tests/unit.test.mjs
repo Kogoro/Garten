@@ -1,7 +1,7 @@
 // Unit tests of the security helpers: network guard, validation, rate limiter, secrets, repository path safety, cleanup.
 //   node tests/unit.test.mjs
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, symlinkSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';

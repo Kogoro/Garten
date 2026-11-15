@@ -21,6 +21,7 @@ export function audit(req, action, { team = null, target = null, detail = null, 
   } catch (e) { console.error('audit:', e.message); }
 }
 
+/** @param {{ limit?: any, before?: any, action?: any, teamId?: any }} [opts] Values may come straight from the query string. */
 export function listAudit({ limit = 200, before, action, teamId } = {}) {
   const where = []; const args = [];
   if (before) { where.push('id < ?'); args.push(Number(before)); }

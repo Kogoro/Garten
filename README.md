@@ -184,7 +184,12 @@ npm run build                # Frontend bauen (web/dist)
 cd web && npm run dev        # Vite-Dev-Server mit Proxy auf :3000 (Server separat: npm start)
 npm test                     # baut das Frontend und führt alle Tests aus
 npm run ux-audit             # Barrierefreiheit/Performance auf Handy und Desktop (axe-core, WCAG 2.2 AA)
+npm run lint                 # ESLint (server, shared, tests, scripts, web/src)
+npm run typecheck            # TypeScript-Prüfung von server/ + shared/ (JSDoc, tsconfig.json) und web/
+npm run format               # Prettier schreibt die Formatierung; format:check prüft nur
 ```
+
+Vorher `npm ci` und `npm --prefix web ci` (Lint und Typprüfung von `web/src` brauchen die Web-Abhängigkeiten). `lint` und `typecheck` laufen in der CI. ESLint prüft nur auf Fehler (ungenutzte Variablen, unbekannte Namen, unbehandelte Promises, Hook-Regeln …), die Formatierung übernimmt Prettier (`.prettierrc.json`, Zeilenbreite 140). Der Server wird ohne Build per `checkJs` geprüft; Typen stehen als JSDoc im Code, Ergänzungen für Express und `node:sqlite` in `server/types.d.ts`. `tsconfig.json` nennt die noch abgeschalteten strikten Prüfungen mit ihrer aktuellen Fehlerzahl.
 
 Einzelne Suiten: `tests/api.test.mjs`, `tests/oidc.test.mjs`, `tests/unit.test.mjs`, `web` (Vitest), `web/e2e/ui.test.mjs` (Playwright). Weitere Dokumente: `docs/DESIGN-SYSTEM.md`, `docs/UI-VOCABULARY.md`, `docs/UX-SCORECARD.md`, `web/PARITY.md`.
 

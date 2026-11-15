@@ -129,6 +129,7 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ error: 'internal error' });
 });
 
+// @ts-expect-error -- the optional host is spread in, which the listen() overloads cannot express
 const server = app.listen(PORT, ...(HOST ? [HOST] : []), () => {
   console.log(`specs listening on ${HOST || ''}:${PORT}  (data: ${DATA_DIR}, public url: ${PUBLIC_URL}${OIDC ? ', sso: ' + OIDC.name : ''})`);
 });

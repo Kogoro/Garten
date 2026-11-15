@@ -3,8 +3,8 @@ import dns from 'node:dns';
 import net from 'node:net';
 
 const blocked = new net.BlockList();
-for (const [a, p] of [['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8], ['169.254.0.0', 16], ['172.16.0.0', 12], ['192.0.0.0', 24], ['192.168.0.0', 16], ['198.18.0.0', 15], ['224.0.0.0', 4], ['240.0.0.0', 4]]) blocked.addSubnet(a, p, 'ipv4');
-for (const [a, p] of [['::', 128], ['::1', 128], ['64:ff9b::', 96], ['fc00::', 7], ['fe80::', 10], ['ff00::', 8]]) blocked.addSubnet(a, p, 'ipv6');
+for (const [a, p] of /** @type {[string, number][]} */ ([['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8], ['169.254.0.0', 16], ['172.16.0.0', 12], ['192.0.0.0', 24], ['192.168.0.0', 16], ['198.18.0.0', 15], ['224.0.0.0', 4], ['240.0.0.0', 4]])) blocked.addSubnet(a, p, 'ipv4');
+for (const [a, p] of /** @type {[string, number][]} */ ([['::', 128], ['::1', 128], ['64:ff9b::', 96], ['fc00::', 7], ['fe80::', 10], ['ff00::', 8]])) blocked.addSubnet(a, p, 'ipv6');
 
 /** True for private/local addresses – and for anything that is not an IP address at all. */
 export const isPrivate = (address) => {
@@ -29,7 +29,7 @@ export function isPrivateHostLiteral(rawHost) {
 /** dns.lookup replacement for http(s).request: refuses private results unless allowLocal. Checked at connection time (no DNS rebinding). */
 export const makeSafeLookup = (allowLocal) => (host, opts, cb) => {
   if (typeof opts === 'function') { cb = opts; opts = {}; }
-  dns.lookup(host, { ...opts, all: true }, (err, list) => {
+  dns.lookup(host, { ...opts, all: true }, (err, /** @type {import('node:dns').LookupAddress[]} */ list) => {
     if (err) return cb(err);
     if (!allowLocal && list.some((a) => isPrivate(a.address))) return cb(new Error('the address is private or local – not allowed'));
     if (opts.all) cb(null, list); else cb(null, list[0].address, list[0].family);
@@ -49,7 +49,7 @@ export function gitHost(url) {
 export async function assertPublicRemote(url, allowPrivate) {
   const host = gitHost(url);
   if (host === null || allowPrivate) return;
-  const refuse = () => { const e = new Error('This repository address points into a private or local network. Set GIT_ALLOW_PRIVATE=1 on the server to allow that.'); e.status = 400; e.guard = true; return e; };
+  const refuse = () => { const e = /** @type {Error & { status?: number, guard?: boolean }} */ (new Error('This repository address points into a private or local network. Set GIT_ALLOW_PRIVATE=1 on the server to allow that.')); e.status = 400; e.guard = true; return e; };
   if (!host || isPrivateHostLiteral(host)) throw refuse();
   if (net.isIP(host)) return;
   let list;

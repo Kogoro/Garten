@@ -105,6 +105,7 @@ export const provider = {
   },
 };
 
+/** @param {{ clientId: string, userId: string, teamId: string, scopes: string[], resource?: string, reuseId?: string, createdAt?: number }} grant */
 function issue({ clientId, userId, teamId, scopes, resource, reuseId, createdAt }) {
   const access = rand('spo');
   const refresh = rand('spr');

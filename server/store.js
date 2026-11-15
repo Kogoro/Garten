@@ -4,7 +4,7 @@ import { DATA_DIR } from './config.js';
 import { sql } from './db.js';
 import { Repo } from './git.js';
 import { parseDefinitions, glossaryMarkdown, hasContent } from '../shared/glossary.js';
-import { parseTermFile, isTermPath, isProposedPath, isGlossaryPath, splitGlossaryMd, formatTermFile, termPath, folderSegment } from '../shared/glossaryFiles.js';
+import { parseTermFile, isTermPath, isProposedPath, splitGlossaryMd, formatTermFile, termPath, folderSegment } from '../shared/glossaryFiles.js';
 import { getTeam, listTeams } from './teams.js';
 import { isKnownType } from './specTypes.js';
 import { DEFAULT_TYPE } from '../shared/spectypes.js';
@@ -88,6 +88,7 @@ export const fetchedSince = (t, since) =>
 export const lastFetched = (t) => sql('SELECT MAX(fetched_at) AS at FROM items WHERE team_id=?').get(t).at ?? '';
 
 /** Create or update an item. `baseRev` must equal the current revision (0 = create). */
+/** @param {any} t @param {{ id: string, kind: string, title?: string, body?: string, links?: string[], pinned?: boolean, specType?: string }} item @param {number} [baseRev] @param {any} [by] */
 export function saveItem(t, { id, kind, title, body, links, pinned, specType }, baseRev, by = null) {
   if (specType !== undefined && kind === 'spec' && !isKnownType(t, specType)) throw new ApiError(`unknown spec type: ${specType}`);
   const st = kind === 'spec' ? specType : undefined;
@@ -171,6 +172,7 @@ export async function glossaryEntries(team, repo = repoFor(team)) {
 }
 
 /** Documents that must stay in the repository: linked by a released spec, or released foundation documents. */
+/** @param {any} t @param {{ excludeSpec?: string, excludeDoc?: string, extra?: string[] }} [opts] */
 function keepSet(t, { excludeSpec, excludeDoc, extra = [] } = {}) {
   return new Set([
     ...approvedSpecs(t).filter((s) => s.id !== excludeSpec).flatMap((s) => s.links),

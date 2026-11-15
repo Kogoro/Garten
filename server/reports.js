@@ -132,6 +132,7 @@ export async function addReport(team, { specId, version, status, summary, criter
   return { ...view(sql('SELECT * FROM reports WHERE id=?').get(id), checksOf(team.id, specId)), notReported: missing.map((c) => c.id), extra: crit.filter((c) => !c.id).length, specCriteria: own.length };
 }
 
+/** @param {string} teamId @param {{ specId?: string, limit?: number }} [opts] */
 export function listReports(teamId, { specId, limit = REPORTS_KEPT } = {}) {
   const rows = specId
     ? sql('SELECT * FROM reports WHERE team_id=? AND spec_id=? ORDER BY created_at DESC, rowid DESC LIMIT ?').all(teamId, specId, limit)

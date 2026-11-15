@@ -30,6 +30,7 @@ function specFor(teamId, specId) {
   if (!spec || spec.kind !== 'spec') throw new ApiError(`No spec "${specId}".`, 404);
   return spec;
 }
+/** @returns {ReturnType<typeof view> & { duplicate?: boolean }} */
 function insert(teamId, spec, f, by) {
   const open = sql("SELECT COUNT(*) AS n FROM feedback WHERE team_id=? AND spec_id=? AND status='open'").get(teamId, spec.id).n;
   if (open >= 50) throw new ApiError('This spec already has 50 open entries – ask a person to triage them first.', 429);
@@ -90,12 +91,14 @@ export function addProposal(teamId, { specId, action, reason }, by) {
 
 export const getFeedback = (teamId, id) => { const r = row(teamId, id); return r ? view(r) : null; };
 
+/** @param {string} teamId @param {{ specId?: any, status?: any, kind?: any }} [opts] Values may come straight from the query string. */
 export function listFeedback(teamId, { specId, status, kind } = {}) {
   const rows = sql('SELECT * FROM feedback WHERE team_id=? ORDER BY created_at DESC').all(teamId).map(view);
   return rows.filter((f) => (!specId || f.specId === specId) && (!status || f.status === status) && (!kind || f.kind === kind));
 }
 
 /** People triage feedback (status + reply) and answer decisions (answer = option index, or -1 with the answer written into the reply). */
+/** @param {string} teamId @param {string} id @param {{ status?: string, reply?: string, answer?: number }} change @param {any} user @param {{ execute?: boolean }} [opts] */
 export function setFeedback(teamId, id, { status, reply, answer }, user, { execute = false } = {}) {
   const cur = row(teamId, id);
   if (!cur) throw new ApiError('Unknown feedback', 404);

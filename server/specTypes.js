@@ -7,6 +7,7 @@ export class TypeError_ extends Error {
 }
 
 const custom = (r) => ({ key: r.key, label: r.label, short: r.label, description: r.description, template: r.template, form: r.form ? JSON.parse(r.form) : null, view: r.form ? r.view : 'editor', builtin: false });
+/** @returns {Array<{ key: string, label: string, short?: string, group?: string, description?: string, template?: string, form?: any, view?: string, builtin: boolean }>} */
 export function listTypes(teamId) {
   const mine = sql('SELECT * FROM spec_types WHERE team_id=? ORDER BY label COLLATE NOCASE').all(teamId).map(custom);
   return [...BUILTIN_TYPES.map((t) => ({ ...t, builtin: true })), ...mine];

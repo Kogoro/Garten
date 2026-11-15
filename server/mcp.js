@@ -13,11 +13,11 @@ import { hasContent } from '../shared/glossary.js';
 import { Limiter } from './ratelimit.js';
 import { readSource, proposeTerms, deriveSpecs } from './derive.js';
 import { agentOf, recordActivity, claimSpec, releaseClaim, CLAIM_DEFAULT_MIN, CLAIM_MAX_MIN } from './agents.js';
-import { isGlossaryPath, isTermPath, firstParagraph, plainText } from '../shared/glossaryFiles.js';
+import { isGlossaryPath, firstParagraph, plainText } from '../shared/glossaryFiles.js';
 import { extractTermRefs } from '../shared/glossary.js';
 
-const text = (t) => ({ content: [{ type: 'text', text: t }] });
-const fail = (t) => ({ content: [{ type: 'text', text: t }], isError: true });
+const text = (t) => ({ content: [{ type: /** @type {const} */ ('text'), text: t }] });
+const fail = (t) => ({ content: [{ type: /** @type {const} */ ('text'), text: t }], isError: true });
 
 const writeLimiter = new Limiter({ windowMs: 3600_000, max: 60 });
 // running checks again is routine work (a recheck round can mean dozens of results): it has its own, larger budget
@@ -59,6 +59,7 @@ function buildServer(team, canDrafts, writer, agent) {
     },
     async (args) => {
       const labels = Object.fromEntries(listTypes(t).map((x) => [x.key, x.label]));
+      /** @type {any[]} */
       const rows = store.approvedSpecs(t).map((s) => ({ id: s.id, type: s.specType, type_label: labels[s.specType] ?? s.specType, title: s.title, status: 'approved', version: s.version, approved_at: s.releasedAt, approved_by: s.releasedBy, documents: s.links }));
       if (canDrafts && args?.include_drafts) {
         for (const s of store.allSpecs(t, { body: false }).filter((x) => x.status !== 'approved')) rows.push({ id: s.id, type: s.specType, type_label: labels[s.specType] ?? s.specType, title: s.title, status: 'draft', version: 0, documents: s.links });
@@ -594,8 +595,8 @@ export async function mcpHandler(req, res) {
   // which also works through proxies and tunnels that buffer or cut streams
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
   res.on('close', () => {
-    transport.close();
-    server.close();
+    transport.close().catch(() => {});
+    server.close().catch(() => {});
   });
   await server.connect(transport);
   await transport.handleRequest(req, res, req.body);
