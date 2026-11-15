@@ -281,6 +281,9 @@ try {
   const answeredDec = (await tool('list_decisions', { spec_id: 'SPEC-012' }));
   assert.match(JSON.stringify(answeredDec), /7 days/); assert.match(JSON.stringify(answeredDec), /Consumers in the field sync weekly/);
   assert.match(JSON.stringify(await tool('get_work_list')), /decisions_answered/); ok('garden: the answer reaches the server on reconnect and the agent finds it in its work list');
+  const s012 = (await admin.sync()).data.items.find((i) => i.id === 'SPEC-012');
+  assert.match(s012.body, /## DECISIONS\n\n- How long do old signing keys stay valid after a rotation\? → 7 days – Consumers in the field sync weekly\./); assert.ok(s012.rev > s012.releasedRev);
+  assert.ok(await page.locator(`#gd-answered [data-decision="${dec.id}"] [data-state=in-spec]`).isVisible()); ok('garden: the answer is also written into the spec under DECISIONS, as a draft change');
   await page.click('#gd-impl .gd-row[data-spec="SPEC-012"]');
   await page.locator('.sheet .rp-sum', { hasText: 'Rotation endpoint is built' }).waitFor();
   assert.equal(await page.locator('.sheet .rp-crit li').count(), 4); // the spec's own checklist: R1, R2, AC1, AC2
@@ -289,6 +292,12 @@ try {
   assert.equal(await page.locator('.sheet .rp-crit li').first().locator('.rp-cid').innerText(), 'R1');
   assert.equal(await page.locator('.sheet .rp-ev a').getAttribute('href'), 'https://git.example.test/acme/api/pull/7');
   assert.ok(await page.locator('.sheet .rp-dev', { hasText: 'audit log' }).isVisible()); ok('garden: the report of the agent lists criteria, evidence and deviations');
+  await page.locator('#rp-steer [data-prio=high]').click();
+  await page.locator('#rp-steer [data-prio=high][aria-pressed=true]').waitFor();
+  await page.locator('#rp-steer [data-act=steer-hold]').check(); await page.locator('#rp-steer [aria-label="Why it is on hold"]').waitFor();
+  const wlSteer = await tool('get_work_list'); assert.ok(wlSteer.on_hold.some((x) => x.spec_id === 'SPEC-012'));
+  await page.locator('#rp-steer [data-act=steer-hold]').uncheck();
+  await page.locator('#gd-impl .gd-row[data-spec="SPEC-012"] [data-steer=priority]', { hasText: 'High priority' }).waitFor(); ok('garden: approvers set priority and hold of a spec in its report sheet; the pipeline shows it');
   await shot(page, '05c-report');
   await page.keyboard.press('Escape');
   // checks: re-runnable evidence next to the report, and "make it a rule" for a deviation

@@ -7,6 +7,7 @@ import { listChecks, summarize, checksBySpec } from './checks.js';
 import { specCriteria, findCriterion } from '../shared/criteria.js';
 import { activeClaims } from './agents.js';
 import { parseRules, ruleSnapshot, rulesChanged } from '../shared/guardrails.js';
+import { steeringOf } from './steering.js';
 
 export const REPORT_STATUSES = ['implemented', 'partial', 'blocked', 'in_progress'];
 export const CRITERION_STATUSES = ['met', 'deviating', 'open'];
@@ -156,7 +157,11 @@ export async function workList(team, agentKey = null) {
   const feedbackOpen = Object.fromEntries(db.prepare("SELECT spec_id, COUNT(*) AS n FROM feedback WHERE team_id=? AND status='open' AND kind<>? GROUP BY spec_id").all(t, DECISION).map((r) => [r.spec_id, r.n]));
   const allChecks = checksBySpec(t);
   const claims = activeClaims(t);
-  const work = []; const others = []; let done = 0;
+  const steer = steeringOf(t);
+  const released = new Map(store.approvedSpecs(t).map((s) => [s.id, s]));
+  // a dependency is met when that spec is released and implemented in its current version
+  const isBuilt = (id) => { const d = released.get(id); const r = latest[id]; return !!d && !!r && r.status === 'implemented' && r.specVersion === d.version; };
+  const work = []; const others = []; const held = []; const waiting = []; let done = 0;
   for (const s of store.approvedSpecs(t)) {
     const rep = latest[s.id];
     const mine = decisions.filter((d) => d.spec_id === s.id);
@@ -175,9 +180,15 @@ export async function workList(team, agentKey = null) {
     if (!state && drift.length) state = 'guardrails_changed';
     if (!state) { done += 1; if (!open.length) continue; state = 'implemented'; }
     const options = (d) => { try { return JSON.parse(d.options) ?? []; } catch { return []; } };
+    const st = steer[s.id];
+    if (st?.hold) { held.push({ spec_id: s.id, title: s.title, state, ...(st.holdNote ? { note: st.holdNote } : {}) }); continue; }
+    const missing = (st?.depends ?? []).filter((d) => !isBuilt(d));
+    if (missing.length) { waiting.push({ spec_id: s.id, title: s.title, state, waits_for: missing }); continue; }
     const claim = claims[s.id];
     if (claim && claim.agent !== agentKey) { others.push({ spec_id: s.id, title: s.title, state, by: claim.by, until: claim.until, ...(claim.note ? { doing: claim.note } : {}) }); continue; }
     work.push({
+      ...(st && st.priority !== 'normal' ? { priority: st.priority } : {}),
+      ...(st?.depends?.length ? { built_after: st.depends } : {}),
       ...(claim ? { claimed_by_you_until: claim.until } : {}),
       spec_id: s.id, title: s.title, type: s.specType, version: s.version, state,
       ...(state === 'changed' ? { changed_from: rep.specVersion, hint: `Call get_spec_changes("${s.id}") to see what changed since v${rep.specVersion}.` } : {}),
@@ -199,11 +210,14 @@ export async function workList(team, agentKey = null) {
     });
   }
   const rank = { decision_answered: 0, changed: 1, recheck: 2, guardrails_changed: 2.5, new: 3, in_progress: 4, partial: 5, blocked: 6, implemented: 7 };
-  work.sort((a, b) => rank[a.state] - rank[b.state] || a.spec_id.localeCompare(b.spec_id));
+  const prio = { high: 0, normal: 1, low: 2 };
+  work.sort((a, b) => prio[a.priority ?? 'normal'] - prio[b.priority ?? 'normal'] || rank[a.state] - rank[b.state] || a.spec_id.localeCompare(b.spec_id));
   return {
     team: team.name, released_specs: store.approvedSpecs(t).length, up_to_date: done, work,
     ...(others.length ? { claimed_by_others: others } : {}),
-    states: 'new = never reported · changed = a newer version was released since your last report · recheck = implemented, but a check fails, is stale (too old or from an older version) or never ran – run it again · guardrails_changed = implemented, but guardrails were added or reworded since: check the code against rules_changed and report again · decision_answered = a person answered your question, or dismissed it (outcome "dismissed": do not ask it again – follow the note, or continue with your recommendation and say so in the report) · in_progress / partial / blocked = your last report · implemented = done, listed only because a question is still open · claimed_by_others = another agent is building these right now: leave them alone',
+    ...(held.length ? { on_hold: held } : {}),
+    ...(waiting.length ? { waiting_on_specs: waiting } : {}),
+    states: 'new = never reported · changed = a newer version was released since your last report · recheck = implemented, but a check fails, is stale (too old or from an older version) or never ran – run it again · guardrails_changed = implemented, but guardrails were added or reworded since: check the code against rules_changed and report again · decision_answered = a person answered your question, or dismissed it (outcome "dismissed": do not ask it again – follow the note, or continue with your recommendation and say so in the report) · in_progress / partial / blocked = your last report · implemented = done, listed only because a question is still open · claimed_by_others = another agent is building these right now: leave them alone · on_hold = a person put these on hold: do not start or continue them · waiting_on_specs = these are built after the specs in waits_for are implemented · priority high / low = a person wants these sooner / later; the list is already in that order',
     note: work.length ? 'Claim an entry with claim_spec before you build it. Entries with a blocking waiting_for_decision must wait for a person; work on the others.' : others.length ? 'Nothing for you: the remaining specs are being built by other agents.' : 'Nothing to do: every released spec has an "implemented" report for its current version.',
   };
 }

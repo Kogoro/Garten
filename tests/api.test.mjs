@@ -1041,6 +1041,32 @@ try {
     await ag.close();
   }
 
+  // steering: priority, hold and dependencies decide what agents build next
+  {
+    const sEd = await mk('editor', 'st');
+    const ag = await mcp((await sEd.c.post('/api/me/tokens', { name: 'Steered agent', scopes: ['mcp:read', 'mcp:drafts', 'mcp:write'], teamId: T1 })).data.token);
+    const ids = ['SPEC-881', 'SPEC-882', 'SPEC-883'];
+    for (const id of ids) { const r = await admin.push([{ id, kind: 'spec', baseRev: 0, fields: { title: `Steered ${id}`, body: '## ACCEPTANCE CRITERIA\n- [ ] Done\n' } }]); await admin.push([{ id, kind: 'spec', baseRev: r[0].item.rev, approve: true, fields: {} }]); }
+    const steer = (c, id, body) => c.req('PATCH', `/api/teams/${T1}/steering/${id}`, body);
+    const wl = async () => JSON.parse((await call(ag, 'get_work_list')).text);
+    const pos = (w, id) => w.work.findIndex((x) => x.spec_id === id);
+    assert.equal((await steer(sEd.c, ids[0], { priority: 'high' })).status, 403); ok('steering: only approvers and admins steer');
+    assert.equal((await steer(admin, ids[2], { priority: 'urgent' })).status, 400);
+    assert.equal((await steer(admin, ids[2], { priority: 'high' })).data.steering.priority, 'high');
+    let w = await wl(); assert.ok(pos(w, ids[2]) < pos(w, ids[0])); assert.equal(w.work[pos(w, ids[2])].priority, 'high'); assert.equal(w.work[0].priority, 'high'); ok('steering: high priority comes first in the work list');
+    await steer(admin, ids[0], { hold: true, holdNote: 'Waiting for legal' });
+    w = await wl(); assert.equal(pos(w, ids[0]), -1); assert.deepEqual(w.on_hold.find((x) => x.spec_id === ids[0]).note, 'Waiting for legal'); ok('steering: a spec on hold leaves the work list, with the note');
+    await steer(admin, ids[1], { depends: [ids[2]] });
+    assert.equal((await steer(admin, ids[2], { depends: [ids[1]] })).status, 400); assert.equal((await steer(admin, ids[1], { depends: ['NOPE-1'] })).status, 400); assert.equal((await steer(admin, ids[1], { depends: [ids[1]] })).status, 400);
+    w = await wl(); assert.equal(pos(w, ids[1]), -1); assert.deepEqual(w.waiting_on_specs.find((x) => x.spec_id === ids[1]).waits_for, [ids[2]]); ok('steering: a spec waits until its dependencies are implemented; unknown specs and cycles are refused');
+    await call(ag, 'report_implementation', { spec_id: ids[2], status: 'implemented', summary: 'Done', criteria: [{ id: 'AC1', status: 'met' }] });
+    w = await wl(); assert.ok(pos(w, ids[1]) >= 0); assert.deepEqual(w.work[pos(w, ids[1])].built_after, [ids[2]]);
+    const g = (await admin.post(`/api/teams/${T1}/sync`, { since: 1e9, changes: [] })).data.garden;
+    assert.equal(g.steering[ids[0]].hold, true); assert.equal(g.steering[ids[2]].priority, 'high'); ok('steering: an implemented dependency releases the waiting spec; steering travels with the sync');
+    await steer(admin, ids[0], { hold: false }); assert.ok(pos(await wl(), ids[0]) >= 0);
+    await ag.close();
+  }
+
   // glossary lookup: input is validated before any third party is asked; sign-in is required
   assert.equal((await admin.get('/api/lookup?q=a')).status, 400); ok('lookup: a too short term is rejected');
   assert.equal((await anon.get('/api/lookup?q=idempotence')).status, 401); ok('lookup: needs a sign-in');
