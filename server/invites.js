@@ -61,6 +61,7 @@ export async function registerFromInvite(token, { name, password }) {
 }
 
 /** Existing, signed-in user accepts (by link or from the list of pending invitations). */
+/** @param {any} user @param {{ token?: string, inviteId?: string }} ref */
 export function acceptForUser(user, { token, inviteId }) {
   const inv = token ? inviteByToken(token) : invitesForEmail(user.email).find((i) => i.id === inviteId);
   if (!inv || inv.email.toLowerCase() !== user.email.toLowerCase()) throw new AuthError('This invitation is not for your account', 403);

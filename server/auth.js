@@ -6,6 +6,7 @@ import { getTeam, getTeamByKey, listTeams, createTeam } from './teams.js';
 import { Limiter } from './ratelimit.js';
 import { isEmail, passwordProblem } from './validate.js';
 
+/** @type {(pw: any, salt: any, keylen: number, opts: import('node:crypto').ScryptOptions) => Promise<Buffer>} */
 const scryptAsync = promisify(scrypt);
 export const sha = (s) => createHash('sha256').update(s).digest('hex');
 const now = () => Math.floor(Date.now() / 1000);
@@ -80,6 +81,7 @@ async function derive(pw, salt, { N, r, p }) {
   await slot();
   try { return await scryptAsync(pw, salt, 64, { N, r, p, maxmem: SCRYPT_MEM }); } finally { release(); }
 }
+/** @returns {{ N: number, r: number, p: number, salt: string, hash: string, legacy?: boolean } | null} */
 const parseHash = (stored) => {
   const parts = String(stored ?? '').split('$');
   if (parts[0] !== 'scrypt') return null;
@@ -118,6 +120,7 @@ export class AuthError extends Error {
   constructor(message, status = 400) { super(message); this.status = status; }
 }
 
+/** @param {{ email: string, name?: string, admin?: boolean, password?: string, oidcSub?: string, skipPolicy?: boolean }} u */
 export async function createUser({ email, name, admin = false, password, oidcSub, skipPolicy = false }) {
   email = String(email ?? '').trim().toLowerCase();
   if (!isEmail(email)) throw new AuthError('Enter a valid e-mail address');

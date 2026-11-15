@@ -68,6 +68,7 @@ export function touchFetched(t, id) {
 }
 
 /** Create or update an item. `baseRev` must equal the current revision (0 = create). */
+/** @param {any} t @param {{ id: string, kind: string, title?: string, body?: string, links?: string[], pinned?: boolean, specType?: string }} item @param {number} [baseRev] @param {any} [by] */
 export function saveItem(t, { id, kind, title, body, links, pinned, specType }, baseRev, by = null) {
   if (specType !== undefined && kind === 'spec' && !isKnownType(t, specType)) throw new ApiError(`unknown spec type: ${specType}`);
   const st = kind === 'spec' ? specType : undefined;
@@ -147,6 +148,7 @@ export async function glossaryEntries(team, repo = repoFor(team)) {
 }
 
 /** Documents that must stay in the repository: linked by a released spec, or released foundation documents. */
+/** @param {any} t @param {{ excludeSpec?: string, excludeDoc?: string, extra?: string[] }} [opts] */
 function keepSet(t, { excludeSpec, excludeDoc, extra = [] } = {}) {
   return new Set([
     ...approvedSpecs(t).filter((s) => s.id !== excludeSpec).flatMap((s) => s.links),

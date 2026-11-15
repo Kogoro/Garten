@@ -45,3 +45,17 @@ jobs:
           node-version: 24
       - run: npm audit --omit=dev --audit-level=high
       - run: npm --prefix web audit --omit=dev --audit-level=high
+  lint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npm --prefix web ci   # web/src is linted and type-checked against the web dependencies
+      - run: npm run lint
+      - run: npm run typecheck
+      # Enable once the sources have been reformatted in one pass with `npm run format`:
+      # - run: npm run format:check

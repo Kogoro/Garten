@@ -1,0 +1,31 @@
+{
+  // Type-checks the plain-JavaScript server and the shared modules (no emit); server/types.d.ts
+  // holds the ambient declarations. The web app has its own config in web/tsconfig.json.
+  // Run both with `npm run typecheck`.
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": ["node"],
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "forceConsistentCasingInFileNames": true,
+    "noFallthroughCasesInSwitch": true,
+
+    // Ratchet: `strict` is on, minus the checks that the code base (almost no JSDoc) does not pass yet.
+    // Error counts when each one is turned on:
+    //   noImplicitAny                977   parameters without JSDoc types
+    //   strictNullChecks              70   mostly `{ x = null } = {}` defaults inferred as `null`
+    //   useUnknownInCatchVariables    18   `catch (e) { e.message }`
+    //   noImplicitReturns              5   Express handlers that `return res.status(..)` on one path only
+    "strict": true,
+    "noImplicitAny": false,
+    "strictNullChecks": false,
+    "useUnknownInCatchVariables": false
+  },
+  "include": ["server/**/*.js", "server/**/*.d.ts", "shared/**/*.js"]
+}

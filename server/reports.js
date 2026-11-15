@@ -72,6 +72,7 @@ export function addReport(team, { specId, version, status, summary, criteria, ev
   return view(db.prepare('SELECT * FROM reports WHERE id=?').get(id), checksOf(team.id, specId));
 }
 
+/** @param {string} teamId @param {{ specId?: string, limit?: number }} [opts] */
 export function listReports(teamId, { specId, limit = 50 } = {}) {
   const rows = specId
     ? db.prepare('SELECT * FROM reports WHERE team_id=? AND spec_id=? ORDER BY created_at DESC, rowid DESC LIMIT ?').all(teamId, specId, limit)

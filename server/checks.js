@@ -83,6 +83,7 @@ export function recordRun(team, { specId, name, status, value, detail, ref, comm
   return getCheck(team.id, specId, c.name);
 }
 
+/** @param {string} teamId @param {{ specId?: string, includeRetired?: boolean }} [opts] */
 export function listChecks(teamId, { specId, includeRetired = false } = {}) {
   const rows = specId
     ? db.prepare('SELECT * FROM checks WHERE team_id=? AND spec_id=? ORDER BY name').all(teamId, specId)

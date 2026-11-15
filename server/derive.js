@@ -44,6 +44,7 @@ export async function deriveGlossary(team, source, entries, by) {
   const cur = store.getItem(t, path);
   if (cur && cur.kind !== 'doc') throw new store.ApiError(`${path} is not a document.`);
   const known = await knownTerms(team, path);
+  /** @type {Map<string, any>} */
   const own = new Map(parseDefinitions(cur?.body ?? '').map((d) => [key(d.term), d]));
   const added = []; const updated = []; const exists = [];
   for (const e of entries) {

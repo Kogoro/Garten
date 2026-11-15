@@ -121,6 +121,7 @@ export function saveGitSettings(teamId, s, { rootLocked }) {
 export function saveSshKey(teamId, privateKey, publicKey) {
   db.prepare("UPDATE teams SET git_secret=?, git_ssh_public=?, git_auth='ssh' WHERE id=?").run(encrypt(privateKey), publicKey, teamId);
 }
+/** @param {string} teamId @param {{ ok: boolean, error?: string, sha?: string }} result */
 export function recordPush(teamId, { ok, error, sha }) {
   db.prepare('UPDATE teams SET git_last_push_at=?, git_last_ok=?, git_last_error=?, git_last_sha=COALESCE(?, git_last_sha) WHERE id=?').run(iso(), ok ? 1 : 0, error ?? null, sha ?? null, teamId);
 }
