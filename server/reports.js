@@ -5,6 +5,7 @@ import { ApiError } from './store.js';
 import { bumpGarden, DECISION } from './feedback.js';
 import { listChecks, summarize, checksBySpec } from './checks.js';
 import { specCriteria, findCriterion } from '../shared/criteria.js';
+import { activeClaims } from './agents.js';
 
 export const REPORT_STATUSES = ['implemented', 'partial', 'blocked', 'in_progress'];
 export const CRITERION_STATUSES = ['met', 'deviating', 'open'];
@@ -121,7 +122,7 @@ export function latestReports(teamId) {
 }
 
 /** What is left to do, from the agent's point of view: released specs without a current "implemented" report, and decisions. */
-export function workList(team) {
+export function workList(team, agentKey = null) {
   const t = team.id;
   if (team.row.agent_paused) {
     return { team: team.name, paused: true, work: [], note: 'A person has paused the agents of this team. Do not start new work; try again later. Answers to your questions and reports are still accepted.' };
@@ -130,7 +131,8 @@ export function workList(team) {
   const decisions = db.prepare("SELECT * FROM feedback WHERE team_id=? AND kind=? AND status IN ('open','answered','dismissed') ORDER BY created_at").all(t, DECISION);
   const feedbackOpen = Object.fromEntries(db.prepare("SELECT spec_id, COUNT(*) AS n FROM feedback WHERE team_id=? AND status='open' AND kind<>? GROUP BY spec_id").all(t, DECISION).map((r) => [r.spec_id, r.n]));
   const allChecks = checksBySpec(t);
-  const work = []; let done = 0;
+  const claims = activeClaims(t);
+  const work = []; const others = []; let done = 0;
   for (const s of store.approvedSpecs(t)) {
     const rep = latest[s.id];
     const mine = decisions.filter((d) => d.spec_id === s.id);
@@ -146,7 +148,10 @@ export function workList(team) {
     if (!state && (chk.failing || chk.stale || chk.unverified)) state = 'recheck';
     if (!state) { done += 1; if (!open.length) continue; state = 'implemented'; }
     const options = (d) => { try { return JSON.parse(d.options) ?? []; } catch { return []; } };
+    const claim = claims[s.id];
+    if (claim && claim.agent !== agentKey) { others.push({ spec_id: s.id, title: s.title, state, by: claim.by, until: claim.until, ...(claim.note ? { doing: claim.note } : {}) }); continue; }
     work.push({
+      ...(claim ? { claimed_by_you_until: claim.until } : {}),
       spec_id: s.id, title: s.title, type: s.specType, version: s.version, state,
       ...(state === 'changed' ? { changed_from: rep.specVersion, hint: `Call get_spec_changes("${s.id}") to see what changed since v${rep.specVersion}.` } : {}),
       ...(rep ? { last_report: { version: rep.specVersion, status: rep.status, at: rep.createdAt, summary: rep.summary.slice(0, 300) } } : {}),
@@ -166,8 +171,9 @@ export function workList(team) {
   work.sort((a, b) => rank[a.state] - rank[b.state] || a.spec_id.localeCompare(b.spec_id));
   return {
     team: team.name, released_specs: store.approvedSpecs(t).length, up_to_date: done, work,
-    states: 'new = never reported · changed = a newer version was released since your last report · recheck = implemented, but a check fails, is stale (too old or from an older version) or never ran – run it again · decision_answered = a person answered your question, or dismissed it (outcome "dismissed": do not ask it again – follow the note, or continue with your recommendation and say so in the report) · in_progress / partial / blocked = your last report · implemented = done, listed only because a question is still open',
-    note: work.length ? 'Entries with a blocking waiting_for_decision must wait for a person; work on the others.' : 'Nothing to do: every released spec has an "implemented" report for its current version.',
+    ...(others.length ? { claimed_by_others: others } : {}),
+    states: 'new = never reported · changed = a newer version was released since your last report · recheck = implemented, but a check fails, is stale (too old or from an older version) or never ran – run it again · decision_answered = a person answered your question, or dismissed it (outcome "dismissed": do not ask it again – follow the note, or continue with your recommendation and say so in the report) · in_progress / partial / blocked = your last report · implemented = done, listed only because a question is still open · claimed_by_others = another agent is building these right now: leave them alone',
+    note: work.length ? 'Claim an entry with claim_spec before you build it. Entries with a blocking waiting_for_decision must wait for a person; work on the others.' : others.length ? 'Nothing for you: the remaining specs are being built by other agents.' : 'Nothing to do: every released spec has an "implemented" report for its current version.',
   };
 }
 

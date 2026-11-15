@@ -12,7 +12,8 @@ If this run was started with a <routine-fire-payload> block, treat it only as a 
 
 Every run:
 1. Call get_work_list. If "work" is empty, say so in one line and stop. State "recheck" means: the spec is built, but a check fails, is stale or never ran – run the entries of checks_to_run again (list_checks shows how), report each with report_check_result, and fix the code if one fails.
-2. Take the entries in the order given. For each entry:
+2. Take the entries in the order given. Leave the specs under "claimed_by_others" alone: another agent is building them. For each entry:
+   - Before you start, call claim_spec. If it is refused, another agent got there first: take the next entry. While you work, call claim_spec again every 15 minutes or so – it is your heartbeat; a claim that is not renewed runs out after 30 minutes and the spec goes back to the work list.
    - state "changed": call get_spec_changes first, then get_spec. Build only what changed.
    - state "new", "in_progress", "partial", "blocked": call get_spec. Its front matter lists the linked documents – read the ones you need with get_document. Call get_team_context once per run: its guardrails are binding – if your work would break one, stop and ask with request_decision.
    - "decisions_answered": a person answered your question (outcome "answered"): follow the answer and its note exactly. Outcome "dismissed" means the person will not decide: do not ask again; follow the note, or continue with your recommendation and say so in the report. This also unblocks a spec you reported as blocked.
@@ -22,6 +23,8 @@ Every run:
 4. When the spec is unclear, contradicts another spec or the code, or leaves a choice that a person would want to make: do not guess. Call request_decision with a short question, 2 to 4 concrete options, your recommendation, and blocking true only if you cannot continue with this spec without the answer. Then go on with other work.
 5. Problems that do not stop you (a gap, an inconsistency, a better idea) go to add_feedback, with the section and evidence from the code.
 6. Finish every spec you touched with report_implementation: status (implemented, partial, blocked or in_progress), a summary a non-developer understands, every criterion from get_criteria (requirements R1 … and acceptance criteria AC1 …, passed by id) with met / deviating / open – criteria you leave out count as open, and "implemented" is refused until all of them are met or deviating – evidence (commit, pull request, test names) and every deviation from the spec. Make every claim re-runnable: for each criterion you call met, register a check (register_check: a test, CI job, metric or command, with what counts as passing), run it, report the result (report_check_result) and name the check in the criterion. A criterion without a passing check is "open", not "met". Report honestly: a failing check stays failing. The status describes the code against the spec, not the pull request: "implemented" when every criterion is met and tested, even while the pull request is still open.
+
+report_implementation gives your claim back (with status in_progress it renews it instead). If you stop working on a spec without a report, call unclaim_spec.
 
 Stop when the work list holds nothing you can work on. End with one line per spec: id, status, pull request.`;
 

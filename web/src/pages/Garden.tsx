@@ -26,7 +26,8 @@ function Health() {
 }
 
 const STATUS_TEXT: Record<string, string> = { implemented: 'implemented', partial: 'partly built', blocked: 'blocked', in_progress: 'in progress' };
-const who = (x: any) => String(x?.via ?? x?.author ?? 'An agent').replace(/^token:\s*/i, '');
+/** The name of an agent, from a report or question (via), a claim (by) or the server's agent list (name). */
+const who = (x: any) => String(x?.via ?? x?.by ?? x?.name ?? x?.author ?? 'An agent').replace(/^(token|agent):\s*/i, '');
 
 /** The command centre: what needs a person, what the agents are doing, where it hangs. Works offline. */
 export function GardenPage() {
@@ -61,20 +62,34 @@ export function GardenPage() {
   const [colSel, setColSel] = useState<string | null>(null);
   const synced = !!S.state.garden[S.state.teamId] && S.state.garden[S.state.teamId].rev >= 0;
 
-  // agents, judged from what they reported and asked: one row per name
-  const names = new Set<string>([...rows.filter((x) => x.r).map((x) => who(x.r)), ...decisions.map(who)]);
+  // agents: what the server saw (last MCP call, claims), plus names that only appear in reports and questions
+  const seen = S.gardenAgents();
+  const names = new Set<string>([...(seen ?? []).map(who), ...rows.filter((x) => x.r).map((x) => who(x.r)), ...decisions.map(who)]);
   const agents = [...names].map((name) => {
+    const srv = seen?.find((a) => who(a) === name);
     const mine = rows.filter((x) => x.r && who(x.r) === name).sort((a, b) => Date.parse(b.r.createdAt) - Date.parse(a.r.createdAt));
     const latest = mine[0];
     const stuck = decisions.some((d) => who(d) === name && d.blocking);
-    const building = mine.find((x) => x.st.key === 'in_progress');
-    return { name, latest, stuck, building, state: stuck ? 'blocked' : building ? 'running' : 'idle' };
+    // with claims, "building" is what the agent claimed and still renews; without them (older server), its last in-progress report
+    const claim = srv?.claims?.find((c: any) => Date.parse(c.until) > Date.now());
+    const building: { id: string; note?: string; until?: string; at?: string } | null = seen ? (claim ? { id: claim.specId, note: claim.note, until: claim.until } : null) : (() => { const x = mine.find((r) => r.st.key === 'in_progress'); return x ? { id: x.s.id, at: x.r.createdAt } : null; })();
+    const connected = !!srv && Date.now() - Date.parse(srv.lastAt) < 15 * 60_000;
+    const expires = srv?.tokenExpiresAt ? Date.parse(srv.tokenExpiresAt) : null;
+    return { name, latest, stuck, building, connected, lastAt: srv?.lastAt as string | undefined, lastTool: srv?.lastTool as string | undefined, expires, state: stuck ? 'blocked' : building ? 'running' : connected ? 'connected' : 'idle' };
   });
+  const expiring = agents.filter((a) => a.expires && a.expires - Date.now() < 7 * 86400_000 && a.lastAt && Date.now() - Date.parse(a.lastAt) < 30 * 86400_000);
+  const lastAgentCall = Math.max(0, ...agents.map((a) => (a.lastAt ? Date.parse(a.lastAt) : 0)));
+  const hookAt = info?.hook?.lastAt ? Date.parse(info.hook.lastAt) : 0;
+  // the trigger fired (and was accepted), but no agent has called since: the routine cannot reach this server, or its token stopped working
+  const silent = !!seen && !paused && !!hookAt && info?.hook?.lastOk !== false && Date.now() - hookAt > 15 * 60_000 && lastAgentCall < hookAt;
+  const inDays = (t: number) => { const d = Math.ceil((t - Date.now()) / 86400_000); return d <= 0 ? 'has expired' : d === 1 ? 'expires tomorrow' : `expires in ${d} days`; };
+  const clock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const running = agents.filter((a) => a.state === 'running').length;
   const lastReport = rows.filter((x) => x.r).map((x) => Date.parse(x.r.createdAt)).sort((a, b) => b - a)[0];
 
   // pipeline: released specs from new to implemented; a failing or stale check or an outdated report needs attention
-  const bad = (x: (typeof rows)[number]) => x.st.key === 'blocked' || x.st.key === 'outdated' || x.checks.some((c) => c.state === 'failing' || c.state === 'stale');
+  const stalled = (x: (typeof rows)[number]) => !!seen && x.st.key === 'in_progress' && !S.specClaim(x.s.id) && Date.now() - Date.parse(x.r.createdAt) > 2 * 3600_000;
+  const bad = (x: (typeof rows)[number]) => stalled(x) || x.st.key === 'blocked' || x.st.key === 'outdated' || x.checks.some((c) => c.state === 'failing' || c.state === 'stale');
   const cols = [
     { key: 'new', title: 'New', items: rows.filter((x) => x.st.key === 'none') },
     { key: 'progress', title: 'In progress', items: rows.filter((x) => (x.st.key === 'in_progress' || x.st.key === 'partial') && !bad(x)) },
@@ -82,12 +97,12 @@ export function GardenPage() {
     { key: 'done', title: 'Implemented', items: rows.filter((x) => x.st.key === 'implemented' && !bad(x)) },
   ].filter((c) => c.items.length);
   const activeCol = cols.find((c) => c.key === colSel)?.key ?? ['attention', 'progress', 'new', 'done'].find((k) => cols.some((c) => c.key === k)); // phones show one stage: the most urgent one first
-  const row = ({ s, r }: (typeof rows)[number]) => (
+  const row = (x: (typeof rows)[number]) => { const { s, r } = x; return (
     <button type="button" className="gd-row" key={s.id} data-spec={s.id} onClick={() => setReport(s.id)}>
-      <span className="grow"><b><span className="mono">{s.id}</span> {s.title}</b><span>{r ? `${who(r)} · ${ago(Date.parse(r.createdAt))} · ${String(r.summary).split('\n')[0].slice(0, 140)}` : `v${s.version} released${s.releasedAt ? ` ${ago(Date.parse(s.releasedAt))}` : ''} – no report yet`}</span></span>
+      <span className="grow"><b><span className="mono">{s.id}</span> {s.title}</b><span>{S.specClaim(s.id) ? `${who(S.specClaim(s.id))} is building it · claim until ${clock(S.specClaim(s.id).until)}${r ? ` · ${String(r.summary).split('\n')[0].slice(0, 100)}` : ''}` : stalled(x) ? `No agent has worked on it since ${ago(Date.parse(r.createdAt))} – the next run picks it up again` : r ? `${who(r)} · ${ago(Date.parse(r.createdAt))} · ${String(r.summary).split('\n')[0].slice(0, 140)}` : `v${s.version} released${s.releasedAt ? ` ${ago(Date.parse(s.releasedAt))}` : ''} – no report yet`}</span></span>
       <ImplChip spec={s} always /><Icon name="chevron" size={14} />
     </button>
-  );
+  ); };
 
   // checks that need a look, and a short feed of what happened
   const allChecks = rows.flatMap((x) => x.checks.map((c) => ({ ...c, spec: x.s })));
@@ -120,6 +135,8 @@ export function GardenPage() {
           {!synced && <p className="note">Nothing loaded from the server yet – open the app once while online.</p>}
         </section>
         {paused && <section className="card warn" id="gd-paused" role="status"><span style={{ color: 'var(--amber)' }}><Icon name="warn" size={18} /></span><div className="grow"><b>Agents are paused</b><span>They get an empty work list and no webhook calls. Answers and reports are still accepted. When you resume, they pick up everything that is open on their next run.</span></div></section>}
+        {silent && <section className="card warn" id="gd-silent" role="status"><span style={{ color: 'var(--amber)' }}><Icon name="warn" size={18} /></span><div className="grow"><b>No agent came after the trigger</b><span>The agent trigger was called {ago(hookAt)}, but no agent has connected to this server since. Check that the routine can reach this server and that its token still works.</span></div>{S.can('admin') && <Link className="btn small" style={{ flex: 'none' }} to="/team">Agent setup</Link>}</section>}
+        {expiring.length > 0 && <section className="card warn" id="gd-expiring" role="status"><span style={{ color: 'var(--amber)' }}><Icon name="warn" size={18} /></span><div className="grow"><b>{expiring.length === 1 ? 'An agent token runs out' : `${expiring.length} agent tokens run out`}</b><span>{expiring.map((a) => `${a.name}: ${inDays(a.expires!)}`).join(' · ')}. Create a new token under Account → Agent access and put it into the agent's settings, or the agent stops working.</span></div><Link className="btn small" style={{ flex: 'none' }} to="/account">Agent access</Link></section>}
         {gitFailed && <section className="card bad" id="gd-git" role="status"><span style={{ color: 'var(--red)' }}><Icon name="warn" size={18} /></span><div className="grow"><b>The last Git push failed</b><span>{String(git.lastError ?? 'The team repository could not be pushed.').split('\n')[0].slice(0, 160)} Released specs do not reach the remote until it works.</span></div>{S.can('approve') && <button type="button" className="btn small" style={{ flex: 'none' }} data-act="git-push" onClick={pushNow}>Push now</button>}<Link className="btn small" style={{ flex: 'none' }} to="/release">Open Release</Link></section>}
         {queuedApprovals.length > 0 && <section className="card warn" id="gd-queued"><span style={{ color: 'var(--amber)' }}><Icon name="up" size={18} /></span><div className="grow"><b>{queuedApprovals.length} approval{queuedApprovals.length === 1 ? '' : 's'} waiting to sync</b><span>Approved on this device: {queuedApprovals.map((x) => x.id).join(', ')}. {S.state.online ? 'Sending…' : 'They are released as soon as the server is reachable.'}</span></div></section>}
         {waiting > 0 && <section className="card warn" id="gd-waiting"><span style={{ color: 'var(--amber)' }}><Icon name="up" size={18} /></span><div className="grow"><b>{waiting} answer{waiting === 1 ? '' : 's'} waiting to sync</b><span>Saved on this device. {S.state.online ? 'Sending…' : 'Sent as soon as the server is reachable – the agent continues after that.'}</span></div></section>}
@@ -149,8 +166,12 @@ export function GardenPage() {
               <div className="list-card">
                 {agents.map((a) => (
                   <div className="gd-row static" key={a.name}>
-                    <span className="grow"><b>{a.name}</b><span>{a.state === 'blocked' ? 'Waiting for a decision' : a.building ? `Building ${a.building.s.id} · ${ago(Date.parse(a.building.r.createdAt))}` : a.latest ? `Last report ${ago(Date.parse(a.latest.r.createdAt))} on ${a.latest.s.id}` : 'Asked a question'}</span></span>
-                    <span className={`st ${a.state === 'blocked' ? 'warn' : ''}`}><i className={a.state === 'running' ? 'dot-ok' : a.state === 'blocked' ? 'dot-w' : ''} aria-hidden="true" />{a.state === 'blocked' ? 'Blocked' : a.state === 'running' ? 'Running' : 'Idle'}</span>
+                    <span className="grow"><b>{a.name}</b><span>{a.state === 'blocked' ? 'Waiting for a decision'
+                      : a.building ? `Building ${a.building.id}${a.building.note ? ` – ${a.building.note}` : ''}${a.building.until ? ` · claim until ${clock(a.building.until)}` : a.building.at ? ` · ${ago(Date.parse(a.building.at))}` : ''}`
+                      : a.connected ? `Connected · last call ${ago(Date.parse(a.lastAt!))}${a.lastTool ? ` (${a.lastTool})` : ''}`
+                      : a.lastAt ? `Last seen ${ago(Date.parse(a.lastAt))}${a.latest ? ` · last report on ${a.latest.s.id}` : ''}`
+                      : a.latest ? `Last report ${ago(Date.parse(a.latest.r.createdAt))} on ${a.latest.s.id}` : 'Asked a question'}{a.expires && a.expires - Date.now() < 7 * 86400_000 ? ` · token ${inDays(a.expires)}` : ''}</span></span>
+                    <span className={`st ${a.state === 'blocked' ? 'warn' : ''}`} data-agent-state={a.state}><i className={a.state === 'running' || a.state === 'connected' ? 'dot-ok' : a.state === 'blocked' ? 'dot-w' : ''} aria-hidden="true" />{a.state === 'blocked' ? 'Blocked' : a.state === 'running' ? 'Building' : a.state === 'connected' ? 'Connected' : 'Idle'}</span>
                   </div>
                 ))}
                 {info?.hook && <div className="gd-row static"><span className="grow"><b>Agent trigger</b><span>{info.hook.lastAt ? `Last call ${ago(Date.parse(info.hook.lastAt))}${info.hook.lastInfo ? ` · ${String(info.hook.lastInfo).slice(0, 60)}` : ''}` : 'Not called yet'}</span></span>{S.can('admin') && <button type="button" className="btn small ghost" data-act="hook-test" onClick={testTrigger}>Send test</button>}<span className={`st ${info.hook.lastOk === false ? 'bad' : ''}`}>{info.hook.lastOk === false ? <><i className="dot-b" aria-hidden="true" />Failed</> : info.hook.lastOk ? <><Icon name="check" size={14} />OK</> : null}</span></div>}

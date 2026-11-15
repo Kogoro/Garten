@@ -143,7 +143,7 @@ function HookForm({ h, S, reload, res, setRes }: { h: any; S: Store; reload: () 
     if (headers.trim()) hook.headers = headers;
     setRes(null); await S.teamApi('PATCH', '', { hook }); toast(url.trim() ? 'Trigger saved' : 'Trigger removed'); await reload();
   });
-  const preset = () => { setFormat('text'); setHeaders(ROUTINE_HEADERS); if (!ev.length) setEv(['release', 'answer']); toast('Filled in for a Claude Code routine – add the URL and the token of your routine'); };
+  const preset = () => { setFormat('text'); setHeaders(ROUTINE_HEADERS); if (!ev.length) setEv(['release', 'answer', 'check', 'resume']); toast('Filled in for a Claude Code routine – add the URL and the token of your routine'); };
   const test = guard(async () => {
     if (!confirm('Send a test call now? With a Claude Code routine this starts a real (short) run and uses one run of your daily allowance.')) return;
     setRes(null); const r = await S.teamApi('POST', '/hook/test');
@@ -164,7 +164,9 @@ function HookForm({ h, S, reload, res, setRes }: { h: any; S: Store; reload: () 
       <label className="sr" htmlFor="h-headers">Extra headers</label>
       <textarea className="field mono hook-headers" id="h-headers" value={headers} onChange={(e) => setHeaders(e.target.value)} placeholder={h.headerNames.length ? `Saved: ${h.headerNames.join(', ')} – type to replace all` : 'Extra headers, one per line (optional)\nName: value'} autoCapitalize="off" spellCheck={false} />
       <div className="hook-ev"><label className="check"><input type="checkbox" id="h-ev-release" checked={ev.includes('release')} onChange={(e) => flip('release', e.target.checked)} /> Call when a spec is released</label>
-        <label className="check"><input type="checkbox" id="h-ev-answer" checked={ev.includes('answer')} onChange={(e) => flip('answer', e.target.checked)} /> Call when a decision is answered</label></div>
+        <label className="check"><input type="checkbox" id="h-ev-answer" checked={ev.includes('answer')} onChange={(e) => flip('answer', e.target.checked)} /> Call when a decision is answered</label>
+        <label className="check"><input type="checkbox" id="h-ev-check" checked={ev.includes('check')} onChange={(e) => flip('check', e.target.checked)} /> Call when CI reports a failing check or a check goes stale</label>
+        <label className="check"><input type="checkbox" id="h-ev-resume" checked={ev.includes('resume')} onChange={(e) => flip('resume', e.target.checked)} /> Call when paused agents are resumed</label></div>
       <span id="hookStatus" className={h.lastOk === false ? 'err-text' : 'muted'} style={{ fontSize: 13 }}>{!h.url ? 'No trigger yet – agents only work when someone starts them.' : h.lastAt ? <>{h.lastOk ? 'Last call accepted' : 'Last call failed'} {ago(Date.parse(h.lastAt))} · {h.lastInfo}{h.lastUrl && <> · <a href={h.lastUrl} target="_blank" rel="noreferrer noopener">Open the run</a></>}</> : 'Saved – not called yet.'}</span>
       {res && <span id="hookRes" className={res.ok ? '' : 'err-text'} style={{ fontSize: 13, ...(res.ok ? { color: 'var(--text)' } : {}) }}>{res.text}{res.link && <> <a href={res.link} target="_blank" rel="noreferrer noopener">Open the run</a></>}</span>}
       <div className="btns"><button className="btn primary" type="submit" disabled={!online || !dirty}>Save</button><button type="button" className="btn" data-act="hook-test" disabled={!online || !h.url || dirty} onClick={test}>Send test</button></div>

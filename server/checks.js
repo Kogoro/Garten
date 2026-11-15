@@ -3,7 +3,7 @@
 import { randomUUID } from 'node:crypto';
 import { db } from './db.js';
 import * as store from './store.js';
-import { ApiError } from './store.js';
+import { ApiError, events } from './store.js';
 import { bumpGarden } from './feedback.js';
 
 export const CHECK_KINDS = ['test', 'ci', 'metric', 'command', 'url', 'manual'];
@@ -80,7 +80,9 @@ export function recordRun(team, { specId, name, status, value, detail, ref, comm
   // keep the history bounded: the 50 newest runs per check
   db.prepare('DELETE FROM check_runs WHERE check_id=? AND rowid NOT IN (SELECT rowid FROM check_runs WHERE check_id=? ORDER BY at DESC, rowid DESC LIMIT 50)').run(c.id, c.id);
   bumpGarden(team.id);
-  return getCheck(team.id, specId, c.name);
+  const out = getCheck(team.id, specId, c.name);
+  events.emit('check', { teamId: team.id, check: out, source });
+  return out;
 }
 
 export function listChecks(teamId, { specId, includeRetired = false } = {}) {

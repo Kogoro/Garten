@@ -87,7 +87,7 @@ export const provider = {
     if (token.startsWith('spc_')) {
       const p = verifyPat(token);
       if (!p) throw new InvalidTokenError('Invalid or expired token');
-      return { token, clientId: 'personal-token', scopes: p.scopes, expiresAt: p.expiresAt, extra: { userId: p.user.id, teamId: p.teamId, via: 'pat', label: p.name } };
+      return { token, clientId: 'personal-token', scopes: p.scopes, expiresAt: p.expiresAt, extra: { userId: p.user.id, teamId: p.teamId, via: 'pat', label: p.name, tokenExpiresAt: p.expiresAt } };
     }
     const r = db.prepare('SELECT * FROM oauth_tokens WHERE access_hash=? AND revoked=0').get(sha(token));
     if (!r || r.expires_at < now()) throw new InvalidTokenError('Invalid or expired token');

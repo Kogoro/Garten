@@ -20,6 +20,7 @@ import { listGlobalTerms, createGlobalTerm, updateGlobalTerm, deleteGlobalTerm, 
 import { bumpGarden, addFeedback, listFeedback, setFeedback, getFeedback, PROPOSALS, openCounts, applyFeedbackOps, gardenFeedback, gardenRev } from './feedback.js';
 import { listReports, latestReports } from './reports.js';
 import { teamMetrics } from './metrics.js';
+import { listAgents, activeClaims } from './agents.js';
 import { recordRun, listChecks, runHistory, checksBySpec } from './checks.js';
 import { publicHook, saveHook, testHook } from './hooks.js';
 import { listTypes, createType, updateType, deleteType, TypeError_ } from './specTypes.js';
@@ -278,7 +279,7 @@ export function apiRouter() {
     const rev = gardenRev(t);
     res.json({
       results, fbResults, items: store.itemsSince(t, Number(since) || 0), cursor: store.maxSeq(t), me: me(req.user), project: PROJECT_NAME, mcpUrl: `${PUBLIC_URL}/mcp`, specTypes: listTypes(t), feedbackOpen: openCounts(t),
-      ...(have === rev ? {} : { garden: { rev, feedback: gardenFeedback(t), reports: latestReports(t), checks: checksBySpec(t) } }), // what the garden view needs offline; only sent when it changed
+      ...(have === rev ? {} : { garden: { rev, feedback: gardenFeedback(t), reports: latestReports(t), checks: checksBySpec(t), agents: listAgents(t), claims: activeClaims(t) } }), // what the garden view needs offline; only sent when it changed
     });
   }));
 
@@ -328,7 +329,11 @@ export function apiRouter() {
       if (t.row.foundation_auto) await store.startupSweep(); // catch up on documents edited while auto-release was off
     }
     if (req.body?.feedbackMail !== undefined) t = setFeedbackMail(t.id, !!req.body.feedbackMail);
-    if (req.body?.agentPaused !== undefined) { t = setAgentPaused(t.id, !!req.body.agentPaused); bumpGarden(t.id); }
+    if (req.body?.agentPaused !== undefined) {
+      const was = !!t.row.agent_paused;
+      t = setAgentPaused(t.id, !!req.body.agentPaused); bumpGarden(t.id);
+      if (was && !req.body.agentPaused) store.events.emit('resumed', { teamId: t.id });
+    }
     if (req.body?.hook !== undefined) t = saveHook(t.id, req.body.hook ?? {});
     audit(req, 'team.update', { team: t.id, detail: { fields: Object.keys(req.body ?? {}).filter((k) => ['name', 'foundationAuto', 'feedbackMail', 'hook'].includes(k)), ...(req.body?.hook !== undefined ? { hookHost: (() => { try { return new URL(t.row.hook_url).host; } catch { return null; } })() } : {}) } });
     res.json({ team: teamView(t, req.role) });
