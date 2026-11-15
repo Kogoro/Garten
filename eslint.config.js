@@ -50,7 +50,7 @@ export default defineConfig(
       sourceType: 'module',
       parser: tseslint.parser, // for the type-aware rules; the files stay plain JavaScript
       parserOptions: {
-        projectService: { allowDefaultProject: ['tests/*.mjs', 'scripts/*.mjs'] },
+        projectService: { allowDefaultProject: ['tests/*.mjs', 'tests/*/*.mjs', 'scripts/*.mjs'], maximumDefaultProjectFileMatchCount_THIS_WILL_SLOW_DOWN_LINTING: 40 },
         tsconfigRootDir: import.meta.dirname,
       },
       globals: { ...globals.node },
@@ -67,6 +67,10 @@ export default defineConfig(
     // tests and the UX audit drive a browser: callbacks passed to page.evaluate() run there (axe is injected)
     files: ['scripts/*.mjs', 'tests/**/*.mjs'],
     languageOptions: { globals: { ...globals.node, ...globals.browser, axe: 'readonly' } },
+    rules: {
+      // node:test's test()/describe() return promises the runner itself awaits
+      '@typescript-eslint/no-floating-promises': ['error', { allowForKnownSafeCalls: [{ from: 'package', package: 'node:test', name: ['test', 'describe', 'it', 'suite'] }] }],
+    },
   },
 
   // ---- web app (TypeScript + React)
