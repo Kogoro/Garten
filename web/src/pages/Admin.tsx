@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { formatDefinition, splitList } from '@shared/glossary.js';
+import { splitList } from '@shared/glossary.js';
+import { termsToCsv } from '@shared/glossaryFiles.js';
 import { parseGlossaryFile } from '@shared/glossaryImport.js';
 import { FormError, Sheet } from '../dialogs';
+import { DefinitionEditor } from '../editor/DefinitionEditor';
+import { DefPreview } from '../glossaryLib';
 import { guard } from '../hooks';
 import { initial } from '../lib';
 import { Bar, Shell } from '../Shell';
@@ -11,15 +14,26 @@ import { usePref } from '../prefs';
 import { Icon, ago, toast, useStore } from '../ui';
 import { scopesText } from './Account';
 
-function GTermSheet({ term, onClose, onDone }: { term?: any; onClose: () => void; onDone: (terms: any[]) => void }) {
+function GTermSheet({
+  term,
+  names,
+  onClose,
+  onDone,
+}: {
+  term?: any;
+  names: string[];
+  onClose: () => void;
+  onDone: (terms: any[]) => void;
+}) {
   const S = useStore();
   const [err, setErr] = useState<string | null>(null);
+  const [def, setDef] = useState<string>(term?.definition ?? '');
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const f = new FormData(e.currentTarget);
     const body = {
       term: f.get('term'),
-      definition: f.get('def'),
+      definition: def,
       aliases: splitList(String(f.get('aliases'))),
       see: splitList(String(f.get('see'))),
     };
@@ -36,7 +50,7 @@ function GTermSheet({ term, onClose, onDone }: { term?: any; onClose: () => void
     }
   }
   return (
-    <Sheet onClose={onClose}>
+    <Sheet onClose={onClose} wide>
       <h2>{term?.id ? 'Edit global term' : 'New global term'}</h2>
       <form id="gtermForm" className="form" onSubmit={submit}>
         <label className="sr" htmlFor="gt-term">
@@ -52,18 +66,7 @@ function GTermSheet({ term, onClose, onDone }: { term?: any; onClose: () => void
           maxLength={80}
           autoComplete="off"
         />
-        <label className="sr" htmlFor="gt-def">
-          Definition
-        </label>
-        <textarea
-          id="gt-def"
-          name="def"
-          className="field"
-          style={{ height: 110, padding: 12 }}
-          placeholder="Definition – reference other terms with [[Term]]"
-          required
-          defaultValue={term?.definition ?? ''}
-        />
+        <DefinitionEditor id="gt-def" docKey={`gterm|${term?.id ?? 'new'}`} value={def} onChange={setDef} terms={names} />
         <label className="sr" htmlFor="gt-aliases">
           Also known as
         </label>
@@ -160,7 +163,9 @@ function GFileSheet({
                 {t.term}
                 {t.aliases.length > 0 && <small className="muted"> also: {t.aliases.join(', ')}</small>}
               </b>
-              <span>{t.definition.length > 110 ? `${t.definition.slice(0, 110)}…` : t.definition}</span>
+              <span className="gl-ex">
+                <DefPreview text={t.definition} />
+              </span>
             </span>
           </div>
         ))}
@@ -238,11 +243,12 @@ export function AdminPage() {
     if (f.size > 1_000_000) return toast('The file is larger than 1 MB');
     setSheet({ t: 'gfile', name: f.name, parsed: parseGlossaryFile(f.name, await f.text()) });
   }
-  function exportMd() {
-    const md = (gl ?? []).map((g) => formatDefinition(g.term, g.definition, { aliases: g.aliases, see: g.see })).join('\n\n') + '\n';
+  /** CSV keeps the Markdown of a definition (paragraphs, lists) and is a file the import above reads back. */
+  function exportCsv() {
+    const csv = termsToCsv((gl ?? []).map((g) => ({ term: g.term, body: g.definition, aliases: g.aliases, see: g.see })));
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([md], { type: 'text/markdown' }));
-    a.download = 'global-glossary.md';
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    a.download = 'global-glossary.csv';
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
@@ -316,7 +322,7 @@ export function AdminPage() {
                         <button className="btn small" data-act="gfile-pick" onClick={() => file.current?.click()}>
                           Import file…
                         </button>
-                        <button className="btn small" data-act="gterm-export" disabled={!gl?.length} onClick={exportMd}>
+                        <button className="btn small" data-act="gterm-export" disabled={!gl?.length} onClick={exportCsv}>
                           Export
                         </button>
                         <button className="btn small" data-act="gterm-new" onClick={() => setSheet({ t: 'gterm' })}>
@@ -352,7 +358,9 @@ export function AdminPage() {
                                 {g.aliases.length > 0 && <small className="muted"> also: {g.aliases.join(', ')}</small>}{' '}
                                 <span className="chip">rev {g.rev}</span>
                               </b>
-                              <span>{g.definition.length > 160 ? `${g.definition.slice(0, 160)}…` : g.definition}</span>
+                              <span className="gl-ex">
+                                <DefPreview text={g.definition} />
+                              </span>
                             </div>
                             <button className="btn small" data-act="gterm-edit" onClick={() => setSheet({ t: 'gterm', term: g })}>
                               Edit
@@ -628,7 +636,14 @@ export function AdminPage() {
               )}
             </div>
           </div>
-          {sheet?.t === 'gterm' && <GTermSheet term={sheet.term} onClose={() => setSheet(null)} onDone={setGl} />}
+          {sheet?.t === 'gterm' && (
+            <GTermSheet
+              term={sheet.term}
+              names={(gl ?? []).map((g) => g.term).filter((n) => n !== sheet.term?.term)}
+              onClose={() => setSheet(null)}
+              onDone={setGl}
+            />
+          )}
           {sheet?.t === 'gfile' && (
             <GFileSheet name={sheet.name} parsed={sheet.parsed} existing={gl ?? []} onClose={() => setSheet(null)} onDone={setGl} />
           )}

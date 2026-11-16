@@ -9,6 +9,7 @@ import {
   termFolder,
   plainText,
   firstParagraph,
+  firstParagraphInline,
   avoidHits,
   parseTermFile,
   firstMention,
@@ -155,6 +156,35 @@ function Inl({ c, idx }: { c: Inline[]; idx: Map<string, string> }) {
       })}
     </>
   );
+}
+/** One line of a definition with its inline formatting but without links, so it can sit inside a link row: references look like references. */
+export function InlinePreview({ text }: { text: string }) {
+  const ref = (name: string, key: number | string) => (
+    <span key={key} className="termref">
+      {name}
+    </span>
+  );
+  // [[Term]] / [[Term|label]] (the form definitions use) inside plain text
+  const refs = (t: string) =>
+    t.split(/(\[\[[^\]|\n]+(?:\|[^\]\n]*)?\]\])/).map((part, i) => {
+      const m = i % 2 ? /^\[\[([^\]|]+)(?:\|([^\]]*))?\]\]$/.exec(part) : null;
+      return m ? ref((m[2] || m[1]).trim(), i) : part;
+    });
+  const flat = (c: Inline[]): ReactNode =>
+    c.map((x, i) => {
+      if (x.type === 'link') return <Fragment key={i}>{flat(x.content)}</Fragment>;
+      if (x.type === 'termref') return ref(x.props.label || x.props.term, i);
+      let el: ReactNode = x.styles.code ? <code>{x.text}</code> : refs(x.text);
+      if (x.styles.strike) el = <s>{el}</s>;
+      if (x.styles.italic) el = <em>{el}</em>;
+      if (x.styles.bold) el = <strong>{el}</strong>;
+      return <Fragment key={i}>{el}</Fragment>;
+    });
+  return <>{flat(mdToInline(text))}</>;
+}
+/** The first paragraph of a definition, formatted, for list rows. */
+export function DefPreview({ text }: { text: string }) {
+  return <InlinePreview text={firstParagraphInline(text) || plainText(text)} />;
 }
 /** Read view of a definition: the Markdown the editor writes (paragraphs, headings, lists, checklists, quotes, code, tables) with term references as links. */
 export function Md({ text, idx }: { text: string; idx: Map<string, string> }) {

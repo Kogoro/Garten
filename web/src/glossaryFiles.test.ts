@@ -13,6 +13,7 @@ import {
   splitGlossaryMd,
   termsToCsv,
   firstParagraph,
+  firstParagraphInline,
   definitionsOf,
   isTermPath,
 } from '@shared/glossaryFiles.js';
@@ -111,5 +112,10 @@ describe('export and import', () => {
   });
   it('summarises a definition by its first paragraph', () => {
     expect(firstParagraph('## Heading\n\nThe **x** [[Y|y]].\n\nmore')).toBe('The x y.');
+  });
+  it('keeps the inline formatting of the first paragraph for previews', () => {
+    expect(firstParagraphInline('## Heading\n\nThe **x** [[Y|y]] and `z`.\n\nmore')).toBe('The **x** [[Y|y]] and `z`.');
+    expect(firstParagraphInline('- *one*\n- [ ] two\n> three')).toBe('*one* two three');
+    expect(firstParagraphInline('```\ncode\n```')).toBe('');
   });
 });

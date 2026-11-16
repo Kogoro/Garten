@@ -16,6 +16,9 @@ if (typeof document !== 'undefined')
 /** Modal bottom sheet / dialog (the scrim, the close button and Escape close it). Focus moves in, stays in and returns to the opener. */
 export function Sheet({ onClose, wide, xl, children }: { onClose: () => void; wide?: boolean; xl?: boolean; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
+  // the latest onClose without re-running the focus effect: a parent that re-renders must not pull the focus back to the first field
+  const close = useRef(onClose);
+  close.current = onClose;
   useLayoutEffect(() => {
     const box = ref.current,
       from = trigger?.getBoundingClientRect(),
@@ -38,7 +41,11 @@ export function Sheet({ onClose, wide, xl, children }: { onClose: () => void; wi
         ) ?? []),
       ].filter((e) => e.offsetParent !== null);
     const k = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') return onClose();
+      if (e.key === 'Escape') {
+        // an editor inside the sheet used the key to close its own menu (slash commands, term suggestions)
+        if (e.defaultPrevented) return;
+        return close.current();
+      }
       if (e.key !== 'Tab') return;
       const f = focusable();
       if (!f.length) return;
@@ -75,7 +82,7 @@ export function Sheet({ onClose, wide, xl, children }: { onClose: () => void; wi
       document.removeEventListener('keydown', k);
       if (opener?.isConnected) opener.focus?.();
     };
-  }, [onClose]);
+  }, []);
   return (
     <div className="scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className={xl ? 'sheet xl' : wide ? 'sheet wide' : 'sheet'} role="dialog" aria-modal="true" tabIndex={-1} ref={ref}>

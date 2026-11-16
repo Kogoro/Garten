@@ -1,7 +1,7 @@
-import { Suspense, lazy, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactElement } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactElement } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { splitList } from '@shared/glossary.js';
-import { parseTermFile, termFolder, termsToCsv, isProposedPath, replaceWord, firstParagraph as firstPara } from '@shared/glossaryFiles.js';
+import { parseTermFile, termFolder, termsToCsv, isProposedPath, replaceWord } from '@shared/glossaryFiles.js';
 import { parseGlossaryFile } from '@shared/glossaryImport.js';
 import { Dropdown, FormError, Sheet } from '../dialogs';
 import { Bar, Shell } from '../Shell';
@@ -13,7 +13,9 @@ import { foundState } from '../lib';
 import { Icon, ago, toast, useStore } from '../ui';
 import { api } from '../store/core';
 import { readZip, writeZip, download } from '../zip';
+import { DefinitionEditor } from '../editor/DefinitionEditor';
 import {
+  DefPreview,
   ISSUE_GROUPS,
   Md,
   registerTermLookup,
@@ -29,7 +31,6 @@ import {
   type Term,
 } from '../glossaryLib';
 
-const SpecEditor = lazy(() => import('../editor/SpecEditor').then((m) => ({ default: m.SpecEditor })));
 type Store = ReturnType<typeof useStore>;
 const PROPOSED = '~proposed/';
 const HEALTH = '~health/';
@@ -217,12 +218,14 @@ export function TermSheet({
   const nav = useNavigate();
   const [err, setErr] = useState<string | null>(null);
   const [f, setF] = useState(folder ?? '');
-  const def = useRef<HTMLTextAreaElement>(null);
+  const [body, setBody] = useState(definition ?? '');
+  registerTermLookup(S);
+  const names = glossaryTerms(S).map((t) => t.term);
   function submit() {
     const g = (id: string) => (document.getElementById(id) as HTMLInputElement).value;
     try {
       const term = g('termname').trim();
-      S.saveTerm({ term, body: g('termdef'), aliases: splitList(g('termaliases')), see: splitList(g('termsee')), folder: f });
+      S.saveTerm({ term, body, aliases: splitList(g('termaliases')), see: splitList(g('termsee')), folder: f });
       onClose();
       nav(glossaryPath(term));
       toast('Term added to the glossary');
@@ -231,7 +234,7 @@ export function TermSheet({
     }
   }
   return (
-    <Sheet onClose={onClose}>
+    <Sheet onClose={onClose} wide>
       <h2>New glossary term</h2>
       <p>
         {from ? (
@@ -245,26 +248,10 @@ export function TermSheet({
         Term
       </label>
       <input id="termname" className="field" placeholder="Term" autoComplete="off" maxLength={80} defaultValue={initial ?? ''} />
-      <label className="sr" htmlFor="termdef">
-        Definition
-      </label>
-      <textarea
-        id="termdef"
-        ref={def}
-        className="field"
-        style={{ height: 120, padding: 12 }}
-        placeholder="What the term means in this project. Markdown works (**bold**, lists, `code`); reference other terms with [[Term]]."
-        defaultValue={definition ?? ''}
-      />
+      <DefinitionEditor id="termdef" docKey="term|new" value={body} onChange={setBody} terms={names} />
       <LookupPanel
         term={() => (document.getElementById('termname') as HTMLInputElement)?.value ?? ''}
-        onUse={(text) => {
-          const el = def.current;
-          if (el) {
-            el.value = el.value.trim() ? `${el.value.trim()} ${text}` : text;
-            el.focus();
-          }
-        }}
+        onUse={(text) => setBody((b) => (b.trim() ? `${b.trim()}\n\n${text}` : text))}
       />
       <label className="sr" htmlFor="termaliases">
         Also known as
@@ -390,7 +377,9 @@ function ImportSheet({ onClose }: { onClose: () => void }) {
                   {g.term}
                   {g.aliases.length > 0 && <small className="muted"> also: {g.aliases.join(', ')}</small>}
                 </b>
-                <span>{g.definition.length > 140 ? `${g.definition.slice(0, 140)}…` : g.definition}</span>
+                <span className="gl-ex">
+                  <DefPreview text={g.definition} />
+                </span>
                 {taken && <small className="muted">Already in your glossary</small>}
               </span>
             </label>
@@ -574,7 +563,6 @@ function GlossaryList({ arg }: { arg?: string }) {
 
   const row = (t: Term, depth: number) => {
     const aliases = [...new Set(t.defs.flatMap((d) => d.aliases))];
-    const first = firstPara(t.defs[0]?.definition ?? '') || plain(t.defs[0]?.definition ?? '');
     const two = new Set(t.defs.map((d) => plain(d.definition))).size > 1;
     return (
       <Link
@@ -589,7 +577,9 @@ function GlossaryList({ arg }: { arg?: string }) {
           {two && <span className="chip warn">2 definitions</span>}
         </div>
         <div className="row-meta">
-          <span className="gl-ex">{first}</span>
+          <span className="gl-ex">
+            <DefPreview text={t.defs[0]?.definition ?? ''} />
+          </span>
           {aliases.length > 0 && (
             <span className="muted">
               aka {aliases.slice(0, 2).join(', ')}
@@ -1507,32 +1497,7 @@ function TermEdit({
                 </div>
               </div>
             )}
-            <div>
-              <span className="field-lbl" id="gd-def-lbl">
-                Definition
-              </span>
-              <div className="blocks term-body" aria-labelledby="gd-def-lbl">
-                <Suspense
-                  fallback={
-                    <div className="editor-skeleton" role="status" aria-label="Loading the editor">
-                      <i />
-                      <i />
-                    </div>
-                  }
-                >
-                  <SpecEditor
-                    docKey={`term|${path}`}
-                    value={body}
-                    readOnly={false}
-                    onChange={setBody}
-                    terms={names.filter((n) => n !== orig.term)}
-                  />
-                </Suspense>
-              </div>
-              <small className="muted">
-                Type <kbd>#</kbd> to reference another term, <kbd>/</kbd> for lists, headings, code and tables. Select text to format it.
-              </small>
-            </div>
+            <DefinitionEditor docKey={`term|${path}`} value={body} onChange={setBody} terms={names.filter((n) => n !== orig.term)} />
             <div className="grid2">
               <TokenField id="gd-aliases" label="Also known as" value={aliases} onChange={setAliases} placeholder="Synonyms" />
               <TokenField

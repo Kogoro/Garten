@@ -746,17 +746,23 @@ try {
   await d.click('[data-act=t-def]');
   await d.locator('[data-content-type=definition] .def-term').waitFor();
   await d.locator('.def-term').fill('Ledger entry');
-  await d.locator('[data-content-type=definition] textarea').fill('One immutable row per charge.');
+  await d.locator('[data-content-type=definition] .def-text').click();
+  await d.keyboard.type('One immutable row per ');
+  await d.keyboard.press('Control+b');
+  await d.keyboard.type('charge');
+  await d.keyboard.press('Control+b');
+  await d.keyboard.type('.');
   await setMode(d, 'markdown');
   const md1 = await d.inputValue('#body');
   const [head, tail] = [before.slice(0, 11).trimEnd(), before.slice(11).trimStart()];
-  assert.ok(md1.includes(`R2 ${head}\n\nLedger entry\n: One immutable row per charge.\n\n${tail}`), md1);
+  assert.ok(md1.includes(`R2 ${head}\n\nLedger entry\n: One immutable row per **charge**.\n\n${tail}`), md1);
   ok('toolbar inserts a block at the cursor and splits the text there');
-  assert.match(md1, /Ledger entry\n: One immutable row per charge\./);
-  ok('definition block serialises as a Markdown definition list');
+  assert.match(md1, /Ledger entry\n: One immutable row per \*\*charge\*\*\./);
+  ok('definition block serialises as a Markdown definition list, with its inline formatting');
   await setMode(d, 'blocks');
   await d.locator('[data-content-type=definition] .def-term').waitFor();
   assert.equal(await d.locator('.def-term').inputValue(), 'Ledger entry');
+  assert.equal(await d.locator('[data-content-type=definition] .def-text strong').innerText(), 'charge');
   ok('definition list parses back into a definition block');
 
   // --- drag & drop with the block handle: drag the first block below the fourth one
@@ -832,16 +838,25 @@ try {
   await d.locator('[data-lookup-hit]').waitFor();
   await d.click('[data-act=lookup-use]');
   assert.match(
-    await d.inputValue('#termdef'),
+    await d.locator('#termdef .bn-editor').innerText(),
     /Dunning is the process.*\(Source: Wikipedia, CC BY-SA 4\.0 – https:\/\/en\.wikipedia\.org\/wiki\/Dunning\)/,
   );
   ok('glossary: online lookup offers a definition and copies it with its source');
   await d.unroute('**/api/lookup**');
-  await d.fill('#termdef', 'Reminding customers about unpaid invoices.');
+  await d.locator('#termdef .bn-editor [data-content-type=paragraph]').last().click();
+  await d.keyboard.press('Control+a');
+  await d.keyboard.type('Reminding ');
+  await d.keyboard.press('Control+b');
+  await d.keyboard.type('customers');
+  await d.keyboard.press('Control+b');
+  await d.keyboard.type(' about unpaid invoices.');
   await d.click('[data-act=create-term]');
   await d.locator('#glDetail h1', { hasText: 'Dunning' }).waitFor();
   await d.locator('#glList .row.active', { hasText: 'Dunning' }).waitFor();
   ok('glossary: New → Term creates the term and opens it');
+  assert.equal(await d.locator('#glDetail .gd-def strong').innerText(), 'customers');
+  assert.equal(await d.locator('#glList .row.active .gl-ex strong').innerText(), 'customers');
+  ok('glossary: formatting typed in the new-term dialog shows in the definition and in the list preview');
   // folder + a term with synonyms and references inside it
   await d.click('.bar [data-act=dd-toggle]');
   await d.getByRole('menuitem', { name: 'Folder' }).click();
@@ -852,7 +867,8 @@ try {
   await d.click('.bar [data-act=dd-toggle]');
   await d.getByRole('menuitem', { name: 'Term' }).click();
   await d.fill('#termname', 'Payout');
-  await d.fill('#termdef', 'Money sent to the merchant after [[Settlement]] and [[Ghost term]].');
+  await d.locator('#termdef .bn-editor [data-content-type=paragraph]').last().click();
+  await d.keyboard.insertText('Money sent to the merchant after [[Settlement]] and [[Ghost term]].');
   await d.fill('#termaliases', 'disbursement, transfer');
   await d.fill('#termsee', 'Chargeback');
   await d.selectOption('#termfolder', 'Payments');
@@ -1059,7 +1075,7 @@ try {
   await d.click('[data-act=item-menu]');
   await d.getByRole('button', { name: 'Glossary term from selection…' }).click();
   assert.equal(await d.inputValue('#termname'), 'Settlement run');
-  assert.equal(await d.inputValue('#termdef'), '');
+  assert.equal((await d.locator('#termdef .bn-editor').innerText()).trim(), '');
   ok('a selected short text opens the glossary dialog as the term');
   await d.keyboard.press('Escape');
   await d
@@ -1596,8 +1612,35 @@ try {
   ok('admin: "update existing" overwrites terms from a Markdown file');
   const dl = d.waitForEvent('download');
   await d.click('[data-act=gterm-export]');
-  assert.equal((await dl).suggestedFilename(), 'global-glossary.md');
-  ok('admin: the global glossary can be exported as Markdown');
+  assert.equal((await dl).suggestedFilename(), 'global-glossary.csv');
+  ok('admin: the global glossary can be exported as CSV');
+  // a global term is written in the formatting editor and keeps its Markdown
+  await d.click('[data-act=gterm-new]');
+  await d.fill('#gt-term', 'Dunning level');
+  await d.locator('#gt-def .bn-editor [data-content-type=paragraph]').last().click();
+  await d.keyboard.type('How ');
+  await d.keyboard.press('Control+i');
+  await d.keyboard.type('often');
+  await d.keyboard.press('Control+i');
+  await d.keyboard.type(' a customer was reminded.');
+  await d.keyboard.press('Enter');
+  await d.keyboard.type('/bul');
+  await d.locator('.bn-suggestion-menu').waitFor();
+  await d.keyboard.press('Escape');
+  await d.locator('#gt-term').waitFor();
+  ok('a sheet with an editor: Escape closes the editor’s menu, not the sheet');
+  for (let k = 0; k < 4; k++) await d.keyboard.press('Backspace');
+  await d.keyboard.type('- first reminder');
+  await d.keyboard.press('Enter');
+  await d.keyboard.type('second reminder');
+  await d.click('#gtermForm button[type=submit]');
+  await d.locator('.rel', { hasText: 'Dunning level' }).waitFor();
+  assert.equal(
+    (await admin.get('/api/glossary/global')).data.terms.find((t) => t.term === 'Dunning level').definition,
+    'How *often* a customer was reminded.\n\n- first reminder\n- second reminder',
+  );
+  assert.equal(await d.locator('.rel', { hasText: 'Dunning level' }).locator('.gl-ex em').innerText(), 'often');
+  ok('admin: a global term is written with formatting; the list shows its first paragraph formatted');
   await d.click('[data-tab=teams]');
   await d.locator('.user:has(.ws-av)', { hasText: 'Platform Crew' }).waitFor();
   await d.locator('.user:has(.ws-av)', { hasText: 'Payments' }).waitFor();
