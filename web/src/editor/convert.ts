@@ -65,7 +65,8 @@ export function modelToBn(blocks: ModelBlock[]): BnBlock[] {
       case 'def':
         return {
           type: 'definition',
-          props: { term: b.term ?? '', text: b.text ?? '', aliases: b.aliases ?? '', see: b.see ?? '', src: b.src ?? '' },
+          props: { term: b.term ?? '', aliases: b.aliases ?? '', see: b.see ?? '', src: b.src ?? '' },
+          content: inl(b.text),
         };
       default:
         return { type: 'paragraph', content: inl(b.text) };
@@ -124,7 +125,7 @@ export function bnToModel(blocks: BnBlock[]): ModelBlock[] {
           out.push({ type: 'endpoint', method: p.method, path: p.path ?? '', text: p.text ?? '', req: p.req ?? '', res: p.res ?? '' });
           break;
         case 'definition':
-          out.push({ type: 'def', term: p.term ?? '', text: p.text ?? '', aliases: p.aliases ?? '', see: p.see ?? '', src: p.src ?? '' });
+          out.push({ type: 'def', term: p.term ?? '', text: text(), aliases: p.aliases ?? '', see: p.see ?? '', src: p.src ?? '' });
           break;
         default:
           out.push({ type: 'p', text: text() });

@@ -1806,6 +1806,36 @@ select.field.role {
 .def-term::placeholder {
   color: var(--ph);
 }
+/* the definition's text inside the card: running text with inline formatting */
+.bn-block-content[data-content-type='definition'] > * {
+  flex: 1;
+  min-width: 0;
+}
+.def-text {
+  padding: 2px 4px 4px;
+  color: var(--soft);
+}
+.def-text:has(.ProseMirror-trailingBreak:only-child)::before {
+  content: 'Definition – select text to format it';
+  float: left;
+  height: 0;
+  color: var(--ph);
+  pointer-events: none;
+}
+/* formatted one-line previews of a definition (list rows, import lists) */
+.gl-ex code {
+  font: 12px var(--mono);
+  background: var(--tint);
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+.gl-ex .termref {
+  text-decoration-style: dotted;
+}
+.gl-ex strong {
+  font-weight: 600;
+  color: var(--text);
+}
 .def .blk-in {
   padding: 4px 4px;
   color: var(--soft);
@@ -6661,4 +6691,12 @@ i.dot-b {
 }
 .term-body .bn-editor {
   padding-inline: 36px 16px;
+}
+/* the box is the field: it carries the focus ring, not the text area inside it */
+.term-body .bn-editor:focus-visible {
+  outline: none;
+}
+.term-body:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
 }

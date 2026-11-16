@@ -86,6 +86,12 @@ describe('glossary', () => {
       assert.equal((await admin.post('/api/glossary/global', { term: 'Bad [term]', definition: 'x' })).status, 400);
       assert.equal((await admin.post('/api/glossary/global', { term: 'Ok', definition: '' })).status, 400);
     });
+    step('a global definition is Markdown: paragraphs and lists keep their line breaks', async () => {
+      const md = 'A **forced** reversal.\n\n- by the bank\n- by the scheme';
+      const r = await admin.post('/api/glossary/global', { term: 'Formatted', definition: `${md.replace(/\n/g, '\r\n')}  \n\n\n` });
+      assert.equal(r.data.term.definition, md);
+      await admin.del(`/api/glossary/global/${r.data.term.id}`);
+    });
     step('editing a global term bumps its revision', async () => {
       const glEdit = await admin.patch(`/api/glossary/global/${gl1.data.term.id}`, {
         definition: 'Funds move from the processor to our bank.',

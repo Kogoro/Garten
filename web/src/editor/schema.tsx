@@ -295,7 +295,8 @@ export const endpoint = createReactBlockSpec(
   { render: (p) => <Endpoint {...p} /> },
 );
 
-function Definition({ block, editor }: any) {
+/** A glossary term inside a spec: the definition is running text, so it takes bold, italic, code, links and #[Term] references. */
+function Definition({ block, editor, contentRef }: any) {
   const p = block.props as Record<string, string>;
   const set = (patch: Record<string, string>) => editor.updateBlock(block, { props: patch });
   const r = ro(editor);
@@ -309,16 +310,8 @@ function Definition({ block, editor }: any) {
         value={p.term}
         onChange={(e) => set({ term: e.target.value })}
       />
-      <textarea
-        className="blk-in"
-        aria-label="Definition"
-        placeholder="Definition – use [[Term]] to reference other terms"
-        readOnly={r}
-        rows={2}
-        value={p.text}
-        onChange={(e) => set({ text: e.target.value })}
-      />
-      <div className="def-meta">
+      <div className="def-text" ref={contentRef} />
+      <div className="def-meta" contentEditable={false}>
         <input
           className="def-aliases"
           aria-label="Also known as"
@@ -336,15 +329,19 @@ function Definition({ block, editor }: any) {
           onChange={(e) => set({ see: e.target.value })}
         />
       </div>
-      {p.src ? <small className="muted">Imported from the global glossary</small> : null}
+      {p.src ? (
+        <small className="muted" contentEditable={false}>
+          Imported from the global glossary
+        </small>
+      ) : null}
     </div>
   );
 }
 export const definition = createReactBlockSpec(
   {
     type: 'definition',
-    propSchema: { term: { default: '' }, text: { default: '' }, aliases: { default: '' }, see: { default: '' }, src: { default: '' } },
-    content: 'none',
+    propSchema: { term: { default: '' }, aliases: { default: '' }, see: { default: '' }, src: { default: '' } },
+    content: 'inline',
   },
   { render: (p) => <Definition {...p} /> },
 );

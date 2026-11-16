@@ -188,13 +188,22 @@ export function definitionsOf(id, body) {
   return parseDefinitions(body).map((d) => ({ ...d, avoid: [], distinct: [], file: false }));
 }
 
+const firstBlock = (md) =>
+  String(md ?? '')
+    .trim()
+    .split(/\n\s*\n/)
+    .find((b) => b.trim() && !/^(```|#{1,6}\s|\|)/.test(b.trim())) ?? '';
 /** The first paragraph as plain text (for lists, hover cards and the agents' short context). */
 export function firstParagraph(md) {
-  const blocks = String(md ?? '')
-    .trim()
-    .split(/\n\s*\n/);
-  const p = blocks.find((b) => b.trim() && !/^(```|#{1,6}\s|\|)/.test(b.trim())) ?? '';
-  return plainText(p);
+  return plainText(firstBlock(md));
+}
+/** The first paragraph as one line that keeps its inline Markdown (bold, code, links, references) – for previews that show formatting. */
+export function firstParagraphInline(md) {
+  return firstBlock(md)
+    .split('\n')
+    .map((l) => l.replace(/^\s*(?:[-*]\s+(?:\[[ xX]\]\s*)?|>\s?|\d+\.\s+)/, '').trim())
+    .filter(Boolean)
+    .join(' ');
 }
 export function plainText(md) {
   return String(md ?? '')

@@ -57,6 +57,15 @@ describe('Markdown <-> BlockNote round trip', () => {
   it('keeps the stored Markdown format stable', () => {
     expect(bnToMd(mdToBn(DOC))).toBe(serialize(parse(DOC)));
   });
+  it('keeps inline formatting and term references inside a definition block', () => {
+    const md = 'Ledger entry\n: One **immutable** row per #[Charge], see `ledger`.\n: Aliases: posting';
+    const [b] = mdToBn(md);
+    expect(b.type).toBe('definition');
+    expect(b.props).toMatchObject({ term: 'Ledger entry', aliases: 'posting' });
+    expect(b.content.map((c: any) => c.type)).toEqual(['text', 'text', 'text', 'termref', 'text', 'text', 'text']);
+    expect(b.content[1]).toMatchObject({ text: 'immutable', styles: { bold: true } });
+    expect(bnToMd([b])).toBe(`${md}\n`);
+  });
   it('renumbers requirements in document order', () => {
     const bn = mdToBn('R1 a\nR2 b\nR3 c\n');
     bn.splice(1, 1); // user deleted the middle one

@@ -10,12 +10,19 @@ import { bnToMd, mdToBn, type BnBlock } from './convert';
 import { inlineToMd } from './inline';
 import { schema } from './schema';
 
-/** Enter in a requirement starts the next requirement; Enter in an empty one leaves the list. */
+/** Enter in a requirement starts the next requirement; Enter in an empty one leaves the list. Enter in a definition leaves it. */
 const requirementEnter = createExtension({
   key: 'requirementEnter',
   keyboardShortcuts: {
     Enter: ({ editor }) => {
       const cur: any = editor.getTextCursorPosition().block;
+      if (cur.type === 'definition') {
+        // a definition is one line of text: Enter leaves the card instead of splitting it into two terms
+        const r: any = editor.insertBlocks([{ type: 'paragraph' } as any], cur, 'after');
+        const nb = r.insertedBlocks?.[0] ?? r[0];
+        if (nb) editor.setTextCursorPosition(nb, 'start');
+        return true;
+      }
       if (cur.type !== 'requirement') return false;
       if (!cur.content?.length) {
         editor.updateBlock(cur, { type: 'paragraph' } as any);

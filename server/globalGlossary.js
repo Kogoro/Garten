@@ -29,8 +29,11 @@ function validate(b) {
   const term = String(b?.term ?? '')
     .replace(/\s+/g, ' ')
     .trim();
+  // Markdown, as in a team's term files: paragraphs, lists and code keep their line breaks
   const definition = String(b?.definition ?? '')
-    .replace(/\s*\n\s*/g, ' ')
+    .replace(/\r\n?/g, '\n')
+    .replace(/[ \t]+$/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
     .trim();
   const list = (v) =>
     (Array.isArray(v) ? v : splitList(v))
