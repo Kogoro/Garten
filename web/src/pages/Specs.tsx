@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { Bar, Shell } from '../Shell';
 import { AgentChip, ItemEditor, ItemSync, NotFound, StatusChip, TypeChip } from './ItemEditor';
 import { NewSpecSheet } from '../sheets';
@@ -23,6 +23,13 @@ function SpecList({ selected }: { selected?: string }) {
     'pending',
   ]);
   const [type, setType] = usePref<string>('specs-type', '');
+  // Today's stage headings open the list on that stage: ?stage=seed|sprout|bloom
+  const [params] = useSearchParams();
+  const stage = params.get('stage');
+  useEffect(() => {
+    const f = ({ seed: 'draft', sprout: 'pending', bloom: 'approved' } as const)[stage as 'seed'];
+    if (f) setFilter(f);
+  }, [stage]); // eslint-disable-line react-hooks/exhaustive-deps
   const [sort, setSort] = usePref<'updated' | 'id' | 'title' | 'status' | 'impl'>('specs-sort', 'updated', [
     'updated',
     'id',
@@ -239,7 +246,7 @@ function SpecList({ selected }: { selected?: string }) {
 function SpecEditorPage({ id }: { id: string }) {
   const S = useStore();
   const item = S.get(id);
-  if (!item || item.kind !== 'spec') return <NotFound what="spec" to="/" back="Specs" />;
+  if (!item || item.kind !== 'spec') return <NotFound what="spec" to="/specs" back="Specs" />;
   return <ItemEditor item={item} />;
 }
 

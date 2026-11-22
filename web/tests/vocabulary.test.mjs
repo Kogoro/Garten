@@ -16,6 +16,7 @@ const RETIRED = [
   /\bRelease now\b/,
   /\bApproval queued\b/,
   /\bTo approve\b/,
+  /\bGarden\b/, // the page is Today
 ];
 const files = (dir) =>
   readdirSync(dir).flatMap((f) => {

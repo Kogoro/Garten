@@ -1,13 +1,10 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { DecisionCard, FbItem, useFbAct } from '../feedback';
 import { ImplChip, ReportSheet, SteerChips, implState } from '../reports';
 import { Bar, Shell } from '../Shell';
-import { Icon, ago, toast, touched, useStore } from '../ui';
+import { Icon, ago, toast, useStore } from '../ui';
 import { Hint } from '../Hint';
-import { awaitsApproval } from '../lib';
 import { useTeamInfo } from '../hooks';
-import { ApproveButton } from './ItemEditor';
 
 const dur = (h: number | null | undefined) =>
   h == null ? '–' : h < 1 ? `${Math.max(1, Math.round(h * 60))} min` : h < 48 ? `${Math.round(h)} h` : `${Math.round(h / 24)} days`;
@@ -149,21 +146,13 @@ const STATUS_TEXT: Record<string, string> = {
 const who = (x: any) => String(x?.via ?? x?.by ?? x?.name ?? x?.author ?? 'An agent').replace(/^(token|agent):\s*/i, '');
 
 /** The command centre: what needs a person, what the agents are doing, where it hangs. Works offline. */
-export function GardenPage() {
+export function AgentsPage() {
   const S = useStore();
-  const act = useFbAct();
   const { info, reload } = useTeamInfo();
   const [report, setReport] = useState<string | null>(null);
   const decisions = S.openDecisions(),
     feedback = S.openFeedback(),
     answered = S.answeredDecisions().slice(0, 10);
-  const waiting = S.fbPending();
-  const toApprove = S.can('approve')
-    ? S.all('spec')
-        .filter((x) => awaitsApproval(S, x))
-        .sort((a, b) => touched(b) - touched(a))
-    : [];
-  const queuedApprovals = S.all('spec').filter((x) => x.approve);
   const rows = S.all('spec')
     .filter((s) => s.status === 'approved')
     .map((s) => ({ s, r: S.latestReport(s.id), st: implState(s, S.latestReport(s.id)), checks: S.specChecks(s.id) as any[] }))
@@ -329,7 +318,7 @@ export function GardenPage() {
       single
       master={
         <>
-          <Bar title="Garden" />
+          <Bar title="Agents" />
           <div className="scroll">
             <div className="page garden gd-center">
               <section className="gd-sum">
@@ -456,126 +445,12 @@ export function GardenPage() {
                     </button>
                   )}
                   <Link className="btn small" style={{ flex: 'none' }} to="/release">
-                    Open Release
+                    Git and agent connection
                   </Link>
-                </section>
-              )}
-              {queuedApprovals.length > 0 && (
-                <section className="card warn" id="gd-queued">
-                  <span style={{ color: 'var(--amber)' }}>
-                    <Icon name="up" size={18} />
-                  </span>
-                  <div className="grow">
-                    <b>
-                      {queuedApprovals.length} approval{queuedApprovals.length === 1 ? '' : 's'} waiting to sync
-                    </b>
-                    <span>
-                      Approved on this device: {queuedApprovals.map((x) => x.id).join(', ')}.{' '}
-                      {S.state.online ? 'Sending…' : 'They are released as soon as the server is reachable.'}
-                    </span>
-                  </div>
-                </section>
-              )}
-              {waiting > 0 && (
-                <section className="card warn" id="gd-waiting">
-                  <span style={{ color: 'var(--amber)' }}>
-                    <Icon name="up" size={18} />
-                  </span>
-                  <div className="grow">
-                    <b>
-                      {waiting} answer{waiting === 1 ? '' : 's'} waiting to sync
-                    </b>
-                    <span>
-                      Saved on this device.{' '}
-                      {S.state.online ? 'Sending…' : 'Sent as soon as the server is reachable – the agent continues after that.'}
-                    </span>
-                  </div>
-                </section>
-              )}
-              {S.state.gardenNotice && (
-                <section className="card bad" id="gd-notice">
-                  <span style={{ color: 'var(--red)' }}>
-                    <Icon name="warn" size={18} />
-                  </span>
-                  <div className="grow">
-                    <b>Not accepted by the server</b>
-                    <span>{S.state.gardenNotice}</span>
-                  </div>
-                  <button className="btn small" style={{ flex: 'none' }} onClick={S.dismissGardenNotice}>
-                    OK
-                  </button>
                 </section>
               )}
 
               <div className="gd-grid">
-                <div className="gd-main">
-                  <div id="gd-needs-list" className="garden">
-                    {decisions.length > 0 && (
-                      <section id="gd-decisions">
-                        <div className="sect-title">
-                          <span>Decisions</span>
-                          <small style={{ color: 'var(--amber)' }}>{decisions.length}</small>
-                        </div>
-                        <div className="fb-list">
-                          {decisions.map((d, i) => (
-                            <DecisionCard key={d.id} f={d} showSpec act={act} collapsed={i > 0} />
-                          ))}
-                        </div>
-                      </section>
-                    )}
-                    {feedback.length > 0 && (
-                      <section id="gd-feedback">
-                        <div className="sect-title">
-                          <span>Feedback</span>
-                          <small style={{ color: 'var(--amber)' }}>{feedback.length}</small>
-                        </div>
-                        <div className="fb-list">
-                          {feedback.map((f) => (
-                            <FbItem key={f.id} f={f} showSpec act={act} />
-                          ))}
-                        </div>
-                      </section>
-                    )}
-                    {toApprove.length > 0 && (
-                      <section id="gd-approve">
-                        <div className="sect-title">
-                          <span>Ready to approve</span>
-                          <small>{toApprove.length}</small>
-                        </div>
-                        <div className="list-card">
-                          {toApprove.slice(0, 8).map((x) => (
-                            <div key={x.id} className="gd-row static" data-spec={x.id}>
-                              <Link className="grow gd-link" to={`/spec/${encodeURIComponent(x.id)}`}>
-                                <b>
-                                  <span className="mono">{x.id}</span> {x.title}
-                                </b>
-                                <span>
-                                  {x.status === 'approved' ? `Edited since v${x.version}` : 'Draft'} · {ago(touched(x))}
-                                </span>
-                              </Link>
-                              <ApproveButton i={x} S={S} />
-                            </div>
-                          ))}
-                        </div>
-                        {toApprove.length > 8 && (
-                          <Link
-                            className="btn"
-                            to="/"
-                            onClick={() => {
-                              try {
-                                localStorage.setItem('specs-pref-specs-filter', 'pending');
-                              } catch {
-                                /* private mode */
-                              }
-                            }}
-                          >
-                            Show all {toApprove.length} in Specs
-                          </Link>
-                        )}
-                      </section>
-                    )}
-                  </div>
-                </div>
                 <aside className="gd-side" aria-label="Agents">
                   {(agents.length > 0 || info?.hook) && (
                     <section id="gd-agents">
@@ -663,11 +538,7 @@ export function GardenPage() {
                     {done} of {rows.length} released specs implemented
                   </small>
                 </div>
-                {!rows.length && (
-                  <p className="quiet">
-                    No released specs yet. Agents start when you approve a spec under <Link to="/release">Release</Link>.
-                  </p>
-                )}
+                {!rows.length && <p className="quiet">No released specs yet. Agents start when a spec blooms.</p>}
                 {cols.length > 1 && (
                   <div className="seg seg-fill gd-seg" role="group" aria-label="Pipeline stage">
                     {cols.map((c) => (
@@ -746,29 +617,14 @@ export function GardenPage() {
                 </div>
               )}
 
-              {answered.length > 0 && (
-                <section id="gd-answered">
-                  <div className="sect-title">
-                    <span>Recently answered</span>
-                    <small>{answered.length}</small>
-                  </div>
-                  <div className="fb-list">
-                    {answered.map((d) => (
-                      <DecisionCard key={d.id} f={d} showSpec act={act} />
-                    ))}
-                  </div>
-                </section>
-              )}
-
               <Health />
               <Hint id="garden-intro">
-                Agents build what you release. They ask here when a spec leaves a choice open, and report what they built. You answer and
-                adjust the specs – also offline; answers are sent with the next sync.
+                Agents build what is in bloom. They ask on Today when a spec leaves a choice open, and report here what they built.
               </Hint>
               {S.can('admin') && (
                 <p className="note gd-foot">
-                  Agents are connected under <Link to="/team">Members &amp; Git</Link>: the trigger that starts them on a release, and the
-                  prompt they work with.
+                  Agents are connected under <Link to="/team">Members &amp; Git</Link>: the trigger that starts them when a spec blooms, and
+                  the prompt they work with.
                 </p>
               )}
             </div>

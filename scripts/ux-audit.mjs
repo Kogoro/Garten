@@ -94,7 +94,20 @@ await fetch(`${BASE}/api/teams/${tid}/sync`, {
   body: JSON.stringify({ since: 0, changes }),
 });
 
-const ROUTES = ['#/', '#/garden', '#/docs', '#/glossary', '#/release', '#/sync', '#/team', '#/account', '#/admin', '#/spec/SPEC-107'];
+const ROUTES = [
+  '#/',
+  '#/specs',
+  '#/activity',
+  '#/docs',
+  '#/glossary',
+  '#/guardrails',
+  '#/release',
+  '#/sync',
+  '#/team',
+  '#/account',
+  '#/admin',
+  '#/spec/SPEC-107',
+];
 const fails = []; // { area, where, what }
 const fail = (area, where, what) => fails.push({ area, where, what });
 const totals = {}; // area -> { checks, failed }
@@ -163,7 +176,7 @@ async function pass(label, viewport, scheme) {
   await page.fill('input[type=email]', 'admin@localhost');
   await page.fill('input[type=password]', 'adminpass1');
   await page.keyboard.press('Enter');
-  await page.waitForSelector('.tabbar, .sidebar', { state: 'attached', timeout: 20000 });
+  await page.waitForSelector('.tabbar, .topnav', { state: 'attached', timeout: 20000 });
   await page.waitForTimeout(1200);
   for (const r of ROUTES) {
     const where = `${label} ${r}`;
@@ -258,7 +271,7 @@ async function pass(label, viewport, scheme) {
     }
   }
   // no mobile pattern on the desktop and no desktop pattern on the phone
-  for (const r of ['#/', '#/docs', '#/glossary', '#/spec/SPEC-107']) {
+  for (const r of ['#/', '#/specs', '#/docs', '#/glossary', '#/spec/SPEC-107']) {
     await page.evaluate((h) => {
       location.hash = h;
     }, r);
@@ -276,12 +289,12 @@ async function pass(label, viewport, scheme) {
         approvebar: vis('.approve-bar'),
         strip: vis('.sumstrip'),
         filterbtn: vis('.filterbtn'),
-        sidebar: vis('.sidebar'),
+        sidebar: vis('.topnav'),
         desktopAdd: vis('.bar .btn.primary[data-act=new-spec], .bar .btn.primary.only-desktop'),
       };
     });
     if (phone) {
-      check('patterns', !seen.sidebar, `${label} ${r}`, 'the desktop sidebar shows on a phone');
+      check('patterns', !seen.sidebar, `${label} ${r}`, 'the desktop top navigation shows on a phone');
       check('patterns', !seen.desktopAdd, `${label} ${r}`, 'the labelled desktop add button shows on a phone');
     } else
       for (const k of ['fab', 'tabbar', 'approvebar', 'strip', 'filterbtn'])
@@ -339,7 +352,7 @@ const ROUTES_LABEL = 'desktop-dark';
   await page.fill('input[type=email]', 'admin@localhost');
   await page.fill('input[type=password]', 'adminpass1');
   await page.keyboard.press('Enter');
-  await page.waitForSelector('.tabbar, .sidebar', { state: 'attached', timeout: 20000 });
+  await page.waitForSelector('.tabbar, .topnav', { state: 'attached', timeout: 20000 });
   await cdp.send('Network.enable');
   await cdp.send('Network.setCacheDisabled', { cacheDisabled: true });
   await cdp.send('Network.emulateNetworkConditions', {

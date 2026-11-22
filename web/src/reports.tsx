@@ -273,7 +273,7 @@ export function ReportBody({ specId }: { specId: string }) {
   );
 }
 
-/** The same report in a dialog (Garden). */
+/** The same report in a dialog (Agents). */
 const PRIO: [string, string][] = [
   ['high', 'High'],
   ['normal', 'Normal'],

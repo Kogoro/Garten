@@ -453,7 +453,7 @@ export function ItemEditor({ item }: { item: Item }) {
   const blocks = mode === 'blocks';
   const asForm = mode === 'form' && !!form;
   const path = isSpec ? `${S.team()!.key}/${item.id}.md` : `docs/${item.id}`;
-  const back = isSpec ? '/' : isGlossaryPath(item.id) ? '/glossary' : '/docs';
+  const back = isSpec ? '/specs' : isGlossaryPath(item.id) ? '/glossary' : '/docs';
 
   /** What the user marked in this item (blocks editor, Markdown view or read view); empty = nothing selected. */
   function selected(): string {

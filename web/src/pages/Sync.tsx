@@ -69,7 +69,7 @@ export function SyncPage() {
                   <div className="q">
                     <div className="l">
                       <span>
-                        {answers} answer{answers === 1 ? '' : 's'} / triage action{answers === 1 ? '' : 's'} in the Garden
+                        {answers} answer{answers === 1 ? '' : 's'} / triage action{answers === 1 ? '' : 's'} on Today
                       </span>
                     </div>
                   </div>
