@@ -5338,6 +5338,10 @@ input[type='radio'] {
   flex-direction: column;
   gap: 4px;
 }
+/* the one captioned group: what agents always receive (glossary, guardrails) */
+.navgroup .navlabel {
+  padding: 0 12px 2px;
+}
 .navitem .count {
   font-size: 12px;
   font-weight: 500;
