@@ -545,6 +545,13 @@ try {
   ok('guardrails page: every rule with its id and kind, the details on the rule itself');
   await page.evaluate(() => (location.hash = '#/garden'));
   await page.locator('[data-act=more-menu]').waitFor();
+  await tool('propose_guardrail', { rule: 'Never call the payment provider without an idempotency key.', kind: 'never' });
+  await page.evaluate(() => dispatchEvent(new Event('online')));
+  await page.locator('[data-act=more-menu] .badge').waitFor({ timeout: 10000 });
+  await page.click('[data-act=more-menu]');
+  await page.getByRole('button', { name: 'Guardrails · 1 proposed' }).waitFor();
+  await page.keyboard.press('Escape');
+  ok('a proposed rule shows as a badge for approvers (More menu on a phone)');
   await page.keyboard.press('Escape').catch(() => {});
   await page.click('[data-act=more-menu]');
   await page.getByRole('button', { name: /^Sync/ }).click();

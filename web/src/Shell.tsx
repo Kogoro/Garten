@@ -92,6 +92,7 @@ export function useMenus() {
       nav('/');
     }
   }
+  const waiting = proposalsWaiting(S);
   return {
     workspace: async () => pick(await openMenu('Team', workspaceItems())),
     user: async () =>
@@ -106,8 +107,8 @@ export function useMenus() {
     more: async () =>
       pick(
         await openMenu('More', [
-          { key: 'go:glossary', label: 'Glossary' },
-          { key: 'go:guardrails', label: 'Guardrails' },
+          { key: 'go:glossary', label: `Glossary${waiting.terms ? ` · ${waiting.terms} proposed` : ''}` },
+          { key: 'go:guardrails', label: `Guardrails${waiting.rules ? ` · ${waiting.rules} proposed` : ''}` },
           {
             key: 'go:sync',
             label: `Sync${S.queue().length + S.fbPending() + S.conflicts().length ? ` · ${S.queue().length + S.fbPending() + S.conflicts().length} waiting` : ''}`,
@@ -127,6 +128,18 @@ export function useMenus() {
     teamName,
   };
 }
+
+/** Proposed glossary terms and guardrails that wait for an approver (0 for everyone else: they cannot act on them). */
+function proposalsWaiting(S: ReturnType<typeof useStore>) {
+  if (!S.can('approve')) return { terms: 0, rules: 0 };
+  return { terms: S.proposedItems().length, rules: S.proposedRuleItems().length };
+}
+const proposedBadge = (n: number, what: string) =>
+  n > 0 ? (
+    <span className="badge" title={`${n} proposed ${what} wait for an approver`}>
+      {n}
+    </span>
+  ) : null;
 
 /** The one page header: compact, same everywhere (team button on mobile, sync pill). */
 const DetailOpen = createContext(false);
@@ -200,7 +213,8 @@ export function Shell({ master, detail, single, active }: { master: ReactNode; d
     document.title = [openTitle, TITLES[act] ?? 'Specs', t?.name].filter(Boolean).join(' · ');
   }, [openTitle, act, t?.name]);
   const needs = S.feedbackTotal();
-  const moreBadge = m.invites + S.conflicts().length;
+  const waiting = proposalsWaiting(S);
+  const moreBadge = m.invites + S.conflicts().length + waiting.terms + waiting.rules;
   return (
     <div className={`shell ${single ? 'single' : ''}`} data-pane={detail ? 'detail' : 'master'}>
       <a
@@ -246,9 +260,14 @@ export function Shell({ master, detail, single, active }: { master: ReactNode; d
             ) : null,
           )}
           {link('/docs', 'Documents', 'docs')}
-          {link('/glossary', 'Glossary', 'glossary')}
-          {link('/guardrails', 'Guardrails', 'rule')}
           {link('/release', 'Release', 'release')}
+        </div>
+        <div className="navgroup" role="group" aria-labelledby="nav-foundation">
+          <div className="navlabel" id="nav-foundation">
+            Foundation
+          </div>
+          {link('/glossary', 'Glossary', 'glossary', proposedBadge(waiting.terms, waiting.terms === 1 ? 'term' : 'terms'))}
+          {link('/guardrails', 'Guardrails', 'rule', proposedBadge(waiting.rules, waiting.rules === 1 ? 'rule' : 'rules'))}
         </div>
         <div className="navgroup">
           {link('/team', 'Members & Git', 'team')}
