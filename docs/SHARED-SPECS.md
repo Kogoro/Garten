@@ -1,219 +1,259 @@
-# Shared specs: parent and child teams
+# Shared specs: parent, child and sibling teams
 
-Status: **concept**, nothing of this is built yet. Open questions are at the end.
+Status: **concept**, nothing of this is built yet. The decisions taken so far are listed at the end.
 
 ## The problem
 
-Everything in Garten belongs to exactly one team: specs, documents, folders, the glossary, the guardrails, the Git repository and every agent token. That isolation is a feature, but real organisations are nested:
+Everything in Garten belongs to exactly one team: specs, documents, folders, the glossary, the guardrails, the Git repository and every agent token. That isolation is a feature, but real organisations are nested and connected:
 
 - a **company** has guardrails every team must follow ("never store card numbers", "all services log in JSON") and a shared vocabulary,
 - a **platform team** owns API contracts, ADRs and data models that product teams build against,
+- an **API team** offers an API that a product team (a sibling, not a child) uses,
 - a **program** writes one spec ("Checkout v2") that three teams implement in their own repositories.
 
 Today the only cross-team mechanism is the instance-wide glossary, which teams import as copies. Everything else is copy & paste, and copies drift.
 
 ## Recommendation in one paragraph
 
-Teams form a **tree** (each team has at most one parent team). A team can **share** released specs, documents and folders with its child teams. Child teams see them as **inherited**: read-only, always the released version, addressed with the parent's team key (`@PLAT/SPEC-012`, `@PLAT/adr/ADR-007.md`). Foundation documents travel down automatically and are **layered** (guardrails add up, glossary terms resolve nearest-first). A child spec can say it **implements** a parent spec; the parent sees the reports of all its children rolled up, and a new parent version puts the child spec back on the work list. Content flows **down**, feedback, decisions and reports flow **up**. A child that needs to change something **adopts** it as its own copy, which remembers its source and offers updates.
+Teams form a **tree** (each team has at most one parent team). The tree carries the **foundation**: a child team inherits the vision, strategy, guardrails and glossary of its ancestors, layered by fixed rules (section 3). On top of the tree, any team can **share** released specs, documents and folders with **other teams**: its child teams, or any named team such as a sibling that uses its API. The receiving team sees them read-only and addresses them with the owner's team key (`@API/api/payments.yaml`). Every link points to **one released version**; moving to a newer version is an **approval in the receiving team**. A spec can say it **implements** a spec of another team; the owner sees the reports of all implementing teams rolled up. Content flows to the receiving team; feedback, decisions and reports flow back to the owner.
 
-Only released content crosses a team boundary. Drafts stay private, exactly as today.
+Only released content crosses a team boundary. Drafts stay private, exactly as today; no other team ever sees them, parents included.
 
 ```mermaid
 flowchart TD
-  ORG["ACME (company)<br/>guardrails · glossary · vision"]
-  PLAT["PLAT (platform)<br/>shares: api/, adr/, SPEC-012 Checkout v2"]
-  PAY["PAY (payments)<br/>PAY-031 implements @PLAT/SPEC-012@v3"]
-  WEB["WEB (web shop)<br/>WEB-104 implements @PLAT/SPEC-012@v3"]
-  ORG -->|inherits| PLAT
-  PLAT -->|inherits| PAY
-  PLAT -->|inherits| WEB
-  PAY -. reports, feedback, decisions .-> PLAT
+  ORG["ACME (company)<br/>vision · guardrails · glossary"]
+  PLAT["PLAT (platform)<br/>SPEC-012 Checkout v2"]
+  API["API (payments API)<br/>api/payments.yaml"]
+  WEB["WEB (web shop)<br/>WEB-104 implements @PLAT/SPEC-012@v3<br/>links @API/api/payments.yaml@v4"]
+  ORG -->|foundation, pinned| PLAT
+  PLAT -->|foundation, pinned| API
+  PLAT -->|foundation, pinned| WEB
+  PLAT -->|shares SPEC-012| WEB
+  API -->|shares api/ with WEB| WEB
   WEB -. reports, feedback, decisions .-> PLAT
+  WEB -. feedback, decisions .-> API
 ```
 
 ## Why this model and not another
 
-| Approach                                                        | How it works                                                  | Verdict                                                                                                                                                                                      |
-| --------------------------------------------------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Copy on share** (like the global glossary)                    | The child imports a copy                                      | Simple, but drift is the default; nobody knows which copy is current. Kept only as the escape hatch (_Adopt_).                                                                               |
-| **Shared ownership** (one item belongs to several teams)        | Item rows get several owners                                  | Breaks the per-team Git repository, the per-team roles and the per-team agent tokens all at once. Every permission check would need rewriting. Rejected.                                     |
-| **Live link to released versions** (recommended)                | The child references the parent's released version, read-only | One source of truth, fits the existing release model (Git commit + tag per version), every child release can name the exact version it was built against.                                    |
-| Arbitrary sharing between any two teams (graph instead of tree) | Team A shares with team B                                     | Tempting, but layering guardrails and glossary needs a clear order. A tree gives "nearest wins" for free. A later "share with sibling" can be added on top of the tree; the reverse is hard. |
+| Approach                                                 | How it works                                                                      | Verdict                                                                                                                                                                 |
+| -------------------------------------------------------- | --------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Copy on share** (like the global glossary)             | The receiving team imports a copy                                                 | Simple, but drift is the default; nobody knows which copy is current. Kept only as the escape hatch (_Adopt_).                                                          |
+| **Shared ownership** (one item belongs to several teams) | Item rows get several owners                                                      | Breaks the per-team Git repository, the per-team roles and the per-team agent tokens all at once. Rejected.                                                             |
+| **Link to a released version** (recommended)             | The receiving team references one released version of the owner's item, read-only | One source of truth, fits the existing release model (Git commit + tag per version), every release of the receiving team names the exact versions it was built against. |
+
+**Tree for the foundation, links for everything else.** Layering guardrails and glossary needs an unambiguous order ("nearest wins", "rules add up"), and a tree gives that. Sharing a single document or spec needs no order at all, so it works between any two teams. Siblings therefore never inherit each other's foundation; they only share explicit items.
 
 ## Concepts and words
 
 Following `docs/UI-VOCABULARY.md`: one word per idea.
 
-| Idea                                                     | Word                                        | Not                           |
-| -------------------------------------------------------- | ------------------------------------------- | ----------------------------- |
-| The team above / below in the tree                       | **Parent team** / **Child team**            | org, sub-team, workspace      |
-| A parent makes released content visible to its children  | **Share** (_Share with child teams_)        | publish, expose               |
-| What a child sees from its ancestors                     | **Inherited** (chip _From PLAT_)            | shared-in, external, imported |
-| A child spec builds (part of) a parent spec              | **Implements** (front matter `implements:`) | child of, realises, epic      |
-| A child takes an inherited item as its own editable copy | **Adopt** (_Adopt as own copy_)             | fork, clone, import           |
-| A child stays on one version of an inherited item        | **Pin** (_Pinned to v3_)                    | lock, freeze                  |
+| Idea                                                    | Word                                              | Not                      |
+| ------------------------------------------------------- | ------------------------------------------------- | ------------------------ |
+| The team above / below in the tree                      | **Parent team** / **Child team**                  | org, sub-team, workspace |
+| Foundation documents a team receives from its ancestors | **Inherited** (section _Inherited from ACME_)     | merged, global           |
+| A team makes released items visible to other teams      | **Share** (_Share with teams…_)                   | publish, expose          |
+| An item of another team as the receiving team sees it   | **Shared** (chip _From API_)                      | external, imported       |
+| A spec builds (part of) a spec of another team          | **Implements** (front matter `implements:`)       | child of, realises, epic |
+| The version of a shared item a team builds against      | **Pinned version** (_v4_, _Update available: v5_) | locked, frozen           |
+| A team takes a shared item as its own editable copy     | **Adopt** (_Adopt as own copy_)                   | fork, clone, import      |
 
 ## 1. The team tree
 
 - `teams.parent_id` (nullable). Depth limited to 4 levels; no cycles (checked on every change).
-- **Linking needs both sides:** the parent's admin sends a link request, the child's admin accepts it (_Team → Parent team_). An instance admin can link directly. Rationale: the child agrees to inherit binding guardrails, and the parent gets to read its children's reports on specs they implement.
-- **Unlinking** can be done by either admin. The child is asked whether to _Adopt_ the inherited items it still uses (they become its own documents with `origin:` front matter) or drop them.
+- **Linking needs both sides:** the parent's admin sends a link request, the child's admin accepts it (_Team → Parent team_). An instance admin can link directly. The child agrees to inherit binding guardrails.
+- **Unlinking** can be done by either admin. Inherited foundation documents disappear from the child's context; the child is asked whether to _Adopt_ them as its own documents first.
 - Deleting a team with children: the children move up to the grandparent (or become roots). Never cascade.
-- Membership is **not** inherited. Being an approver in PLAT does not make you anything in PAY. (Option for later: "parent admins can read child teams".)
+- Membership is **not** inherited. Being an approver in PLAT does not make you anything in WEB.
+- A parent team **never sees drafts** of its children. It sees only what the children release and the reports on specs that implement one of its own specs (section 5).
 
-## 2. What can be shared
+## 2. Sharing items with other teams
 
-| Item                                                                            | Shared how                                                         | Notes                                                                        |
-| ------------------------------------------------------------------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
-| Foundation documents (`vision.md`, `strategy.md`, `guardrails.md`, pinned docs) | **Always**, automatically, to all descendants                      | Layered, see section 3                                                       |
-| Glossary terms                                                                  | **Always**, automatically                                          | Layered, nearest-first                                                       |
-| Spec types (custom)                                                             | **Always**                                                         | A child can create specs of a parent's type; the type is labeled _From PLAT_ |
-| A document                                                                      | Explicit share                                                     | Read-only for children                                                       |
-| A folder                                                                        | Explicit share, includes everything below it, also later additions | The usual case: share `api/` or `adr/` once                                  |
-| A spec                                                                          | Explicit share                                                     | Only released versions; children can link it and implement it                |
+| What                                                                     | Who receives it                                                                                                      | How                                            |
+| ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| Foundation documents and glossary terms                                  | Child teams and their descendants                                                                                    | Automatically, through the tree (section 3)    |
+| Custom spec types                                                        | Child teams and their descendants                                                                                    | Automatically; a type is labeled _From PLAT_   |
+| A document, a folder (everything below it, also later additions), a spec | The teams the owner names: child teams, all descendants, or any other team on the instance (sibling, unrelated team) | Explicit share, accepted by the receiving team |
 
-A share has an **audience**: _child teams_ (one level) or _all descendant teams_ (default). Sharing is a team-admin or approver right in the parent (same as releasing).
+**Sharing with a team outside one's own subtree** (the API case): the owner's approver chooses _Share with teams…_ and names WEB. WEB's admin or approver accepts once (_Shared with us → Accept_); from then on WEB's members and agents can read and link everything in that share, including items added to a shared folder later. A share can be ended by either side; links that still point to it keep their pinned version (section 4).
 
-Table `shares (team_id, item_id, kind, audience, created_by, created_at)`; a folder share matches by path prefix, so moves and renames in the parent (which already rewrite links) just update the share row.
+**No passing on.** A receiving team cannot share a shared item further. Only the owner decides who sees its content; WEB that wants SHOP to see `@API/api/payments.yaml` asks API.
+
+**The owner sees who uses what.** Every shared item shows _Used by_: the receiving team, its released specs that link the item, and the pinned version. API sees that WEB is still on v4 while v6 is out. This shows only released specs of the receiving team, never drafts.
+
+Table `shares (team_id, item_id, kind, audience, created_by, created_at)` with `audience` = `children`, `descendants` or `teams`, plus `share_teams (team_id, item_id, to_team_id, accepted_by, accepted_at)` for named teams. A folder share matches by path prefix, so moves and renames in the owner (which already rewrite links) just update the share row.
 
 ## 3. Layering of foundation documents
 
-Agents call `get_team_context()` once. For a child team it now returns, top-down:
+### Every link is pinned, also for the foundation
+
+A child team builds against one fixed state of its ancestors' foundation. Each foundation release of a team (one Git commit; glossary changes are already bundled into one commit) gets a version: `foundation/v7`. The child pins **"PLAT foundation v7"** as a whole, not every single document or term.
+
+When PLAT releases foundation v8, the child sees _Update available: PLAT foundation v8_ with the diff of every changed document and term. An **approver of the child team** accepts it; that is a release of the child's foundation, so it triggers exactly what an own guardrail change triggers today (`guardrails_changed` for implemented specs, the agent trigger). Until then the child's agents keep working with v7.
+
+Rules from above can still not be ignored silently: the Garden of the child shows _Inherited update waiting since 12 days_ under _Needs attention_, and the parent sees under _Used by_ which children are still on an older foundation version. (Later, if needed: the parent marks a guardrail update as _required by \<date\>_.)
+
+### Two vision documents: nothing is overwritten
+
+Every team has its own `vision.md`, `strategy.md` and `guardrails.md`. With a parent there are now two (or more) of each. They do not need to be linked and none overwrites another. Each kind of document has one rule:
+
+| Document                                               | Rule                                                                                                                                                                                                                                                  | Agent sees                                            |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| `guardrails.md`                                        | **Add up.** All rules of all ancestors apply, plus the own ones. A child cannot delete, reword or relax a parent rule; to disagree it gives feedback on the parent's guardrails. Rule ids carry the team key (`ACME/G1`) so reports stay unambiguous. | One list, grouped by team, top-down                   |
+| `vision.md`, `strategy.md`, other foundation documents | **Stack.** Each document stays as written. The own document comes first, then the ancestors' ones, each labeled with its team. They are context, not rules: the own vision says where this team is heading, the parent's says what it is part of.     | All of them, own first                                |
+| Glossary terms                                         | **Nearest wins.** A child's term with the same name shadows the parent's inside the child. _Health_ shows it as _Shadows ACME's term_, so it is a conscious decision. `avoid` words of all ancestors still apply.                                     | One merged glossary, every entry with its source team |
+
+If a child's vision or strategy contradicts the parent's, that is not resolved by an order of precedence but by people: _Health_ cannot detect it, but an agent that notices a contradiction while building asks with `request_decision` (the instructions say so). Guardrails are the only place where the parent always wins, because they are rules.
+
+What `get_team_context()` returns for WEB:
 
 ```
-# Team context – PAY  (inherits from ACME › PLAT)
+# Team context – WEB  (inherits ACME foundation v12 › PLAT foundation v7)
 
-> GUARDRAILS are binding. Rules from parent teams cannot be relaxed here.
+> GUARDRAILS are binding. Rules of parent teams apply and cannot be relaxed.
 
 ## Guardrails
-### From ACME
+### ACME
 - ACME/G1: Never store card numbers.
-### From PLAT
+### PLAT
 - PLAT/G3: Every public endpoint is documented in api/.
-### PAY
+### WEB
 - G1: …
 
-## Vision / Strategy   (own first, then "From PLAT", "From ACME" in collapsed form)
-## Glossary            (merged, nearest definition wins, source team in every entry)
+## Vision
+### WEB
+…
+### PLAT (parent)
+…
+### ACME (company)
+…
+
+## Strategy   (same order)
+## Glossary   (merged, nearest definition wins, source team in every entry)
 ```
 
-Rules:
+## 4. Shared documents and specs
 
-- **Guardrails add up.** Rule ids are prefixed with the team key (`PLAT/G3`), so reports (which already record the guardrails they were built against) stay unambiguous. A child cannot delete or reword a parent rule; to disagree it uses **feedback** on the parent's guardrails (flows up, see section 6). A new or reworded parent rule triggers `guardrails_changed` in every descendant, exactly like an own rule does today.
-- **Glossary: nearest definition wins.** If PAY defines "Account" and ACME does too, PAY's wins inside PAY. The _Health_ tab shows this as _Shadows ACME's term_ so it is a conscious choice; `avoid` words of all ancestors still apply.
-- **Vision and strategy** are context, not rules: the own ones come first, ancestors' follow.
-- The current **global glossary** becomes unnecessary in the long run: it is the glossary of a root team. (Migration can wait; both can coexist.)
+**Addressing.** Shared items are referenced with the owner's team key and always with a version: `@API/api/payments.yaml@v4`, `@PLAT/SPEC-012@v3`. The `@` mention menu in the editor gets a section _From other teams_ and inserts the newest released version.
 
-## 4. Inherited documents and specs (read-only references)
+**Updating is an approval.** The pin lives in the link inside the receiving team's spec. When API releases `payments.yaml` v5, every spec in WEB that links v4 shows _Update available: v5_ with the diff. _Update link_ changes the link in a draft; approving that draft releases a new version of WEB's spec. That is the existing flow: the agent sees the spec as `changed`, and `get_spec_changes` shows the new link with the diff of the shared document. A bulk action _Update everywhere_ makes one draft per affected spec; an approver still approves them.
 
-**Addressing.** Inherited items are referenced with the owning team's key: `@PLAT/SPEC-012`, `@PLAT/api/payments.yaml`. The prefix makes collisions impossible and is readable in Markdown. The `@` mention menu in the editor gets a section _From parent teams_.
-
-**Version on link.** A link to an inherited item is stored as `@PLAT/api/payments.yaml` (follow latest) or `@PLAT/api/payments.yaml@v4` (pinned). When the child **releases** a spec, the server resolves every inherited link to the exact released version and writes it into the front matter:
+**Released front matter.** A released spec lists every shared item with its version, so it is reproducible:
 
 ```yaml
 documents:
   - api/internal-notes.md
-  - '@PLAT/api/payments.yaml@v4'
+  - '@API/api/payments.yaml@v4'
 implements: '@PLAT/SPEC-012@v3'
 ```
 
-So every released child spec is reproducible: an agent reading PAY-031 v2 next year gets the same `payments.yaml` it was written against.
+**Owner revokes or stops sharing.** Released specs of the receiving team keep their pinned version: the server keeps serving that version to the teams whose released specs link it (released versions are immutable Git tags, nothing has to be copied). The receiving team sees _Revoked by API_ under _Needs attention_; a new release that still links the item shows a warning and offers _Adopt as own copy_ or removing the link.
 
-**In the child's Git repository.** Inherited items that released specs link to, plus inherited foundation documents, are written into the child's repository under `<root>/inherited/<KEY>/…` with an `origin: PLAT/api/payments.yaml@v4` front-matter line. Reason: the development repository then contains everything an agent needs, even without MCP, and the child's history shows when an inherited item changed. A parent release that affects followers of "latest" produces one debounced commit per child (`Inherited from PLAT: api/payments.yaml v5`), the same mechanism as the foundation auto-release.
+**In the app.** The documents tree gets a section per owning team (_From API_), read-only, showing the pinned versions in use and newer ones. Offline: shared items are synced like own items, read-only, in a separate stream per owning team; only released versions are sent.
 
-**Pinned items** do not move. When the parent releases a newer version, the child sees _Update available (v5)_ with a diff (reuses the glossary _Health_ pattern) and decides.
+## 5. Specs that implement other teams' specs (`implements`)
 
-**Parent revokes or unshares.** Released child specs keep their snapshot (it is in their Git history). The child sees _Revoked by PLAT_ under _Needs attention_; releasing a new child version that still links it shows a warning and asks to adopt or remove the link.
+- A spec names the spec it implements: `implements: @PLAT/SPEC-012@v3`. Works for any shared spec (parent, sibling) and, without prefix, inside one team (`implements: SPEC-007`), which gives epics and sub-specs for free.
+- _New spec implementing this…_ on a shared spec creates a draft with the link, the type, and the owner's acceptance criteria as a starting checklist (`get_criteria` already extracts them).
+- **Rollup at the owner.** The owner's spec shows _Implemented by_: one row per implementing spec with its team, the version it implements, and its latest report status. The owner's spec counts as implemented when all implementing specs report `implemented` against its current version. Only released specs and their reports are visible, never drafts.
+- **A new owner version** shows _Update available: v4_ in each implementing team, like any other pinned link. When the implementing team approves the update, its agent gets the spec as `changed` with the owner's diff. Until then nothing moves, as decided.
 
-**In the app.** The documents tree gets a section per ancestor (_From PLAT_), read-only, with the version and _Adopt as own copy_ in the menu. Offline: inherited items are synced like own items but in a separate read-only stream per ancestor (`inheritedSince`, own cursor per source team), and only released bodies are sent.
+## 6. What flows back to the owner
 
-## 5. Parent and child specs (`implements`)
-
-This is the actual parent-child relationship between specs.
-
-- A child spec names the parent spec it implements: `implements: @PLAT/SPEC-012@v3`. The parent spec does not need to know its children in advance. Within one team the same field works without prefix (`implements: SPEC-007`), which gives epics and sub-specs for free.
-- _New spec implementing this…_ in the menu of an inherited spec creates a child draft with the link, the type, and the parent's acceptance criteria as a starting checklist (`get_criteria` already extracts them).
-- **Rollup in the parent.** The parent spec's report view and the Garden show _Implemented by_: one row per child spec with its team, the parent version it implements, and its latest report status (`implemented`, `partial`, `blocked` …). The parent spec counts as implemented when all child specs report `implemented` against the current parent version. The parent never sees the child's drafts, only these released child specs and their reports.
-- **A new parent version** puts every child spec implementing an older version on the child's work list with a new state `parent_changed` (with `get_spec_changes` showing the parent diff), analogous to `guardrails_changed`.
-- **Criteria mapping (optional, later).** A child criterion can reference a parent criterion (`AC2 → @PLAT/SPEC-012#AC4`), so the rollup can show which parent criteria are covered by which team.
-
-## 6. What flows up
-
-Content flows down; signals flow up:
-
-- **Feedback** on an inherited spec or document (from a child member or a child's agent via `add_feedback`) lands in the **parent's** feedback queue, labeled with the source team. The parent answers; the child sees the answer.
-- **Decisions** (`request_decision`) on an inherited spec: same. The child agent's work list shows `decision_answered` when the parent answers.
-- **Reports** of child specs that implement a parent spec are readable by the parent (rollup above).
-- Rate limits are counted per writing team, so a busy child cannot flood the parent.
+- **Feedback** on a shared or inherited item (from a member or an agent of the receiving team via `add_feedback`) lands in the **owner's** feedback queue, labeled with the source team. The owner answers; the receiving team sees the answer. This is also how a child disagrees with a parent guardrail.
+- **Decisions** (`request_decision`) on a shared spec: same. The asking agent sees `decision_answered` in its work list when the owner answers.
+- **Reports** of specs that implement the owner's spec (rollup above).
+- Rate limits count per writing team, so a busy receiving team cannot flood the owner.
 
 ## 7. Permissions
 
-| Action                                  | Who                                                                   |
-| --------------------------------------- | --------------------------------------------------------------------- |
-| Request / accept a parent link          | Team admins of both teams (or an instance admin)                      |
-| Share / unshare items                   | Approver or admin of the owning team                                  |
-| Read inherited items                    | Every member (and agent) of a descendant team                         |
-| Edit an inherited item                  | Nobody in the child; only in the owning team                          |
-| Adopt as own copy                       | Editor or above in the child                                          |
-| Pin / unpin, accept updates             | Approver or above in the child (it changes what agents build against) |
-| Feedback / decisions on inherited items | Same rights as on own items, answered by the owning team              |
+| Action                                                                         | Who                                                                           |
+| ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------- |
+| Request / accept a parent link                                                 | Team admins of both teams (or an instance admin)                              |
+| Share / stop sharing items                                                     | Approver or admin of the owning team                                          |
+| Accept a share from another team                                               | Approver or admin of the receiving team                                       |
+| Read shared and inherited items                                                | Every member and agent of the receiving team                                  |
+| Edit a shared or inherited item                                                | Nobody outside the owning team                                                |
+| Link a shared item in a draft, Adopt as own copy                               | Editor or above in the receiving team                                         |
+| Accept an update (new pinned version of a link or of the inherited foundation) | Approver or above in the receiving team: it changes what agents build against |
+| Feedback / decisions on shared items                                           | Same rights as on own items; answered by the owning team                      |
 
-Agent tokens stay bound to one team. An agent of PAY reads inherited content through PAY's MCP server; it never gets a token for PLAT.
+Agent tokens stay bound to one team. An agent of WEB reads shared content through WEB's MCP server; it never gets a token for API or PLAT.
 
-## 8. MCP changes
+## 8. Agents: fast and simple
+
+Decision: agents read shared content **through MCP only**, from the owner's released Git versions. Nothing is copied into the receiving team's Git repository.
+
+Why this is the fastest and simplest option:
+
+- **No extra calls for the foundation.** `get_team_context()` stays one call and already contains the inherited guardrails, vision, strategy and glossary at the pinned versions.
+- **Same tools, same shapes.** `get_spec('@PLAT/SPEC-012')` and `get_document('@API/api/payments.yaml')` work like the own ones; the version defaults to the one the team has pinned, so the agent never has to work out which version applies. List results gain `team` and `shared: true`, nothing else changes.
+- **Cheap on the server.** A released version never changes, so `(team, path, version)` is cached for good; a read is a cache hit or one `git show` in the owner's repository, as today.
+- **No copies to keep in sync.** Copies in the receiving repository would need sync commits, conflict handling for monorepos (owner and receiver pushing to the same remote) and would double what agents have to look at.
+
+MCP changes in detail:
 
 - `get_team_context` – layered, as in section 3.
-- `list_specs`, `list_documents` – inherited items included, with `team: "PLAT"`, `inherited: true`, `version`, `pinned`. Optional `include_inherited=false`.
-- `get_spec('@PLAT/SPEC-012')`, `get_document('@PLAT/api/payments.yaml')` – the version the child follows or is pinned to; `version` parameter as today.
+- `list_specs`, `list_documents` – shared items the team uses or may use, with `team`, `shared: true`, `pinned_version`, `newest_version`. `include_shared=false` leaves them out.
+- `get_spec`, `get_document` – accept `@KEY/…`; without `version` they return the pinned one.
 - `get_glossary` – merged, every entry with its source team.
-- `get_work_list` – new state `parent_changed`; inherited specs themselves are never on a child's work list (the child implements its own spec).
-- `create_draft_spec` – accepts `implements`.
-- `add_feedback`, `request_decision` – accept inherited ids; routed to the owner.
+- `get_work_list` – unchanged states. Shared specs themselves are never on a team's work list; the team implements its own spec that `implements` them.
+- `create_draft_spec`, `update_draft_spec` – accept `implements` and `@KEY/…@vN` links. Agents cannot approve, so they cannot move a pin either; they can propose an update in a draft.
+- `add_feedback`, `request_decision` – accept shared ids; routed to the owner.
 
 ## 9. Data model sketch
 
 ```sql
 ALTER TABLE teams ADD COLUMN parent_id TEXT REFERENCES teams(id);
-CREATE TABLE team_links (            -- pending link requests
+ALTER TABLE teams ADD COLUMN foundation_version INTEGER NOT NULL DEFAULT 0;  -- bumped per foundation release (Git tag foundation/vN)
+CREATE TABLE team_links (                 -- pending parent link requests
   parent_id TEXT, child_id TEXT, requested_by TEXT, created_at TEXT,
   PRIMARY KEY (parent_id, child_id));
+CREATE TABLE foundation_pins (            -- which foundation version of each ancestor a team builds against
+  team_id TEXT, ancestor_id TEXT, version INTEGER, accepted_by TEXT, accepted_at TEXT,
+  PRIMARY KEY (team_id, ancestor_id));
 CREATE TABLE shares (
-  team_id TEXT, item_id TEXT, kind TEXT,           -- spec | doc | folder
-  audience TEXT NOT NULL DEFAULT 'descendants',    -- children | descendants
+  team_id TEXT, item_id TEXT, kind TEXT,  -- spec | doc | folder
+  audience TEXT NOT NULL,                 -- children | descendants | teams
   created_by TEXT, created_at TEXT,
   PRIMARY KEY (team_id, item_id));
-CREATE TABLE inherited_pins (        -- only pinned items; everything else follows latest
-  team_id TEXT, source_team_id TEXT, item_id TEXT, version INTEGER,
-  pinned_by TEXT, pinned_at TEXT,
-  PRIMARY KEY (team_id, source_team_id, item_id));
-ALTER TABLE items ADD COLUMN implements TEXT;      -- "@PLAT/SPEC-012@3" or "SPEC-007@2"
-ALTER TABLE items ADD COLUMN origin TEXT;          -- adopted copies: "PLAT/api/payments.yaml@4"
-ALTER TABLE feedback ADD COLUMN from_team_id TEXT; -- feedback that came up from a child team
+CREATE TABLE share_teams (                -- audience = teams: who it is shared with, and who accepted
+  team_id TEXT, item_id TEXT, to_team_id TEXT, accepted_by TEXT, accepted_at TEXT,
+  PRIMARY KEY (team_id, item_id, to_team_id));
+ALTER TABLE items ADD COLUMN implements TEXT;       -- "@PLAT/SPEC-012@3" or "SPEC-007@2"
+ALTER TABLE items ADD COLUMN origin TEXT;           -- adopted copies: "API/api/payments.yaml@4"
+ALTER TABLE feedback ADD COLUMN from_team_id TEXT;  -- feedback from a receiving team
 ```
 
-Inherited content is **not** copied into the child's `items` table: it is read from the parent's released Git versions (as `get_spec` already does for own specs) and cached. Only the child's Git repository gets materialised copies (section 4).
+Pins of shared documents and specs need no table: they are the versions in the links of the receiving team's specs. _Used by_ is a query over those links.
 
 ## 10. Rollout in steps
 
 Each step is useful on its own:
 
-1. **Team tree + inherited foundation.** `parent_id`, link requests, layered `get_team_context`, inherited guardrails and glossary. Biggest value (company-wide rules), smallest surface; no new item kinds.
-2. **Shared documents and folders.** Shares, `@KEY/…` links with versions resolved at release, read-only tree section, `inherited/` in the child repository, update offers for pinned items.
-3. **`implements` and rollup.** Child specs implementing parent specs, `parent_changed`, _Implemented by_ in the parent, feedback and decisions routed up.
-4. **Adopt, unlink, criteria mapping, global glossary as root team.**
+1. **Team tree and inherited foundation.** `parent_id`, link requests, foundation versions and pins, layered `get_team_context`, updates accepted by an approver. Biggest value (company-wide rules), no new item kinds.
+2. **Sharing documents and folders.** Shares to children and to named teams, `@KEY/…@vN` links, _Update available_ and _Update link_, _Used by_ at the owner, read-only tree section.
+3. **`implements` and rollup.** Specs implementing other teams' specs, _Implemented by_, feedback and decisions routed to the owner.
+4. **Adopt, unlink, criteria mapping (`AC2 → @PLAT/SPEC-012#AC4`), global glossary as the glossary of a root team.**
 
-## 11. Edge cases to keep in mind
+## 11. Edge cases
 
-- **Parent pushes to the same Git remote as the child** (monorepo). The `inherited/` copies would duplicate the parent's own files; a team setting _Parent is in the same repository_ links instead of copying.
-- **Moving a team in the tree** changes its guardrails. Treat it like a guardrail change: `guardrails_changed` for all implemented specs.
-- **Shared spec with a custom type** the child does not have: types are inherited (section 2), so it renders; if the parent deletes the type, the released Markdown still renders as plain blocks.
-- **Glossary `avoid` conflicts:** a parent says "never say _client_", a child defines _Client_. Health shows the conflict; the parent rule wins for agents unless the child term is explicitly marked as an override.
-- **Offline child, parent releases meanwhile:** the child keeps working against what it has; on sync the update hint appears. A child release always resolves links on the server, never on the device.
-- **Instance with one team:** nothing changes; all of this stays invisible until a second team is linked.
+- **Moving a team in the tree** changes its inherited guardrails. The new parent's foundation starts as _Update available_; nothing applies until an approver accepts.
+- **A shared spec of a custom type** the receiving team does not have: the released Markdown carries everything needed to render it; the form view is offered only when the type is known.
+- **Glossary `avoid` conflicts:** the parent says "never say _client_", the child defines _Client_. Health shows the conflict; the parent's `avoid` wins for agents unless the child marks its term as a deliberate override.
+- **Offline device, owner releases meanwhile:** nothing changes for the device, since pins only move by approval. On sync the update hint appears.
+- **Owner team is deleted:** its shared items are gone for everybody; before deletion the admin sees the _Used by_ list, and receiving teams are offered _Adopt as own copy_.
+- **Instance with one team:** nothing changes; all of this stays invisible until a second team is linked or something is shared.
 
-## Open questions
+## Decisions
 
-1. Is the tree enough, or do you need **sharing between siblings** (WEB uses PAY's API docs without going through PLAT)? The recommendation is tree first; sibling sharing could later be "PAY shares with the parent, audience: descendants".
-2. Should parent **admins be able to read** child teams entirely (drafts included), or only the rollup? The concept says only the rollup.
-3. Should inherited items be **materialised into the child's Git repository** (proposed) or only be available via MCP? Materialising costs repository noise but makes the dev repo self-contained.
-4. Is "follow latest" the right **default**, or should links be pinned by default (safer for contracts like API specs, noisier for docs)? A middle way: specs and `.yaml`/`.json` pinned by default, Markdown documents follow latest.
+1. **Sharing beyond the tree:** yes. Documents, folders and specs can be shared with any named team (e.g. an API team with the product that uses the API), accepted by the receiving team. Foundation documents are inherited only through the tree.
+2. **Drafts:** parent teams never see drafts of child teams. They see released specs and reports on specs that implement their own.
+3. **Agent access:** through MCP from the owner's released versions, with caching; no copies in the receiving team's Git repository. Keeps calls few and the moving parts minimal.
+4. **Versions:** every link is pinned to one released version, the inherited foundation as well. Moving to a newer version is an approval in the receiving team.
+5. **Two vision documents:** none is overwritten and they need no linking. Vision and strategy stack (own first, ancestors labeled), guardrails add up, glossary terms resolve nearest-first.
+
+## Still open
+
+- Should a parent be able to mark a guardrail update as _required by \<date\>_, so a child cannot stay on an old foundation forever?
+- Can any team share with any other team on the instance, or only within the same root of the tree (same company)? The concept allows any team, accepted by the receiver.
