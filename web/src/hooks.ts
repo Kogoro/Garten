@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import * as S from './store/core';
 import { toast } from './ui';
 
@@ -39,3 +39,18 @@ export const guard =
       toast(e.message);
     }
   };
+
+/** Long lists render in steps: the first `step` rows, then the next ones when the end comes into view (or on a click). */
+export function useProgressive(total: number, step = 60, reset: unknown = null) {
+  const [shown, setShown] = useState(step);
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => setShown(step), [reset, step]);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || shown >= total || typeof IntersectionObserver === 'undefined') return;
+    const ob = new IntersectionObserver((es) => es[0]?.isIntersecting && setShown((n) => n + step), { rootMargin: '400px' });
+    ob.observe(el);
+    return () => ob.disconnect();
+  }, [shown, total, step]);
+  return { shown, ref, more: () => setShown((n) => n + step) };
+}

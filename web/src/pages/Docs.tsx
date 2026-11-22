@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { Dropdown } from '../dialogs';
 import { Bar, Shell } from '../Shell';
 import { CORE_LABEL, enc, foundState, hasContent } from '../lib';
+import { GrowthIcon } from '../growth';
 import { isGlossaryPath } from '@shared/glossaryFiles.js';
 import { isGuardrailsPath } from '@shared/guardrailFiles.js';
 import { PathSheet, type PathSheetKind } from '../sheets';
@@ -173,38 +174,29 @@ function DocsList({ selected }: { selected?: string }) {
         )}
       </Bar>
       <div className="list" id="list" style={{ paddingTop: 8 }}>
-        <div className="sect-title" style={{ marginTop: 6 }}>
-          <span>Foundation · always available to agents</span>
-        </div>
-        {found.map((d) => {
-          const st = foundState(d, S);
-          const sub = d.core
-            ? hasContent(d.body)
-              ? 'Always available to agents'
-              : 'Write it once – agents always get it'
-            : 'Pinned document';
-          return (
-            <Link key={d.id} className={`found ${selected === d.id ? 'active' : ''}`} to={`/doc/${enc(d.id)}`}>
-              <span className="fi">
-                <Icon name={d.id === 'vision.md' ? 'release' : 'file'} size={18} />
-              </span>
-              <span className="fb">
+        <div className="fgrid" aria-label="Foundation">
+          {found.map((d) => {
+            const st = foundState(d, S);
+            const stage = st.live ? 'bloom' : hasContent(d.body) ? 'sprout' : 'seed';
+            const first =
+              String(d.body ?? '')
+                .split('\n')
+                .map((l) => l.replace(/^\s*([-*]|\d+\.)\s+/, '').trim())
+                .find((l) => l && !l.startsWith('#')) ?? (d.core ? 'Write it once – agents always get it' : 'Pinned document');
+            return (
+              <Link
+                key={d.id}
+                className={`found ${selected === d.id ? 'active' : ''}`}
+                to={`/doc/${enc(d.id)}`}
+                title={`${st.text} · every agent reads it`}
+              >
+                <GrowthIcon stage={stage} size={16} />
                 <b>{CORE_LABEL[d.id] ?? d.id}</b>
-                {!(d.core && hasContent(d.body)) && <span>{sub}</span>}
-              </span>
-              <span className={`chip ${st.cls}`}>{st.text}</span>
-            </Link>
-          );
-        })}
-        <Link className="found" to="/guardrails" data-act="docs-guardrails">
-          <span className="fi">
-            <Icon name="rule" size={18} />
-          </span>
-          <span className="fb">
-            <b>Guardrails</b>
-            <span>{S.ruleItems().length ? `${S.ruleItems().length} rules, one file each` : 'Rules every agent follows on every task'}</span>
-          </span>
-        </Link>
+                <span className="lead">{first}</span>
+              </Link>
+            );
+          })}
+        </div>
         <div className="sect-title" style={{ marginTop: 14 }}>
           <span>Documents</span>
           <small>{nDocs}</small>

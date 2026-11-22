@@ -472,7 +472,7 @@ function GitForm({
         Specs writes only inside <span className="mono">{g.root}/</span> (<span className="mono">&lt;ID&gt;.md</span>,{' '}
         <span className="mono">docs/</span>, <span className="mono">GLOSSARY.md</span>); everything else in your repository is left alone.
         If the branch already has commits they are merged in first; on conflicts in files Specs manages, Specs wins. The folder is locked
-        after the first release.
+        after the first spec blooms.
       </p>
     </form>
   );
@@ -613,8 +613,8 @@ function HookForm({
   return (
     <form id="hookForm" className="form" onSubmit={save}>
       <p className="note">
-        When a spec is released or a decision is answered, Specs calls this address once – after {h.debounceSeconds} s without further
-        changes, so several releases start one run. The agent then reads its work list over MCP.
+        When a spec blooms or a decision is answered, Specs calls this address once – after {h.debounceSeconds} s without further changes,
+        so several blooms start one run. The agent then reads its work list over MCP.
       </p>
       <div className="btns">
         <button type="button" className="btn small" data-act="hook-preset" onClick={preset}>
@@ -651,7 +651,7 @@ function HookForm({
       </label>
       <select className="field" id="h-format" value={format} onChange={(e) => setFormat(e.target.value)}>
         <option value="text">Claude Code routine: {'{ "text": … }'} with a summary</option>
-        <option value="full">Full JSON: event, released specs, answered decisions, text</option>
+        <option value="full">Full JSON: event, specs in bloom, answered decisions, text</option>
       </select>
       <label className="sr" htmlFor="h-headers">
         Extra headers
@@ -672,7 +672,7 @@ function HookForm({
       <div className="hook-ev">
         <label className="check">
           <input type="checkbox" id="h-ev-release" checked={ev.includes('release')} onChange={(e) => flip('release', e.target.checked)} />{' '}
-          Call when a spec is released
+          Call when a spec blooms
         </label>
         <label className="check">
           <input type="checkbox" id="h-ev-answer" checked={ev.includes('answer')} onChange={(e) => flip('answer', e.target.checked)} /> Call
@@ -788,7 +788,7 @@ function AgentSetup({ teamName, mcpUrl }: { teamName: string; mcpUrl: string }) 
       </div>
       <p className="note">
         The token needs the access “Read &amp; write drafts (you approve)”. Without it the agent can read specs but not ask, report or leave
-        feedback. It acts with your rights in this team and can never approve or release.
+        feedback. It acts with your rights in this team and can never let anything bloom.
       </p>
       <div className="sect-title">
         <span>
@@ -989,16 +989,14 @@ export function TeamPage() {
                               await S.teamApi('PATCH', '', { foundationAuto: e.target.checked });
                               await S.refreshMe();
                               toast(
-                                e.target.checked
-                                  ? 'Foundation documents are released automatically'
-                                  : 'Foundation documents now need approval',
+                                e.target.checked ? 'Foundation documents bloom by themselves' : 'Foundation documents now need approval',
                               );
                             })}
                           />{' '}
-                          Release foundation documents (vision, strategy, glossary …) automatically after edits
+                          Let foundation documents (vision, strategy, glossary …) bloom by themselves after edits
                         </label>
                         <p className="note" style={{ marginTop: -6 }}>
-                          Off: they reach agents only after an approver presses “Release now”.
+                          Off: they reach agents only after an approver presses “Let it bloom”.
                         </p>
                         <FeedbackMailToggle t={t} S={S} mailEnabled={!!d?.mailEnabled} />
                         <FeedbackKeep t={t} S={S} />

@@ -8,6 +8,7 @@ import { Tabs } from '../Tabs';
 import { Md, glossaryTerms, termIndex } from '../glossaryLib';
 import { enc, foundState } from '../lib';
 import { usePref } from '../prefs';
+import { GrowthIcon } from '../growth';
 import { Icon, ago, toast, useStore } from '../ui';
 import type { Item } from '../store/types';
 
@@ -121,27 +122,28 @@ function GuardrailList({ arg }: { arg?: string }) {
   const rules = S.ruleItems()
     .map((item) => ({ item, r: parseRuleFile(item.body)! }))
     .filter(({ r }) => !ql || r.rule.toLowerCase().includes(ql) || r.body.toLowerCase().includes(ql) || r.id?.toLowerCase() === ql);
-  const folders = [...new Set(['', ...S.ruleFolders(), ...rules.map(({ item }) => ruleFolder(item.id))])].sort((a, b) =>
-    a.localeCompare(b),
-  );
   const proposed = S.proposedRuleItems();
   const notes = S.guardrailNotes();
   const setTab = (t: string) => {
     setPref(t as typeof pref);
     if (arg) nav('/guardrails');
   };
+  // a rule row: its id, its folder, the binding sentence. The group heading says Always or Never, so the row needs no mark;
+  // a proposal carries the sprout.
   const row = (item: Item, r: NonNullable<ReturnType<typeof parseRuleFile>>, extra?: string) => (
     <Link key={item.id} className={`row ${arg === item.id ? 'active' : ''}`} to={`/guardrails${pathTo(item.id)}`} data-rule={r.id ?? ''}>
       <div className="row-top">
-        <span className="mono muted">{r.id ?? 'new'}</span>
-        <KindChip kind={r.kind} />
+        {extra ? <GrowthIcon stage="sprout" size={14} /> : <span className="mono muted">{r.id}</span>}
         {extra && <span className="chip">{extra}</span>}
+        {ruleFolder(item.id) && <span className="muted row-folder">{ruleFolder(item.id)}</span>}
       </div>
       <div className="row-title" style={{ whiteSpace: 'normal' }}>
         {r.rule}
       </div>
     </Link>
   );
+  const byId = (a: { r: { id: string | null } }, b: { r: { id: string | null } }) =>
+    (a.r.id ?? '').localeCompare(b.r.id ?? '', undefined, { numeric: true });
   return (
     <>
       <Bar title="Guardrails">
@@ -187,20 +189,14 @@ function GuardrailList({ arg }: { arg?: string }) {
               </div>
             )}
             {S.ruleItems().length > 0 && !rules.length && <div className="empty">No rules match.</div>}
-            {folders.map((f) => {
-              const list = rules.filter(({ item }) => ruleFolder(item.id) === f);
+            {(['always', 'never'] as const).map((k) => {
+              const list = rules.filter(({ r }) => r.kind === k).sort(byId);
               if (!list.length) return null;
               return (
-                <div key={`f:${f}`}>
-                  {f && (
-                    <div className="frow" style={{ ['--d' as any]: 0 }}>
-                      <span className="ftoggle">
-                        <Icon name="folder" size={16} />
-                        <span>{f}</span>
-                        <small>{list.length}</small>
-                      </span>
-                    </div>
-                  )}
+                <div key={k} className="kindgroup" data-kind={k}>
+                  <div className="grouplabel">
+                    {k === 'always' ? 'Always' : 'Never'} <small>{list.length}</small>
+                  </div>
                   {list.map(({ item, r }) => row(item, r))}
                 </div>
               );

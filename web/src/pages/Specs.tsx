@@ -1,11 +1,12 @@
-import { useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { Bar, Shell } from '../Shell';
 import { AgentChip, ItemEditor, ItemSync, NotFound, StatusChip, TypeChip } from './ItemEditor';
 import { NewSpecSheet } from '../sheets';
 import { ImplChip } from '../reports';
 import { Icon, ago, touched, useStore } from '../ui';
 import { usePref } from '../prefs';
+import { useProgressive } from '../hooks';
 import { Fab } from '../Fab';
 import { awaitsApproval } from '../lib';
 import { Sheet } from '../dialogs';
@@ -23,6 +24,13 @@ function SpecList({ selected }: { selected?: string }) {
     'pending',
   ]);
   const [type, setType] = usePref<string>('specs-type', '');
+  // Today's stage headings open the list on that stage: ?stage=seed|sprout|bloom
+  const [params] = useSearchParams();
+  const stage = params.get('stage');
+  useEffect(() => {
+    const f = ({ seed: 'draft', sprout: 'pending', bloom: 'approved' } as const)[stage as 'seed'];
+    if (f) setFilter(f);
+  }, [stage]); // eslint-disable-line react-hooks/exhaustive-deps
   const [sort, setSort] = usePref<'updated' | 'id' | 'title' | 'status' | 'impl'>('specs-sort', 'updated', [
     'updated',
     'id',
@@ -38,7 +46,15 @@ function SpecList({ selected }: { selected?: string }) {
   const specs = useMemo(() => {
     const ql = q.trim().toLowerCase();
     return all
-      .filter((s) => filter === 'all' || (filter === 'pending' ? isPending(s) : (filter === 'approved') === (s.status === 'approved')))
+      .filter(
+        (s) =>
+          filter === 'all' ||
+          (filter === 'pending'
+            ? isPending(s)
+            : filter === 'approved'
+              ? s.status === 'approved'
+              : s.status !== 'approved' && !isPending(s)),
+      )
       .filter((s) => !type || s.specType === type)
       .filter((s) => !ql || `${s.id} ${s.title} ${s.body}`.toLowerCase().includes(ql))
       .sort((a, b) => {
@@ -51,6 +67,7 @@ function SpecList({ selected }: { selected?: string }) {
       });
   }, [all, q, filter, type, sort, S.getVersion()]); // eslint-disable-line react-hooks/exhaustive-deps
   const n = (f: (s: Item) => boolean) => all.filter(f).length;
+  const prog = useProgressive(specs.length, 60, `${q}|${filter}|${type}|${sort}`);
   const [newSpec, setNewSpec] = useState(false);
   const create = () => setNewSpec(true);
   // The first sync has not finished (lastSync is only set when it has): what is on the device may be a part of the team's specs, and the rest would be
@@ -89,9 +106,9 @@ function SpecList({ selected }: { selected?: string }) {
           {(
             [
               ['all', 'All', all.length],
-              ...(S.can('approve') ? [['pending', 'To approve', n(isPending)] as const] : []),
-              ['draft', 'Draft', n((s) => s.status !== 'approved')],
-              ['approved', 'Approved', n((s) => s.status === 'approved')],
+              ...(S.can('approve') ? [['pending', 'Sprout', n(isPending)] as const] : []),
+              ['draft', 'Seed', n((s) => s.status !== 'approved' && !isPending(s))],
+              ['approved', 'Bloom', n((s) => s.status === 'approved')],
             ] as const
           ).map(([k, l, c]) => (
             <button key={k} className="filter" type="button" aria-pressed={filter === k} onClick={() => setFilter(k)}>
@@ -110,7 +127,7 @@ function SpecList({ selected }: { selected?: string }) {
             <option value="updated">Recently edited</option>
             <option value="id">ID</option>
             <option value="title">Title A–Z</option>
-            <option value="status">Approved first</option>
+            <option value="status">In bloom first</option>
             <option value="impl">Needs attention first</option>
           </select>
           <select id="typeFilter" className="filter sel" aria-label="Filter by type" value={type} onChange={(e) => setType(e.target.value)}>
@@ -142,43 +159,52 @@ function SpecList({ selected }: { selected?: string }) {
           </div>
         )}
         {!firstLoad && specs.length > 0 && (
-          <div className="list-card">
-            {specs.map((s) => (
-              <Link key={s.id} className={`row ${selected === s.id ? 'active' : ''}`} to={`/spec/${encodeURIComponent(s.id)}`}>
-                <div className="row-title">{s.title || <span className="muted">Untitled spec</span>}</div>
-                <div className="row-meta">
-                  <span className="row-id">{s.id}</span>
-                  <TypeChip s={s} S={S} />
-                  <StatusChip i={s} S={S} />
-                  <AgentChip s={s} S={S} />
-                  <ImplChip spec={s} />
-                  {S.feedbackCount(s.id) > 0 && (
-                    <span className="chip warn" title="Open feedback">
-                      {S.feedbackCount(s.id)} feedback
-                    </span>
-                  )}
-                  <ItemSync i={s} S={S} quiet />
-                  <span className="row-when">
-                    {s.links.length > 0 && (
-                      <span className="row-docs">
-                        {s.links.length} document{s.links.length === 1 ? '' : 's'}
+          <>
+            <div className="list-card">
+              {specs.slice(0, prog.shown).map((s) => (
+                <Link key={s.id} className={`row ${selected === s.id ? 'active' : ''}`} to={`/spec/${encodeURIComponent(s.id)}`}>
+                  <div className="row-title">{s.title || <span className="muted">Untitled spec</span>}</div>
+                  <div className="row-meta">
+                    <span className="row-id">{s.id}</span>
+                    <TypeChip s={s} S={S} />
+                    <StatusChip i={s} S={S} />
+                    <AgentChip s={s} S={S} />
+                    <ImplChip spec={s} />
+                    {S.feedbackCount(s.id) > 0 && (
+                      <span className="chip warn" title="Open feedback">
+                        {S.feedbackCount(s.id)} feedback
                       </span>
                     )}
-                    <span>
-                      {s.fetchedAt && !S.hasUnreleased(s) ? (
-                        <>Agent fetched {ago(Date.parse(s.fetchedAt))}</>
-                      ) : (
-                        <>
-                          <span className="row-word">Edited </span>
-                          {ago(touched(s))}
-                        </>
+                    <ItemSync i={s} S={S} quiet />
+                    <span className="row-when">
+                      {s.links.length > 0 && (
+                        <span className="row-docs">
+                          {s.links.length} document{s.links.length === 1 ? '' : 's'}
+                        </span>
                       )}
+                      <span>
+                        {s.fetchedAt && !S.hasUnreleased(s) ? (
+                          <>Agent fetched {ago(Date.parse(s.fetchedAt))}</>
+                        ) : (
+                          <>
+                            <span className="row-word">Edited </span>
+                            {ago(touched(s))}
+                          </>
+                        )}
+                      </span>
                     </span>
-                  </span>
-                </div>
-              </Link>
-            ))}
-          </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+            {specs.length > prog.shown && (
+              <div className="more-rows" ref={prog.ref}>
+                <button type="button" className="btn subtle" onClick={prog.more}>
+                  {prog.shown} of {specs.length} shown · show more
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
       {S.can('write') && <Fab label="New spec" act="new-spec" onClick={create} />}
@@ -193,7 +219,7 @@ function SpecList({ selected }: { selected?: string }) {
             <option value="updated">Recently edited</option>
             <option value="id">ID</option>
             <option value="title">Title A–Z</option>
-            <option value="status">Approved first</option>
+            <option value="status">In bloom first</option>
             <option value="impl">Needs attention first</option>
           </select>
           <label className="sr" htmlFor="m-type">
@@ -231,7 +257,7 @@ function SpecList({ selected }: { selected?: string }) {
 function SpecEditorPage({ id }: { id: string }) {
   const S = useStore();
   const item = S.get(id);
-  if (!item || item.kind !== 'spec') return <NotFound what="spec" to="/" back="Specs" />;
+  if (!item || item.kind !== 'spec') return <NotFound what="spec" to="/specs" back="Specs" />;
   return <ItemEditor item={item} />;
 }
 

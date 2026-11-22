@@ -7,6 +7,7 @@ import { Login } from './pages/Login';
 import { NoTeamPage } from './pages/NoTeam';
 import { SpecsPage } from './pages/Specs';
 import { Palette } from './Palette';
+import { Tour } from './Tour';
 import { Shell } from './Shell';
 import { Toaster, useStore } from './ui';
 
@@ -17,7 +18,9 @@ const page = <K extends string>(load: () => Promise<Record<K, ComponentType>>, n
 const AccountPage = page(() => import('./pages/Account'), 'AccountPage');
 const AdminPage = page(() => import('./pages/Admin'), 'AdminPage');
 const DocsPage = page(() => import('./pages/Docs'), 'DocsPage');
-const GardenPage = page(() => import('./pages/Garden'), 'GardenPage');
+const AgentsPage = page(() => import('./pages/Agents'), 'AgentsPage');
+const TodayPage = page(() => import('./pages/Today'), 'TodayPage');
+const QueuePage = page(() => import('./pages/Today'), 'QueuePage');
 const GlossaryPage = page(() => import('./pages/Glossary'), 'GlossaryPage');
 const GuardrailsPage = page(() => import('./pages/Guardrails'), 'GuardrailsPage');
 const ReleasePage = page(() => import('./pages/Release'), 'ReleasePage');
@@ -62,14 +65,18 @@ export default function App() {
     body = (
       <Suspense fallback={<PageLoading />}>
         <Routes>
-          <Route path="/" element={<SpecsPage />} />
+          <Route path="/" element={<TodayPage />} />
+          <Route path="/queue" element={<QueuePage />} />
+          <Route path="/specs" element={<SpecsPage />} />
           <Route path="/spec/:id" element={<SpecsPage />} />
           <Route path="/docs" element={<DocsPage />} />
           <Route path="/doc/*" element={<DocsPage />} />
           <Route path="/glossary/*" element={<GlossaryPage />} />
           <Route path="/guardrails/*" element={<GuardrailsPage />} />
           <Route path="/release" element={<ReleasePage />} />
-          <Route path="/garden" element={<GardenPage />} />
+          <Route path="/activity" element={<AgentsPage />} />
+          <Route path="/history" element={<AgentsPage />} />
+          <Route path="/garden" element={<Navigate to="/" replace />} />
           <Route path="/sync" element={<SyncPage />} />
           <Route path="/team" element={<TeamPage />} />
           <Route path="/account" element={<AccountPage />} />
@@ -82,6 +89,7 @@ export default function App() {
     <>
       {body}
       <Palette />
+      <Tour />
       <MenuHost />
       {relogin && <ReloginSheet onClose={() => setRelogin(false)} />}
       <Toaster />

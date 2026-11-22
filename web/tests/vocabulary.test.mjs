@@ -6,7 +6,18 @@ import { describe, expect, it } from 'vitest';
 const SRC = fileURLToPath(new URL('../src', import.meta.url));
 
 // Retired words (see docs/UI-VOCABULARY.md). Code comments may use any word; only text that people read is checked.
-const RETIRED = [/\bPublish(ing|ed)?\b/, /\bgo live\b/i, /\bsign[- ]off\b/i];
+const RETIRED = [
+  /\bPublish(ing|ed)?\b/,
+  /\bgo live\b/i,
+  /\bsign[- ]off\b/i,
+  // the growth vocabulary (Seed, Sprout, Bloom, "Let it bloom") replaced these
+  /\bApproved v/,
+  /\bApprove v\$/,
+  /\bRelease now\b/,
+  /\bApproval queued\b/,
+  /\bTo approve\b/,
+  /\bGarden\b/, // the page is Today
+];
 const files = (dir) =>
   readdirSync(dir).flatMap((f) => {
     const p = path.join(dir, f);

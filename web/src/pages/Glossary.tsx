@@ -10,6 +10,7 @@ import { usePref } from '../prefs';
 import { Fab } from '../Fab';
 import { Tabs } from '../Tabs';
 import { foundState } from '../lib';
+import { GrowthIcon } from '../growth';
 import { Icon, ago, toast, useStore } from '../ui';
 import { api } from '../store/core';
 import { readZip, writeZip, download } from '../zip';
@@ -860,6 +861,7 @@ function GlossaryList({ arg }: { arg?: string }) {
                 to={`/glossary/${PROPOSED}${encodeURIComponent(d.id)}`}
               >
                 <div className="row-top">
+                  <GrowthIcon stage="sprout" size={14} />
                   <span className="row-title">{t.term}</span>
                 </div>
                 <div className="row-meta">
@@ -1101,11 +1103,11 @@ function History({ path }: { path: string }) {
       {it && S.hasUnreleased(it) && (
         <div className="row">
           <div className="row-top">
-            <span className="row-title">Draft</span>
+            <span className="row-title">Seed</span>
           </div>
           <div className="row-meta">
             Edited {ago(Date.parse(it.updatedAt ?? '') || it.editedAt)}
-            {it.updatedBy ? ` by ${it.updatedBy}` : ''} · not live yet
+            {it.updatedBy ? ` by ${it.updatedBy}` : ''} · not in bloom yet
           </div>
         </div>
       )}
@@ -1234,10 +1236,10 @@ function GlossaryDetail({ arg }: { arg: string }) {
             data-act="gl-release"
             onClick={() => {
               S.requestApprove(own.item.id);
-              toast('Releasing…');
+              toast('Blooming…');
             }}
           >
-            Release now
+            Let it bloom
           </button>
         )}
       </div>

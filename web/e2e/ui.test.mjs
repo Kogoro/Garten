@@ -71,6 +71,12 @@ const signIn = async (page, email, pw) => {
   await page.fill('#email', email);
   await page.fill('#password', pw);
   await page.click('#loginForm button[type=submit]');
+  // Today is the start page; most flows begin in the list of all specs
+  const inside = await page
+    .waitForSelector('.tabbar, .topnav', { state: 'attached', timeout: 4000 })
+    .then(() => true)
+    .catch(() => false); // a wrong password stays on the sign-in form
+  if (inside) await page.evaluate(() => (location.hash = '#/specs'));
 };
 
 try {
@@ -317,7 +323,7 @@ try {
   ok('@ reference links the document (shown in the overview)');
   await page.locator('#edMeta', { hasText: 'not synced' }).waitFor();
   await page.click('[data-act=approve]');
-  await page.getByRole('button', { name: /Approval queued/ }).waitFor();
+  await page.getByRole('button', { name: /Blooms after sync/ }).waitFor();
   ok('approve offline is queued');
   const specId = await page.evaluate(() => decodeURIComponent(location.hash.split('/').pop()));
   await page.click('a[aria-label=Back]');
@@ -409,15 +415,16 @@ try {
   });
   await page.click('a[aria-label=Back]').catch(() => {});
   await page.evaluate(() => dispatchEvent(new Event('online')));
-  await page.locator('.tabbar a[href="#/garden"] .badge', { hasText: '1' }).waitFor({ timeout: 10000 });
+  await page.locator('.tabbar a[href="#/"] .badge', { hasText: '1' }).waitFor({ timeout: 10000 });
   ok('garden: a question from an agent shows up as a badge in the tab bar');
-  await page.click('.tabbar a[href="#/garden"]');
+  await page.click('.tabbar a[href="#/"]');
   const card = page.locator(`[data-decision="${dec.id}"]`);
   await card.getByText('How long do old signing keys stay valid').waitFor();
   assert.equal(await page.locator('#gd-needs').innerText(), '1');
   assert.ok(await card.getByText('Blocks the agent').isVisible());
   assert.ok(await card.locator('.dc-opt', { hasText: '24 hours' }).locator('.dc-rec').isVisible());
   ok('garden: the decision shows the spec, the options and the recommendation of the agent');
+  await page.evaluate(() => (location.hash = '#/activity'));
   await page.locator('#gd-impl .gd-row[data-spec="SPEC-012"] [data-impl=partial]', { hasText: '1/4 criteria' }).waitFor();
   ok('garden: every released spec shows how far the agent is');
   await tool('claim_spec', { spec_id: 'SPEC-012', note: 'key overlap' });
@@ -428,11 +435,15 @@ try {
     /Waiting for a decision|Building SPEC-012/,
   );
   ok('garden: a claim shows which agent builds a spec; the agent list comes from the server');
+  await page.click('a[href="#/history"]');
+  await page.locator('#gd-history-impl').waitFor();
   await page.locator('#gd-quality summary').click();
   assert.match(await page.locator('#gd-quality [data-type=api]').innerText(), /API spec[\s\S]*questions \/ spec/);
   await page.locator('#gd-quality a.gd-row', { hasText: 'SPEC-012' }).waitFor();
   ok('garden: spec quality by type, and the specs agents struggled with');
   await shot(page, '05a-garden');
+  await page.evaluate(() => (location.hash = '#/'));
+  await card.getByText('How long do old signing keys stay valid').waitFor();
   await ctx.setOffline(true);
   await page.evaluate(() => dispatchEvent(new Event('offline')));
   assert.equal(await card.locator('[data-act=dc-send]').isDisabled(), true);
@@ -466,6 +477,7 @@ try {
   assert.ok(s012.rev > s012.releasedRev);
   assert.ok(await page.locator(`#gd-answered [data-decision="${dec.id}"] [data-state=in-spec]`).isVisible());
   ok('garden: the answer is also written into the spec under DECISIONS, as a draft change');
+  await page.evaluate(() => (location.hash = '#/activity'));
   await page.click('#gd-impl .gd-row[data-spec="SPEC-012"]');
   await page.locator('.sheet .rp-sum', { hasText: 'Rotation endpoint is built' }).waitFor();
   assert.equal(await page.locator('.sheet .rp-crit li').count(), 4); // the spec's own checklist: R1, R2, AC1, AC2
@@ -543,20 +555,17 @@ try {
   await page.locator('#grDetail [data-rule-text]', { hasText: 'Every change of a signing key' }).waitFor();
   await page.locator('#grDetail .gd-def', { hasText: 'came up in the report on SPEC-012' }).waitFor();
   ok('guardrails page: every rule with its id and kind, the details on the rule itself');
-  await page.evaluate(() => (location.hash = '#/garden'));
-  await page.locator('[data-act=more-menu]').waitFor();
+  await page.evaluate(() => (location.hash = '#/'));
+  await page.locator('.tabbar a[href="#/guardrails"]').waitFor();
   await tool('propose_guardrail', { rule: 'Never call the payment provider without an idempotency key.', kind: 'never' });
   await page.evaluate(() => dispatchEvent(new Event('online')));
-  await page.locator('[data-act=more-menu] .badge').waitFor({ timeout: 10000 });
-  await page.click('[data-act=more-menu]');
-  await page.getByRole('button', { name: 'Guardrails · 1 proposed' }).waitFor();
-  await page.keyboard.press('Escape');
-  ok('a proposed rule shows as a badge for approvers (More menu on a phone)');
-  await page.keyboard.press('Escape').catch(() => {});
-  await page.click('[data-act=more-menu]');
+  await page.locator('.tabbar a[href="#/guardrails"] .badge', { hasText: '1' }).waitFor({ timeout: 10000 });
+  await page.locator('.deck, .queue-item, [data-proposal]').first().waitFor();
+  ok('a proposed rule shows as a badge on the Guardrails tab and waits on Today for approvers');
+  await page.click('.bar [data-act=user-menu]');
   await page.getByRole('button', { name: /^Sync/ }).click();
   await page.waitForFunction(() => location.hash === '#/sync');
-  ok('the sync page moved into the More menu');
+  ok('the sync page lives in your menu');
 
   // keyboard: command palette, shortcuts, skip link, one title per page
   await page
@@ -599,7 +608,7 @@ try {
   ok('the first Tab stop is a skip link');
   // phone toolbar: one row, sort and type live in a sheet
   await page.evaluate(() => {
-    location.hash = '#/';
+    location.hash = '#/specs';
   });
   await page.click('[data-act=filters]');
   await page.getByRole('dialog', { name: 'Sort and filter' }).waitFor();
@@ -612,7 +621,7 @@ try {
   await page.locator('.sumstrip').waitFor();
   assert.equal(await page.locator('.toolbar').count(), 0);
   assert.equal(await page.locator('[data-act=edit-done]').count(), 0);
-  assert.match(await page.locator('#edMeta').innerText(), /Approved v\d/);
+  assert.match(await page.locator('#edMeta').innerText(), /Bloom v\d|edited since v\d/);
   assert.ok((await page.locator('#tab-feedback').isVisible()) && (await page.locator('.sumcell', { hasText: 'Documents' }).isVisible()));
   ok('phone: a spec opens read-only with status, the four tabs and its documents at a glance');
   await page.click('[data-act=edit]');
@@ -630,11 +639,11 @@ try {
     .getByRole('link', { name: /Back to Specs/ })
     .first()
     .click();
-  await page.waitForFunction(() => location.hash === '#/');
+  await page.waitForFunction(() => location.hash === '#/specs');
   ok('a missing spec shows a message with a way back, not a blank page');
   // pause and resume the agents
   await page.evaluate(() => {
-    location.hash = '#/garden';
+    location.hash = '#/activity';
   });
   page.once('dialog', (dlg) => dlg.accept());
   await page.click('[data-act=agent-pause]');
@@ -644,7 +653,7 @@ try {
   ok('garden: agents can be paused and resumed');
 
   // account on mobile
-  await page.click('[data-act=more-menu]');
+  await page.click('.bar [data-act=user-menu]');
   await page.getByRole('button', { name: 'Account & agent access' }).click();
   await page.getByText('Agent access (MCP)').waitFor();
   await shot(page, '05-account-mobile');
@@ -657,8 +666,18 @@ try {
   await d.goto(BASE);
   await signIn(d, 'admin@localhost', 'adminpass1');
   await d.locator('.row', { hasText: 'SPEC-014' }).waitFor();
-  assert.ok((await d.locator('.sidebar').isVisible()) && (await d.locator('.sidebar').boundingBox()).width > 200);
-  ok('desktop: sidebar navigation');
+  assert.ok((await d.locator('.topnav').isVisible()) && (await d.locator('.topnav .toptab').count()) === 4);
+  ok('desktop: four tabs in the top bar');
+  await d.click('.topnav [data-act=user-menu]');
+  await d.getByRole('button', { name: 'Take the tour' }).click();
+  await d.locator('.tour-coach', { hasText: 'What needs you' }).waitFor();
+  await d.locator('.tour-coach .btn.primary').click();
+  await d.locator('.tour-coach', { hasText: 'Everything grows' }).waitFor();
+  await d.keyboard.press('Escape');
+  await d.locator('.tour-coach').waitFor({ state: 'detached' });
+  await d.evaluate(() => (location.hash = '#/specs'));
+  await d.locator('.row', { hasText: 'SPEC-014' }).waitFor();
+  ok('the tour starts from your menu, walks the real screen and closes with Escape');
   assert.ok(await d.locator('.detail .placeholder').isVisible());
   ok('desktop: empty detail pane until a spec is selected');
   await d.locator('.row', { hasText: 'SPEC-014' }).click();
@@ -819,7 +838,7 @@ try {
   // --- glossary: master/detail with folders, synonyms, references, global glossary
   const settle = (await admin.get('/api/glossary/global')).data.terms.find((t) => t.term === 'Settlement'); // seeded demo terms: Chargeback, Settlement
   assert.ok(settle);
-  await d.click('.sidebar a[href="#/glossary"]');
+  await d.click('.topnav a[href="#/glossary"]');
   await d.locator('#glList .row', { hasText: 'Ledger entry' }).waitFor();
   await d.locator('#glList .row', { hasText: 'Attempt window' }).waitFor();
   assert.equal(await d.locator('#glDetail').count(), 0);
@@ -953,8 +972,8 @@ try {
   ok('clicking a reference opens that term, which lists what references it');
   // the global term changes -> "Update available"
   await admin.patch(`/api/glossary/global/${settle.id}`, { definition: 'Funds move from the processor to our bank account.' });
-  await d.click('.sidebar a[href="#/docs"]');
-  await d.click('.sidebar a[href="#/glossary"]');
+  await d.click('.topnav a[href="#/docs"]');
+  await d.click('.topnav a[href="#/glossary"]');
   await d.locator('#glList .row[href$="/Settlement"]').click();
   await d.locator('#glDetail').getByText('Update available').first().waitFor({ timeout: 10000 });
   await d.locator('#glDetail [data-act=gl-update]').click();
@@ -1032,7 +1051,7 @@ try {
   await d.evaluate(() => (location.hash = '#/glossary'));
 
   // --- documents in folders
-  await d.click('.sidebar a[href="#/docs"]');
+  await d.click('.topnav a[href="#/docs"]');
   await d.locator('.ftoggle', { hasText: 'adr' }).waitFor();
   await d.locator('.ftoggle', { hasText: 'schemas' }).waitFor();
   ok('documents are shown in a folder tree');
@@ -1073,7 +1092,7 @@ try {
   assert.equal(await d.locator('.ftoggle', { hasText: 'ideas' }).count(), 0);
   ok('moving a document updates the tree');
   await d.locator('#list .docrow.active').waitFor();
-  await d.locator('.sidebar .pill').first().waitFor();
+  await d.locator('.topnav .pill').first().waitFor({ state: 'attached' });
   await d.waitForFunction(() => document.querySelector('#saveInd')?.dataset.state === 'synced', null, { timeout: 15000 });
   assert.ok((await admin.sync()).data.items.some((i) => i.id === 'decisions/retry.md' && !i.deleted));
   ok('moved document reaches the server');
@@ -1125,7 +1144,7 @@ try {
   await d.click('[data-act=item-menu]');
   await d.getByRole('button', { name: 'Add 1 definition of this document to the glossary' }).click();
   await d
-    .locator('.sidebar')
+    .locator('.topnav')
     .getByRole('link', { name: /Glossary/ })
     .click();
   await d.getByText('Settlement run').first().waitFor();
@@ -1162,7 +1181,7 @@ try {
     ).text();
   assert.match(await teamContext(), /Payout/);
   ok('glossary terms are served by MCP without being linked to any spec');
-  await d.click('.sidebar a[href="#/docs"]');
+  await d.click('.topnav a[href="#/docs"]');
   await d.locator('.found', { hasText: 'Vision' }).click();
   await d.locator('.bn-editor').first().waitFor();
   await d.click('[data-act=t-add]');
@@ -1176,7 +1195,7 @@ try {
   await d.locator('.found.active', { hasText: 'Vision' }).waitFor();
 
   // --- folders can be created, filled, renamed and deleted in the UI
-  await d.click('.sidebar a[href="#/docs"]');
+  await d.click('.topnav a[href="#/docs"]');
   await d.click('.bar [data-act=dd-toggle]');
   await d.getByRole('menuitem', { name: /Folder/ }).click();
   await d.fill('#docname', 'notes');
@@ -1216,7 +1235,7 @@ try {
   await d.waitForFunction(() => ![...document.querySelectorAll('.ftoggle')].some((e) => /scratch/.test(e.textContent)));
   ok('an empty folder can be deleted');
   await d.evaluate(() => dispatchEvent(new Event('online')));
-  await d.waitForFunction(() => /Synced/.test(document.querySelector('.sidebar .pill')?.textContent ?? ''), null, { timeout: 15000 });
+  await d.waitForFunction(() => /Synced/.test(document.querySelector('.topnav .pill')?.textContent ?? ''), null, { timeout: 15000 });
   const folderState = (items) =>
     items.some((i) => i.id === 'team-notes/plan.md' && !i.deleted) &&
     items.some((i) => i.id === 'team-notes/README.md' && !i.deleted) &&
@@ -1238,7 +1257,7 @@ try {
   await shot(d, '06d-desktop-docs-folders');
 
   // --- spec types: choose a type, template, chip, filter, change type, team-defined types
-  await d.click('.sidebar a[href="#/"]');
+  await d.evaluate(() => (location.hash = '#/specs'));
   await d.click('.bar [data-act=new-spec]');
   const chooser = d.locator('.typelist .typeopt');
   assert.equal(await chooser.count(), 14);
@@ -1318,7 +1337,7 @@ try {
   ok('sections the new type does not know are kept (shown under "Other content")');
   await setMode(d, 'blocks');
   // team-defined type
-  await d.click('.sidebar a[href="#/team"]');
+  await d.evaluate(() => (location.hash = '#/team'));
   await d.click('[data-tab=types]');
   await d.getByText('Spec types').first().waitFor();
   await d.click('[data-act=stype-new]');
@@ -1328,14 +1347,14 @@ try {
   await d.click('#stypeForm button[type=submit]');
   await d.locator('.typerow', { hasText: 'Playbook' }).waitFor();
   ok('team admin defines a spec type with its own template');
-  await d.click('.sidebar a[href="#/"]');
+  await d.evaluate(() => (location.hash = '#/specs'));
   await d.click('.bar [data-act=new-spec]');
   await d.getByRole('button', { name: /^Playbook/ }).click();
   await d.locator('[data-act=use-type]').click();
   await d.locator('[data-content-type=heading] .bn-inline-content', { hasText: 'ROLLBACK' }).waitFor();
   ok('the custom type is offered when creating a spec and applies its template');
   // team-defined FORM type
-  await d.click('.sidebar a[href="#/team"]');
+  await d.evaluate(() => (location.hash = '#/team'));
   await d.click('[data-tab=types]');
   await d.click('[data-act=stype-new]');
   await d.fill('#st-label', 'Checklist type');
@@ -1351,7 +1370,7 @@ try {
   await d.selectOption('[aria-label="Field 2 tab"]', 'release');
   await d.click('#stypeForm button[type=submit]');
   await d.locator('.typerow', { hasText: 'Checklist type' }).getByText('form', { exact: false }).first().waitFor();
-  await d.click('.sidebar a[href="#/"]');
+  await d.evaluate(() => (location.hash = '#/specs'));
   await d.click('.bar [data-act=new-spec]');
   await d.getByRole('button', { name: /^Checklist type/ }).click();
   await d.locator('[data-act=use-type]').click();
@@ -1368,7 +1387,7 @@ try {
   await d.click('[data-act=item-menu]');
   d.once('dialog', (x) => x.accept());
   await d.getByRole('button', { name: 'Delete spec' }).click();
-  await d.click('.sidebar a[href="#/"]');
+  await d.evaluate(() => (location.hash = '#/specs'));
   await d.click('.bar [data-act=new-spec]');
   await d.getByRole('button', { name: /^Playbook/ }).click();
   await d.locator('[data-act=use-type]').click();
@@ -1377,10 +1396,10 @@ try {
   await d.click('[data-act=item-menu]');
   d.once('dialog', (x) => x.accept());
   await d.getByRole('button', { name: 'Delete spec' }).click();
-  await d.click('.sidebar a[href="#/"]');
+  await d.evaluate(() => (location.hash = '#/specs'));
 
   // --- delete a spec
-  await d.click('.sidebar a[href="#/"]');
+  await d.evaluate(() => (location.hash = '#/specs'));
   await d.click('.bar [data-act=new-spec]');
   await d.getByRole('button', { name: /Feature spec/ }).click();
   await d.locator('[data-act=use-type]').click();
@@ -1395,10 +1414,12 @@ try {
   // --- teams: second team, switcher, isolation
   await admin.post('/api/teams', { name: 'Payments', key: 'PAY' });
   await d.reload();
-  await d.locator('.sidebar .ws').click();
+  await d.locator('.topnav .ws').click();
   await d.getByRole('button', { name: /Payments/ }).click();
+  await d.waitForFunction(() => location.hash === '#/');
+  await d.evaluate(() => (location.hash = '#/specs'));
   await d.locator('#list .empty').waitFor();
-  assert.match(await d.locator('.sidebar .ws').innerText(), /Payments/);
+  assert.match(await d.locator('.topnav .ws').innerText(), /Payments/);
   ok('team switcher: other team starts empty (data is scoped per team)');
   await d.click('.bar [data-act=new-spec]');
   await d.getByRole('button', { name: /Feature spec/ }).click();
@@ -1410,12 +1431,12 @@ try {
   const t2 = (await admin.get('/api/teams')).data.teams.find((t) => t.key === 'PAY');
   assert.ok((await admin.sync([], 0, t2.id)).data.items.some((i) => i.id === 'PAY-001'));
   ok('edits sync into the active team');
-  await d.locator('.sidebar .ws').click();
+  await d.locator('.topnav .ws').click();
   await d.getByRole('button', { name: /^specs ·/ }).click();
-  await d.locator('.row', { hasText: 'SPEC-014' }).waitFor();
+  await d.locator('.plant', { hasText: 'SPEC-014' }).waitFor();
 
   // --- team page: members + git connection per team
-  await d.click('.sidebar a[href="#/team"]');
+  await d.evaluate(() => (location.hash = '#/team'));
   await d.click('[data-tab=git]');
   await d.getByText('Git connection').first().waitFor();
   await d.click('[data-tab=team]');
@@ -1489,7 +1510,7 @@ try {
   await d.locator('.user-main', { hasText: 'Vera' }).locator('select').selectOption('viewer');
   await new Promise((r) => setTimeout(r, 400));
 
-  await d.click('.sidebar a[href="#/release"]');
+  await d.evaluate(() => (location.hash = '#/release'));
   await d.getByText('Agent endpoint').waitFor();
   await d
     .getByText(/Pushed .* ago|Pushed just now/)
@@ -1508,7 +1529,7 @@ try {
   const token = await d.locator('.ok-card .code').first().innerText();
   assert.match(token, /^spc_/);
   ok('account: personal token created and shown once');
-  await d.click('.sidebar a[href="#/"]');
+  await d.evaluate(() => (location.hash = '#/specs'));
   await d.click('[data-act=user-menu]');
   await d.getByRole('button', { name: 'Account & agent access' }).click();
   await d.getByText('Your tokens').waitFor();
@@ -1521,31 +1542,31 @@ try {
   await d.click('[data-tab=settings]');
   await d.locator('[data-act=set-theme][data-v=light]').click();
   assert.equal(await d.evaluate(() => document.documentElement.dataset.theme), 'light');
-  assert.equal(await d.evaluate(() => getComputedStyle(document.body).backgroundColor), 'rgb(249, 250, 249)');
+  assert.equal(await d.evaluate(() => getComputedStyle(document.body).backgroundColor), 'rgb(251, 252, 248)');
   ok('appearance: light mode');
   await shot(d, '08b-desktop-light-account');
   await d.reload();
   assert.equal(await d.evaluate(() => document.documentElement.dataset.theme), 'light');
   ok('appearance: choice is remembered');
   await d.locator('[data-act=set-theme][data-v=dark]').click();
-  assert.equal(await d.evaluate(() => getComputedStyle(document.body).backgroundColor), 'rgb(11, 13, 12)');
+  assert.equal(await d.evaluate(() => getComputedStyle(document.body).backgroundColor), 'rgb(24, 29, 25)');
   ok('appearance: dark mode');
 
   // any user can create a team from the workspace menu
-  await d.locator('.sidebar .ws').click();
+  await d.locator('.topnav .ws').click();
   await d.getByRole('button', { name: 'Create a new team…' }).click();
   await d.fill('#newteam', 'Platform Crew');
   await d.click('#createTeamForm button[type=submit]');
-  await d.waitForFunction(() => /Platform Crew/.test(document.querySelector('.sidebar .ws')?.textContent ?? ''));
+  await d.waitForFunction(() => /Platform Crew/.test(document.querySelector('.topnav .ws')?.textContent ?? ''));
   assert.ok((await d.locator('.found', { hasText: 'Vision' }).count()) === 0); // lands on specs
-  await d.click('.sidebar a[href="#/docs"]');
+  await d.click('.topnav a[href="#/docs"]');
   await d.locator('.found', { hasText: 'Vision' }).waitFor();
   await d.locator('.found', { hasText: 'Strategy' }).waitFor();
   assert.equal(await d.locator('.found', { hasText: 'Glossary' }).count(), 0);
   ok('a new team starts with vision and strategy under Documents; the glossary lives on its own page, not in the document list');
 
   // invitation flow: team admin invites, the invitee registers through the link
-  await d.click('.sidebar a[href="#/team"]');
+  await d.evaluate(() => (location.hash = '#/team'));
   await d.click('[data-tab=members]');
   await d.focus('[data-tab=members]');
   await d.keyboard.press('ArrowRight');
@@ -1587,7 +1608,7 @@ try {
   await ictx.close();
 
   // admin page: teams + accounts, delete an account
-  await d.click('.sidebar a[href="#/admin"]');
+  await d.evaluate(() => (location.hash = '#/admin'));
   await d.click('[data-tab=email]');
   await d.getByText('configured', { exact: true }).waitFor();
   await d.click('[data-act=mail-test]');
@@ -1687,11 +1708,13 @@ try {
   assert.equal(await v.locator('[data-act=new-spec]').count(), 0);
   assert.equal(await v.locator('[data-act=approve]').count(), 0);
   assert.equal(await v.locator('.bn-side-menu').count(), 0);
-  assert.equal(await v.locator('.sidebar a[href="#/admin"]').count(), 0);
+  await v.click('.topnav [data-act=user-menu]');
+  assert.equal(await v.getByRole('button', { name: 'Admin', exact: true }).count(), 0);
+  await v.keyboard.press('Escape');
   assert.equal(await v.locator('.bn-editor').first().getAttribute('contenteditable'), 'false');
   await v.locator('#saveInd[data-state="ro"]').waitFor();
   ok('viewer: read-only editor, no drag handles, no create/approve/admin');
-  await v.click('.sidebar a[href="#/team"]');
+  await v.evaluate(() => (location.hash = '#/team'));
   await v.click('[data-tab=git]');
   await v.locator('#g-url[readonly]').waitFor();
   assert.equal(await v.locator('#gitForm button[type=submit]').count(), 0);

@@ -84,6 +84,7 @@ export function useMenus() {
     if (key.startsWith('theme:')) return setTheme(key.slice(6));
     if (key.startsWith('density:')) return setDensity(key.slice(8) as 'compact' | 'comfortable');
     if (key === 'create-team') return setCreateTeam(true);
+    if (key === 'tour') return void window.dispatchEvent(new Event('garten:tour'));
     if (key === 'switch') return pick(await openMenu('Team', workspaceItems()));
     if (key === 'logout') {
       const n = [...S.state.maps.values()].reduce((a, m) => a + [...m.values()].filter(S.isPending).length, 0);
@@ -92,37 +93,27 @@ export function useMenus() {
       nav('/');
     }
   }
-  const waiting = proposalsWaiting(S);
   return {
     workspace: async () => pick(await openMenu('Team', workspaceItems())),
-    user: async () =>
-      pick(
+    user: async () => {
+      const waitingSync = S.queue().length + S.fbPending() + S.conflicts().length;
+      return pick(
         await openMenu(S.state.me!.name, [
-          { key: 'go:account', label: 'Account & agent access' },
-          ...themeItems,
-          ...densityItems,
-          { key: 'logout', label: 'Sign out', danger: true },
-        ]),
-      ),
-    more: async () =>
-      pick(
-        await openMenu('More', [
-          { key: 'go:glossary', label: `Glossary${waiting.terms ? ` · ${waiting.terms} proposed` : ''}` },
-          { key: 'go:guardrails', label: `Guardrails${waiting.rules ? ` · ${waiting.rules} proposed` : ''}` },
-          {
-            key: 'go:sync',
-            label: `Sync${S.queue().length + S.fbPending() + S.conflicts().length ? ` · ${S.queue().length + S.fbPending() + S.conflicts().length} waiting` : ''}`,
-          },
+          { key: 'switch', label: `Team: ${teamName} – switch or create…` },
+          ...invites.map((i) => ({ key: `invite:${i.id}`, label: `Join “${i.teamName}” as ${i.role} (invitation)` })),
+          { key: 'go:activity', label: 'Agents' },
+          { key: 'go:release', label: 'Connect an agent' },
           { key: 'go:team', label: 'Members & Git' },
           ...(S.isInstanceAdmin() ? [{ key: 'go:admin', label: 'Admin' }] : []),
+          { key: 'go:sync', label: `Sync${waitingSync ? ` · ${waitingSync} waiting` : ''}` },
           { key: 'go:account', label: 'Account & agent access' },
-          ...invites.map((i) => ({ key: `invite:${i.id}`, label: `Join “${i.teamName}” as ${i.role} (invitation)` })),
-          { key: 'switch', label: `Team: ${teamName} – switch or create…` },
+          { key: 'tour', label: 'Take the tour' },
           ...themeItems,
           ...densityItems,
           { key: 'logout', label: 'Sign out', danger: true },
         ]),
-      ),
+      );
+    },
     sheet: createTeam ? <CreateTeamSheet onClose={() => setCreateTeam(false)} /> : null,
     invites: invites.length,
     teamName,
@@ -134,25 +125,25 @@ function proposalsWaiting(S: ReturnType<typeof useStore>) {
   if (!S.can('approve')) return { terms: 0, rules: 0 };
   return { terms: S.proposedItems().length, rules: S.proposedRuleItems().length };
 }
-const proposedBadge = (n: number, what: string) =>
-  n > 0 ? (
-    <span className="badge" title={`${n} proposed ${what} wait for an approver`}>
-      {n}
-    </span>
-  ) : null;
-
 /** The one page header: compact, same everywhere (team button on mobile, sync pill). */
 const DetailOpen = createContext(false);
-export function Bar({ title, children }: { title: string; children?: ReactNode }) {
+export function Bar({ title, children, quiet }: { title: string; children?: ReactNode; quiet?: boolean }) {
   const m = useMenus();
+  const S = useStore();
   const H = useContext(DetailOpen) ? 'h2' : 'h1'; // an open spec/document has its own h1: one h1 per page
   return (
-    <header className="bar">
+    <header className={`bar${quiet ? ' bar-quiet' : ''}`}>
       <H>{title}</H>
       {children}
       <SyncPill />
-      <button type="button" className="ws-btn only-mobile" aria-label={`Team: ${m.teamName}`} onClick={m.workspace}>
-        <span className="ws-av">{initial(m.teamName)}</span>
+      <button
+        type="button"
+        className="ws-btn only-mobile"
+        data-act="user-menu"
+        aria-label={`You, team ${m.teamName} and settings`}
+        onClick={m.user}
+      >
+        <span className="ws-av">{initial(S.state.me?.name)}</span>
         {m.invites > 0 && <span className="badge-dot" />}
       </button>
       {m.sheet}
@@ -167,12 +158,14 @@ const PLACEHOLDER: Record<string, [keyof typeof ic, string]> = {
   guardrails: ['rule', 'Select a rule to see why it exists, what to do instead and its exceptions.'],
 };
 const TITLES: Record<string, string> = {
+  today: 'Today',
+  activity: 'Agents',
+  history: 'History',
   specs: 'Specs',
   docs: 'Documents',
   glossary: 'Glossary',
   guardrails: 'Guardrails',
-  release: 'Release',
-  garden: 'Garden',
+  release: 'Connect an agent',
   sync: 'Sync',
   team: 'Members & Git',
   account: 'Account',
@@ -180,41 +173,44 @@ const TITLES: Record<string, string> = {
 };
 export function sectionOf(pathname: string) {
   const p = pathname.split('/')[1] ?? '';
-  return p === '' || p === 'spec' ? 'specs' : p === 'doc' ? 'docs' : p;
+  return p === '' ? 'today' : p === 'spec' ? 'specs' : p === 'doc' ? 'docs' : p === 'garden' ? 'today' : p;
 }
+/** Which of the four tabs a section belongs to: specs and agents live under Today. */
+const TAB_OF: Record<string, string> = {
+  today: 'today',
+  specs: 'today',
+  activity: 'today',
+  history: 'today',
+  queue: 'today',
+  docs: 'docs',
+  glossary: 'glossary',
+  guardrails: 'guardrails',
+};
 
 export function Shell({ master, detail, single, active }: { master: ReactNode; detail?: ReactNode; single?: boolean; active?: string }) {
   const S = useStore();
   const { pathname } = useLocation();
   const m = useMenus();
   const act = active ?? sectionOf(pathname);
+  const tab = TAB_OF[act] ?? '';
   const me = S.state.me!,
     t = S.team();
-  const nSpecs = S.all('spec').length;
-  const link = (to: string, label: string, icon: keyof typeof ic, extra?: ReactNode) => (
-    <NavLink
-      key={to}
-      to={to}
-      end={to === '/'}
-      className="navitem"
-      aria-current={act === (to === '/' ? 'specs' : to.slice(1)) ? 'page' : undefined}
-    >
-      <Icon name={icon} size={18} />
-      <span>{label}</span>
-      {extra}
-    </NavLink>
-  );
   const [pi, ptext] = PLACEHOLDER[act] ?? PLACEHOLDER.specs;
   // one distinct window title per page (history, tabs, screen readers): "Spec title · Specs · Team"
   const openId =
     pathname.startsWith('/spec/') || pathname.startsWith('/doc/') ? decodeURIComponent(pathname.replace(/^\/(spec|doc)\//, '')) : null;
   const openTitle = openId ? S.get(openId)?.title || openId : null;
   useEffect(() => {
-    document.title = [openTitle, TITLES[act] ?? 'Specs', t?.name].filter(Boolean).join(' · ');
+    document.title = [openTitle, TITLES[act] ?? 'Today', t?.name].filter(Boolean).join(' · ');
   }, [openTitle, act, t?.name]);
   const needs = S.feedbackTotal();
   const waiting = proposalsWaiting(S);
-  const moreBadge = m.invites + S.conflicts().length + waiting.terms + waiting.rules;
+  const tabs: [string, string, string, keyof typeof ic, number][] = [
+    ['today', '/', 'Today', 'garden', needs],
+    ['docs', '/docs', 'Documents', 'docs', 0],
+    ['guardrails', '/guardrails', 'Guardrails', 'shield', waiting.rules],
+    ['glossary', '/glossary', 'Glossary', 'glossary', waiting.terms],
+  ];
   return (
     <div className={`shell ${single ? 'single' : ''}`} data-pane={detail ? 'detail' : 'master'}>
       <a
@@ -227,64 +223,43 @@ export function Shell({ master, detail, single, active }: { master: ReactNode; d
       >
         Skip to content
       </a>
-      <nav className="sidebar" id="sidebar" aria-label="Sections">
-        <button type="button" className="ws" aria-label="Switch team" onClick={m.workspace}>
-          <span className="ws-av">{initial(m.teamName)}</span>
+      <header className="topnav" id="topnav">
+        <Link to="/" className="brand" aria-label="Garten, Today">
+          <span className="brand-dot" aria-hidden="true" />
+          garten
+        </Link>
+        <button type="button" className="ws" aria-label={`Switch team (now ${m.teamName})`} onClick={m.workspace}>
           <b>{m.teamName}</b>
-          <Icon name="chevron" size={14} />
-          {m.invites > 0 && (
-            <span className="navitem badge" style={{ marginLeft: 6 }}>
-              {m.invites}
-            </span>
-          )}
+          {m.invites > 0 && <span className="badge">{m.invites}</span>}
         </button>
-        <div className="navgroup">
-          {link(
-            '/garden',
-            'Garden',
-            'garden',
-            needs > 0 ? (
-              <span className="badge" title="Decisions and feedback that wait for a person">
-                {needs}
-              </span>
-            ) : null,
-          )}
-          {link(
-            '/',
-            'Specs',
-            'specs',
-            nSpecs ? (
-              <span className="count" style={{ marginLeft: 'auto' }}>
-                {nSpecs}
-              </span>
-            ) : null,
-          )}
-          {link('/docs', 'Documents', 'docs')}
-          {link('/release', 'Release', 'release')}
-        </div>
-        <div className="navgroup" role="group" aria-labelledby="nav-foundation">
-          <div className="navlabel" id="nav-foundation">
-            Foundation
-          </div>
-          {link('/glossary', 'Glossary', 'glossary', proposedBadge(waiting.terms, waiting.terms === 1 ? 'term' : 'terms'))}
-          {link('/guardrails', 'Guardrails', 'rule', proposedBadge(waiting.rules, waiting.rules === 1 ? 'rule' : 'rules'))}
-        </div>
-        <div className="navgroup">
-          {link('/team', 'Members & Git', 'team')}
-          {S.isInstanceAdmin() && link('/admin', 'Admin', 'shield')}
-        </div>
-        <div className="sidefoot">
-          <SyncPill />
-          <button type="button" className="me" data-act="user-menu" aria-label="Account menu" onClick={m.user}>
+        <nav className="toptabs" aria-label="Sections">
+          {tabs.map(([k, to, label, , n]) => (
+            <NavLink key={k} to={to} end={to === '/'} className="toptab" aria-current={tab === k ? 'page' : undefined}>
+              {label}
+              {n > 0 && (
+                <span
+                  className="badge"
+                  title={k === 'today' ? 'Decisions and feedback that wait for a person' : `${n} proposed, waiting for an approver`}
+                >
+                  {n}
+                </span>
+              )}
+            </NavLink>
+          ))}
+        </nav>
+        <span className="spacer" />
+        <button type="button" className="findbox" data-act="palette" onClick={() => window.dispatchEvent(new Event('garten:palette'))}>
+          <Icon name="search" size={16} />
+          <span>Find anything</span>
+          <kbd>Ctrl K</kbd>
+        </button>
+        <span className="me-wrap">
+          <button type="button" className="me" data-act="user-menu" aria-label={`You (${me.name}), team and settings`} onClick={m.user}>
             <span className="avatar">{initial(me.name)}</span>
-            <span className="who">
-              <b>{me.name}</b>
-              <small>{t?.role ?? (me.admin ? 'instance admin' : '')}</small>
-            </span>
-            <Icon name="more" size={18} />
           </button>
-        </div>
-      </nav>
+          <SyncPill />
+        </span>
+      </header>
       <main className="content" id="main" tabIndex={-1}>
         <DetailOpen.Provider value={!!detail}>
           <section className="master" id="master">
@@ -303,31 +278,13 @@ export function Shell({ master, detail, single, active }: { master: ReactNode; d
         )}
       </main>
       <nav className="tabbar" id="tabbar" aria-label="Main sections">
-        {(
-          [
-            ['/garden', 'Garden', 'garden', 'garden'],
-            ['/', 'Specs', 'specs', 'specs'],
-            ['/docs', 'Docs', 'docs', 'docs'],
-            ['/release', 'Release', 'release', 'release'],
-          ] as const
-        ).map(([to, l, i, k]) => (
-          <NavLink key={to} to={to} end={to === '/'} aria-current={act === k ? 'page' : undefined}>
-            <Icon name={i} />
-            {<span>{l}</span>}
-            {k === 'garden' && needs > 0 && <span className="badge">{needs}</span>}
+        {tabs.map(([k, to, label, icon, n]) => (
+          <NavLink key={k} to={to} end={to === '/'} aria-current={tab === k ? 'page' : undefined}>
+            <Icon name={icon} />
+            <span>{label}</span>
+            {n > 0 && <span className="badge">{n}</span>}
           </NavLink>
         ))}
-        <button
-          type="button"
-          data-act="more-menu"
-          aria-label="More"
-          aria-current={['glossary', 'guardrails', 'sync', 'team', 'account', 'admin'].includes(act) ? 'page' : undefined}
-          onClick={m.more}
-        >
-          <Icon name="more" />
-          <span>More</span>
-          {moreBadge > 0 && <span className="badge">{moreBadge}</span>}
-        </button>
       </nav>
       {m.sheet}
     </div>

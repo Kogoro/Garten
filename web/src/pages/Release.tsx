@@ -44,7 +44,7 @@ export function ReleasePage() {
       single
       master={
         <>
-          <Bar title="Release" />
+          <Bar title="Connect an agent" />
           <div className="scroll">
             <div className="page">
               <section className="card">
@@ -112,7 +112,7 @@ export function ReleasePage() {
                                 data-act="release-terms"
                                 onClick={() => waiting.forEach((d) => S.requestApprove(d.id))}
                               >
-                                Release all
+                                Let all bloom
                               </button>
                             )}
                           </>
@@ -125,7 +125,7 @@ export function ReleasePage() {
                 })()}
                 <p className="note">
                   Served via <span className="mono">get_team_context</span> as soon as they contain something
-                  {S.team()?.foundationAuto === false ? ' and have been approved' : ' – they are released automatically after edits'}.
+                  {S.team()?.foundationAuto === false ? ' and have been approved' : ' – they bloom by themselves after edits'}.
                 </p>
               </section>
               <section className="card">
@@ -174,7 +174,7 @@ export function ReleasePage() {
               ))}
               <section>
                 <div className="sect-title">
-                  <span>Released specs</span>
+                  <span>In bloom</span>
                   <small>{released.length} approved</small>
                 </div>
                 {released.length ? (
@@ -185,7 +185,7 @@ export function ReleasePage() {
                           <TypeChip s={s} S={S} /> {s.title}
                           {S.hasUnreleased(s) && (
                             <span className="chip warn" style={{ marginLeft: 4 }}>
-                              edited since release
+                              edited since it bloomed
                             </span>
                           )}
                         </b>
@@ -222,7 +222,7 @@ export function ReleasePage() {
                   ))
                 ) : (
                   <div className="empty" style={{ padding: '16px 0' }}>
-                    Nothing released yet. Approve a spec in the editor.
+                    Nothing in bloom yet. Let a spec bloom in the editor.
                   </div>
                 )}
               </section>

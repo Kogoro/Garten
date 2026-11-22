@@ -1,3 +1,4 @@
+import { GrowthIcon, STAGE_NAME, stageOf } from '../growth';
 import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Dropdown, Sheet, MenuHost } from '../dialogs';
@@ -7,7 +8,7 @@ import type { EditorApi } from '../editor/SpecEditor';
 import { BLOCK_MENU } from '../editor/blockTypes';
 import { Hint } from '../Hint';
 import { useMedia } from '../prefs';
-import { CORE_LABEL, enc, foundState, hasContent, rawMode } from '../lib';
+import { CORE_LABEL, awaitsApproval, enc, foundState, hasContent, rawMode } from '../lib';
 import { ConflictSheet, DeriveSpecSheet, LinkSheet, PathSheet } from '../sheets';
 import { newDefinitions, termPrefill } from '../derive';
 import { openMenu, useUi } from '../state';
@@ -54,20 +55,20 @@ function HistoryPanel({ item }: { item: Item }) {
   if (!released || S.hasUnreleased(item))
     rows.push({
       key: 'draft',
-      title: `v${item.version + 1} · Draft`,
+      title: `v${item.version + 1} · Seed`,
       meta: `Edited ${ago(touched(item))}${item.updatedBy ? ` by ${item.updatedBy}` : ''} · only your team sees it`,
     });
   if (remote?.length)
     for (const v of remote)
       rows.push({
         key: `v${v.version}`,
-        title: `v${v.version} · Released`,
+        title: `v${v.version} · Bloomed`,
         meta: `${ago(Date.parse(v.at))} by ${v.by} · commit ${v.commit}, tag ${item.id}/v${v.version}`,
       });
   else if (released)
     rows.push({
       key: 'cur',
-      title: `v${item.version} · Released`,
+      title: `v${item.version} · Bloomed`,
       meta: `${item.releasedAt ? ago(Date.parse(item.releasedAt)) : ''}${item.releasedBy ? ` by ${item.releasedBy}` : ''} · commit and tag in the team repository`,
     });
   return (
@@ -81,12 +82,10 @@ function HistoryPanel({ item }: { item: Item }) {
             <div className="row-meta">{r.meta}</div>
           </div>
         ))}
-        {!rows.length && <div className="hint-empty empty">Nothing released yet. Approve the spec to create v1.</div>}
+        {!rows.length && <div className="hint-empty empty">Not in bloom yet. Let it bloom to create v1.</div>}
       </section>
       {remote === null && !S.state.online && <p className="note">Offline – older versions load when you are online.</p>}
-      <p className="note">
-        Every release is one commit and one tag in the team repository. <Link to="/release">Release</Link> shows what reaches agents.
-      </p>
+      <p className="note">Every bloom is one commit and one tag in the team repository.</p>
     </>
   );
 }
@@ -116,15 +115,22 @@ export const StatusChip = ({ i, S }: { i: Item; S: Store }) => {
       </>
     );
   }
+  const st = stageOf(S, i);
   return i.approve ? (
-    <span className="chip warn">Approval queued</span>
+    <span className="chip warn stage">
+      <GrowthIcon stage="sprout" size={14} />
+      Blooms after sync
+    </span>
   ) : i.status === 'approved' ? (
-    <span className="chip ok">
-      Approved v{i.version}
-      {S.hasUnreleased(i) ? ' · edited' : ''}
+    <span className="chip ok stage">
+      <GrowthIcon stage={st} size={14} />
+      {st === 'bloom' ? `Bloom v${i.version}` : `Sprout · v${i.version} edited`}
     </span>
   ) : (
-    <span className="chip">Draft</span>
+    <span className="chip stage">
+      <GrowthIcon stage={st} size={14} />
+      {STAGE_NAME[st]}
+    </span>
   );
 };
 
@@ -229,64 +235,64 @@ async function checkWords(i: Item, S: Store, go: string, keep: string): Promise<
 
 async function approve(i: Item, S: Store) {
   if (i.kind === 'spec' && !i.title.trim()) return toast('Add a title first');
-  if (!(await checkWords(i, S, 'approve', 'Approve anyway'))) return;
+  if (!(await checkWords(i, S, 'approve', 'Let it bloom anyway'))) return;
   S.requestApprove(i.id);
-  toast(S.state.online && !S.state.sessionExpired ? (i.kind === 'doc' ? 'Releasing…' : 'Approving…') : 'Queued — released after next sync');
+  toast(S.state.online && !S.state.sessionExpired ? 'Blooming…' : 'Queued, blooms after the next sync');
 }
 
 export function ApproveButton({ i, S }: { i: Item; S: Store }) {
   if (i.kind === 'doc' && i.pinned) {
     const auto = S.team()?.foundationAuto !== false;
     if (!S.can('approve'))
-      return <span className="muted hint">{auto ? 'Goes live automatically after you stop typing' : 'An approver publishes this'}</span>;
+      return <span className="muted hint">{auto ? 'Blooms by itself after you stop typing' : 'An approver lets this bloom'}</span>;
     if (i.approve)
       return (
         <button
           className="approve queued"
           type="button"
-          aria-label="Approval queued"
+          aria-label="Blooms after sync"
           data-act="cancel-approve"
           onClick={() => S.cancelApprove(i.id)}
         >
           <Icon name="clock" />
-          Release queued
+          Blooms after sync
         </button>
       );
     if (foundState(i, S).live || !hasContent(i.body))
-      return <span className="muted hint">{hasContent(i.body) ? `Live v${i.version}` : 'Empty – not published'}</span>;
+      return <span className="muted hint">{hasContent(i.body) ? `Bloom v${i.version}` : 'Empty, nothing to bloom'}</span>;
     return (
       <button className="approve" type="button" data-act="approve" onClick={() => approve(i, S)}>
-        Release now
+        Let it bloom
         <Icon name="check" size={16} />
       </button>
     );
   }
-  if (i.kind !== 'spec') return <span className="muted hint">Released with the specs that link it</span>;
+  if (i.kind !== 'spec') return <span className="muted hint">Blooms with the specs that link it</span>;
   if (!S.can('approve'))
-    return <span className="muted hint">{i.status === 'approved' ? `Approved v${i.version}` : 'An approver releases this'}</span>;
+    return <span className="muted hint">{i.status === 'approved' ? `Bloom v${i.version}` : 'An approver lets this bloom'}</span>;
   if (i.approve)
     return (
       <button
         className="approve queued"
         type="button"
-        aria-label="Approval queued"
+        aria-label="Blooms after sync"
         data-act="cancel-approve"
         onClick={() => S.cancelApprove(i.id)}
       >
         <Icon name="clock" />
-        <span className="lbl">Approval queued</span>
+        <span className="lbl">Blooms after sync</span>
       </button>
     );
   if (i.status === 'approved' && !S.hasUnreleased(i))
     return (
       <button className="approve done" disabled type="button">
-        Approved v{i.version}
+        Bloom v{i.version}
         <Icon name="check" size={16} />
       </button>
     );
   return (
     <button className="approve" type="button" data-act="approve" onClick={() => approve(i, S)}>
-      {i.status === 'approved' ? `Approve v${i.version + 1}` : 'Approve'}
+      {i.status === 'approved' ? `Let v${i.version + 1} bloom` : 'Let it bloom'}
       <Icon name="check" size={16} />
     </button>
   );
@@ -326,7 +332,7 @@ function DocsDd({ i, S, onNew }: { i: Item; S: Store; onNew: () => void }) {
     >
       {(close) => (
         <>
-          <div className="dd-title">Linked documents · released with this spec</div>
+          <div className="dd-title">Linked documents · bloom with this spec</div>
           {docs.length ? (
             docs.map((d) => {
               const on = i.links.includes(d.id);
@@ -447,7 +453,7 @@ export function ItemEditor({ item }: { item: Item }) {
   const blocks = mode === 'blocks';
   const asForm = mode === 'form' && !!form;
   const path = isSpec ? `${S.team()!.key}/${item.id}.md` : `docs/${item.id}`;
-  const back = isSpec ? '/' : isGlossaryPath(item.id) ? '/glossary' : '/docs';
+  const back = isSpec ? '/specs' : isGlossaryPath(item.id) ? '/glossary' : '/docs';
 
   /** What the user marked in this item (blocks editor, Markdown view or read view); empty = nothing selected. */
   function selected(): string {
@@ -591,10 +597,14 @@ export function ItemEditor({ item }: { item: Item }) {
   const metaLine = [
     isSpec ? S.specType(item.specType).label : item.core ? 'Foundation document' : 'Document',
     item.approve
-      ? 'Approval queued'
+      ? 'Blooms after sync'
       : item.status === 'approved'
-        ? `Approved v${item.version}${S.hasUnreleased(item) ? ' · edited since' : ''}`
-        : 'Draft',
+        ? S.hasUnreleased(item)
+          ? `Sprout · edited since v${item.version}`
+          : `Bloom v${item.version}`
+        : awaitsApproval(S, item)
+          ? 'Sprout'
+          : 'Seed',
     ...(saveState(item, S) === 'synced' || saveState(item, S) === 'ro'
       ? []
       : [

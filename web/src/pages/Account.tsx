@@ -11,7 +11,7 @@ export const RIGHTS: [string, string][] = [
   ['read', 'Read specs & documents'],
   ['write', 'Write drafts'],
   ['drafts', 'Agent access to drafts (MCP)'],
-  ['approve', 'Approve, revoke & push to Git'],
+  ['approve', 'Let specs bloom, revoke & push to Git'],
   ['admin', 'Manage members & Git connection'],
 ];
 export const ROLES = ['viewer', 'editor', 'approver', 'admin'];
@@ -22,7 +22,7 @@ export const ROLE_RIGHTS: Record<string, string[]> = {
   admin: ['read', 'write', 'drafts', 'approve', 'admin'],
 };
 export const scopesText = (s: string[]) =>
-  s.includes('mcp:write') ? 'writes drafts' : s.includes('mcp:drafts') ? 'incl. drafts' : 'released only';
+  s.includes('mcp:write') ? 'writes drafts' : s.includes('mcp:drafts') ? 'incl. drafts' : 'in bloom only';
 const themeLabel: Record<string, string> = { system: 'System', light: 'Light', dark: 'Dark' };
 
 export function AccountPage() {
@@ -246,10 +246,10 @@ export function AccountPage() {
                           Access
                         </label>
                         <select className="field" id="tscope" name="scope" disabled={!online}>
-                          <option value="mcp:read">Released specs only</option>
+                          <option value="mcp:read">Specs in bloom only</option>
                           {anyDrafts && (
                             <>
-                              <option value="mcp:read mcp:drafts">Released + drafts</option>
+                              <option value="mcp:read mcp:drafts">In bloom and seeds</option>
                               <option value="mcp:read mcp:drafts mcp:write">Read &amp; write drafts (you approve)</option>
                             </>
                           )}

@@ -10,11 +10,12 @@ import { setDensity } from './prefs';
 export const SHORTCUTS: { keys: string; what: string }[] = [
   { keys: 'Ctrl/⌘ K', what: 'Command palette: jump to anything, run an action' },
   { keys: '/', what: 'Search in the current list' },
-  { keys: 'g then s', what: 'Go to Specs' },
+  { keys: 'g then h', what: 'Go to Today' },
+  { keys: 'g then s', what: 'Go to all specs' },
   { keys: 'g then d', what: 'Go to Documents' },
   { keys: 'g then l', what: 'Go to Glossary' },
-  { keys: 'g then r', what: 'Go to Release' },
-  { keys: 'g then a', what: 'Go to Garden (agents)' },
+  { keys: 'g then u', what: 'Go to Guardrails' },
+  { keys: 'g then a', what: 'Go to Agents' },
   { keys: 'g then t', what: 'Go to Members & Git' },
   { keys: 'g then y', what: 'Go to Sync' },
   { keys: 'n', what: 'New spec' },
@@ -22,11 +23,12 @@ export const SHORTCUTS: { keys: string; what: string }[] = [
   { keys: 'Esc', what: 'Close a dialog or menu' },
 ];
 const GO: Record<string, string> = {
-  s: '/',
+  h: '/',
+  s: '/specs',
   d: '/docs',
   l: '/glossary',
-  r: '/release',
-  a: '/garden',
+  u: '/guardrails',
+  a: '/activity',
   t: '/team',
   y: '/sync',
   c: '/account',
@@ -105,8 +107,13 @@ export function Palette() {
         setNewSpec(true);
       }
     };
+    const openIt = () => setOpen(true);
     document.addEventListener('keydown', k);
-    return () => document.removeEventListener('keydown', k);
+    window.addEventListener('garten:palette', openIt);
+    return () => {
+      document.removeEventListener('keydown', k);
+      window.removeEventListener('garten:palette', openIt);
+    };
   }, [signedIn, nav, S]);
 
   if (!signedIn) return null;
@@ -167,11 +174,21 @@ function PaletteDialog({ onClose, onNewSpec }: { onClose: () => void; onNewSpec:
   const base: Cmd[] = useMemo(
     () => [
       ...(S.can('write') ? [{ id: 'new-spec', label: 'New spec…', hint: 'n', run: onNewSpec }] : []),
-      { id: 'go-specs', label: 'Go to Specs', hint: 'g s', run: go('/') },
+      { id: 'go-today', label: 'Go to Today', hint: 'g h', run: go('/') },
+      { id: 'go-specs', label: 'Go to all specs', hint: 'g s', run: go('/specs') },
       { id: 'go-docs', label: 'Go to Documents', hint: 'g d', run: go('/docs') },
       { id: 'go-glossary', label: 'Go to Glossary', hint: 'g l', run: go('/glossary') },
-      { id: 'go-release', label: 'Go to Release', hint: 'g r', run: go('/release') },
-      { id: 'go-garden', label: 'Go to Garden', hint: 'g a', run: go('/garden') },
+      { id: 'go-guardrails', label: 'Go to Guardrails', hint: 'g u', run: go('/guardrails') },
+      { id: 'go-agents', label: 'Go to Agents', hint: 'g a', run: go('/activity') },
+      { id: 'connect', label: 'Connect an agent', run: go('/release') },
+      {
+        id: 'tour',
+        label: 'Take the tour',
+        run: () => {
+          onClose();
+          window.dispatchEvent(new Event('garten:tour'));
+        },
+      },
       { id: 'go-team', label: 'Go to Members & Git', hint: 'g t', run: go('/team') },
       { id: 'go-sync', label: 'Go to Sync', hint: 'g y', run: go('/sync') },
       { id: 'go-account', label: 'Go to Account & agent access', hint: 'g c', run: go('/account') },

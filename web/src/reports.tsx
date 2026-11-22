@@ -22,7 +22,7 @@ const met = (r: any) => {
 export function implState(spec: Item, r: any | null): Impl {
   if (!r) return { key: 'none', cls: '', text: 'Not started', rank: 4 };
   if (r.specVersion < spec.version)
-    return { key: 'outdated', cls: 'warn', text: `Outdated · built v${r.specVersion}, released v${spec.version}`, rank: 1 };
+    return { key: 'outdated', cls: 'warn', text: `Outdated · built v${r.specVersion}, in bloom v${spec.version}`, rank: 1 };
   if (r.status === 'implemented') return { key: 'implemented', cls: 'ok', text: `Implemented v${r.specVersion}${met(r)}`, rank: 5 };
   if (r.status === 'partial') return { key: 'partial', cls: 'warn', text: `Partly built${met(r)}`, rank: 2 };
   if (r.status === 'blocked') return { key: 'blocked', cls: 'bad', text: 'Blocked', rank: 0 };
@@ -230,8 +230,8 @@ export function ReportBody({ specId }: { specId: string }) {
       <p className="muted rp-empty">
         No agent has reported on this spec yet.{' '}
         {spec?.status === 'approved'
-          ? `v${spec.version} is released – it is on the agent's work list as “new”.`
-          : 'Agents only build released specs.'}
+          ? `v${spec.version} is in bloom – it is on the agent's work list as “new”.`
+          : 'Agents only build specs in bloom.'}
       </p>
     );
   return (
@@ -246,8 +246,7 @@ export function ReportBody({ specId }: { specId: string }) {
       </div>
       {r.id === latest?.id && st?.key === 'outdated' && (
         <p className="note rp-warn">
-          This report is about v{r.specVersion}. v{spec!.version} was released since – the agent sees the spec as “changed” in its work
-          list.
+          This report is about v{r.specVersion}. v{spec!.version} bloomed since – the agent sees the spec as “changed” in its work list.
         </p>
       )}
       <Report r={r} latest={r.id === latest?.id} />
@@ -273,7 +272,7 @@ export function ReportBody({ specId }: { specId: string }) {
   );
 }
 
-/** The same report in a dialog (Garden). */
+/** The same report in a dialog (Agents). */
 const PRIO: [string, string][] = [
   ['high', 'High'],
   ['normal', 'Normal'],
