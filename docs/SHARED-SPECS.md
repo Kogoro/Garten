@@ -91,15 +91,17 @@ A child team builds against one fixed state of its ancestors' foundation. Each f
 
 When PLAT releases foundation v8, the child sees _Update available: PLAT foundation v8_ with the diff of every changed document and term. An **approver of the child team** accepts it; that is a release of the child's foundation, so it triggers exactly what an own guardrail change triggers today (`guardrails_changed` for implemented specs, the agent trigger). Until then the child's agents keep working with v7.
 
-Rules from above can still not be ignored silently: the Garden of the child shows _Inherited update waiting since 12 days_ under _Needs attention_, and the parent sees under _Used by_ which children are still on an older foundation version. (Later, if needed: the parent marks a guardrail update as _required by \<date\>_.)
+Rules from above can still not be ignored silently: the Garden of the child shows _Inherited update waiting since 12 days_ under _Needs attention_, and the parent sees under _Used by_ which children are still on an older foundation version.
+
+**Required updates (optional, per rule).** An approver of the parent can mark a new or reworded guardrail as _required by \<date\>_. The child sees the date with the update. If the child has not accepted the foundation update by then, **only that rule** is applied to the child automatically: it joins the child's guardrails, `guardrails_changed` fires for implemented specs, and the audit log records it. The rest of the foundation update (vision, glossary, other rules) stays waiting for the child's approval. This works because every rule is its own file (section 3a). Without a date, nothing is ever forced.
 
 ### Two vision documents: nothing is overwritten
 
-Every team has its own `vision.md`, `strategy.md` and `guardrails.md`. With a parent there are now two (or more) of each. They do not need to be linked and none overwrites another. Each kind of document has one rule:
+Every team has its own vision, strategy and guardrails. With a parent there are now two (or more) of each. They do not need to be linked and none overwrites another. Each kind of document has one rule:
 
 | Document                                               | Rule                                                                                                                                                                                                                                                  | Agent sees                                            |
 | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| `guardrails.md`                                        | **Add up.** All rules of all ancestors apply, plus the own ones. A child cannot delete, reword or relax a parent rule; to disagree it gives feedback on the parent's guardrails. Rule ids carry the team key (`ACME/G1`) so reports stay unambiguous. | One list, grouped by team, top-down                   |
+| Guardrails (`guardrails/`, section 3a)                 | **Add up.** All rules of all ancestors apply, plus the own ones. A child cannot delete, reword or relax a parent rule; to disagree it gives feedback on the parent's guardrails. Rule ids carry the team key (`ACME/G1`) so reports stay unambiguous. | One list, grouped by team, top-down                   |
 | `vision.md`, `strategy.md`, other foundation documents | **Stack.** Each document stays as written. The own document comes first, then the ancestors' ones, each labeled with its team. They are context, not rules: the own vision says where this team is heading, the parent's says what it is part of.     | All of them, own first                                |
 | Glossary terms                                         | **Nearest wins.** A child's term with the same name shadows the parent's inside the child. _Health_ shows it as _Shadows ACME's term_, so it is a conscious decision. `avoid` words of all ancestors still apply.                                     | One merged glossary, every entry with its source team |
 
@@ -131,6 +133,59 @@ What `get_team_context()` returns for WEB:
 ## Strategy   (same order)
 ## Glossary   (merged, nearest definition wins, source team in every entry)
 ```
+
+## 3a. Guardrails as files, like the glossary
+
+**Today** all rules of a team live in one document, `guardrails.md`: a line `- G1: text` under `## Always` or `## Never` (`shared/guardrails.js`). A rule is an id and one line of text; a report records `{ G1: text }`, and a new or reworded line puts implemented specs on the work list as `guardrails_changed`. That is enough for one team with a dozen rules. It gets thin once rules are inherited, required by a date, and read by agents of many teams:
+
+- a rule has no room for **why** it exists, examples or exceptions, so agents follow the letter and miss the intent;
+- there is no **history per rule** (only of the whole file), and no way to say which rule a parent marked as required;
+- every rule goes to every task, even when it only concerns APIs or data;
+- agents cannot **propose** a rule the way they propose glossary terms.
+
+**Proposal:** a guardrail is a Markdown file, exactly as a glossary term is: `guardrails/<folder>/<slug>.md`, sub-folders group rules (`security/`, `api/`, `operations/`).
+
+```markdown
+---
+id: G7
+rule: 'Never store card numbers, not even truncated or encrypted.'
+kind: never # always | never
+applies_to: [api, data-model] # spec types and/or folders; empty = every task
+see: [G3, '[[Card token]]']
+required_by: 2027-01-31 # parent teams only, optional (section 3)
+---
+
+**Why:** PCI DSS scope. Every system that stores a PAN is in scope of the audit.
+
+**Instead:** store the token from the payment provider (`#[Card token]`).
+
+**Exceptions:** none. Ask with `request_decision` if a task seems to need one.
+```
+
+What each part does:
+
+| Part            | Purpose                                                                                                                            | Triggers `guardrails_changed`?                                  |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `id`            | Stable, assigned by the server (`G1`, `G2` …), never reused, independent of the file name. Inherited rules are shown as `ACME/G7`. | –                                                               |
+| `rule`          | The binding sentence. Exactly what an agent must follow.                                                                           | **Yes**, when added or reworded (as today)                      |
+| `kind`          | _Always_ / _Never_, as today's sections                                                                                            | Yes                                                             |
+| `applies_to`    | Spec types and/or document folders the rule concerns; empty means all                                                              | Yes, for specs that now fall under it                           |
+| Body (Markdown) | Why, examples, what to do instead, exceptions. Agents read it to apply the rule sensibly.                                          | **No**: explaining a rule better does not make built code wrong |
+| `see`           | Related rules and glossary terms                                                                                                   | No                                                              |
+| `required_by`   | Section 3: forced on child teams after this date                                                                                   | –                                                               |
+
+What this gives, mostly by reusing what the glossary already has:
+
+- **One page like _Glossary_:** folder tree, rule, rationale, _Used in_ (reports that were built against it), _History_ (Git log of the file).
+- **Proposals:** agents propose rules with `propose_guardrail` into `guardrails/_proposed/` (never released); _Make it a rule_ on feedback or a deviation does the same for people. Only approvers accept, as with proposed terms.
+- **Health:** two rules saying the same thing, an _Always_ contradicting a _Never_, a child rule that contradicts an inherited one, rules no report was ever built against, rules pointing to unknown terms.
+- **Release:** like term files: changes are debounced into **one** commit per team (the foundation release, so one foundation version, section 3).
+- **For agents, nothing gets slower:** `get_team_context()` still lists every applicable rule as one line (`ACME/G7 (never): …`), so one call is still enough to know all rules. New `get_guardrails(spec?)` returns full rules with rationale, filtered by `applies_to` for that spec, like `get_glossary(spec)`. A generated `GUARDRAILS.md` in the repository keeps the overview for people and for agents without MCP.
+- **Reports** keep recording `{ id: rule }`, now with the team key for inherited rules; drift detection stays the same function.
+
+**Migration** (the same path the glossary took from `glossary.md`): at the first start after the update, every `- Gn: text` line becomes a file with `id: Gn`, `kind` from its section, `rule` = the text and an empty body; other `##` headings become folders. Ids stay, so existing reports keep matching. If `guardrails.md` was released, the folder is released in one commit and `guardrails.md` leaves the repository.
+
+This change is useful without any sharing and is a good first step (section 10).
 
 ## 4. Shared documents and specs
 
@@ -231,6 +286,7 @@ Pins of shared documents and specs need no table: they are the versions in the l
 
 Each step is useful on its own:
 
+0. **Guardrails as files** (section 3a), with migration, proposals and Health. No sharing needed.
 1. **Team tree and inherited foundation.** `parent_id`, link requests, foundation versions and pins, layered `get_team_context`, updates accepted by an approver. Biggest value (company-wide rules), no new item kinds.
 2. **Sharing documents and folders.** Shares to children and to named teams, `@KEY/…@vN` links, _Update available_ and _Update link_, _Used by_ at the owner, read-only tree section.
 3. **`implements` and rollup.** Specs implementing other teams' specs, _Implemented by_, feedback and decisions routed to the owner.
@@ -253,7 +309,11 @@ Each step is useful on its own:
 4. **Versions:** every link is pinned to one released version, the inherited foundation as well. Moving to a newer version is an approval in the receiving team.
 5. **Two vision documents:** none is overwritten and they need no linking. Vision and strategy stack (own first, ancestors labeled), guardrails add up, glossary terms resolve nearest-first.
 
+6. **Required guardrail updates:** optional per rule. A parent approver can set _required by \<date\>_; after it, only that rule is applied to the child automatically.
+7. **Who can share with whom:** any team with any other team on the instance, accepted by the receiving team.
+8. **Guardrails** become one file per rule, like glossary terms (section 3a): binding sentence, kind, scope and id in front matter, rationale in the body. Only changes to the binding parts trigger `guardrails_changed`.
+
 ## Still open
 
-- Should a parent be able to mark a guardrail update as _required by \<date\>_, so a child cannot stay on an old foundation forever?
-- Can any team share with any other team on the instance, or only within the same root of the tree (same company)? The concept allows any team, accepted by the receiver.
+- Is `applies_to` (rules per spec type or folder) worth it, or should every rule keep going to every task? It shortens what agents read, but a wrongly scoped rule is silently missing.
+- Should there be a third kind besides _Always_ and _Never_, such as _Prefer_ (a strong default that may be broken with a reason in the report, without asking)?
