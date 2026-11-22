@@ -21,4 +21,4 @@ Everything a team writes grows through three stages, shown as one growth icon: *
 | A re-runnable proof for a claim                             | **Check** (states: passing, failing, stale, never ran)                                 | test (a test is one kind of check)       |
 | A rule every agent follows                                  | **Guardrail** (kinds _Always_, _Never_)                                                | policy, constraint                       |
 | A term in the glossary                                      | **Word** (_Add a word_, _Make it a word_)                                              | entry                                    |
-| What agents know besides specs                              | **Documents**, **Glossary**, **Guardrails** (one tab each; vision and strategy on top) | context (as a page name), knowledge base |
+| What agents know besides specs                              | **Documents**, **Guardrails**, **Glossary** (one tab each; vision and strategy on top) | context (as a page name), knowledge base |

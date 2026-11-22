@@ -6847,7 +6847,7 @@ h1,
 }
 
 /* ============================================================ navigation: four tabs
-   desktop: one top bar (brand, team, Today · Documents · Glossary · Guardrails, Find anything, you) over the content layer
+   desktop: one top bar (brand, team, Today · Documents · Guardrails · Glossary, Find anything, you) over the content layer
    phones: the page bar on top, the four tabs at the bottom. Everything else (agents, Members & Git, Admin, Sync, Account) is in your menu. */
 .topnav {
   display: none;

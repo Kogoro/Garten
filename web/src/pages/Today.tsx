@@ -49,9 +49,10 @@ function ApproveCard({ i }: { i: Item }) {
   return (
     <article className="tcard" data-spec={i.id}>
       <div className="tc-from">
-        <span className="who">{(i.updatedBy ?? '?').trim()[0]?.toUpperCase()}</span>
+        {i.updatedBy && <span className="who">{i.updatedBy.trim()[0]?.toUpperCase()}</span>}
         <span>
-          {i.updatedBy ?? 'Someone'} · <span className="mono">{i.id}</span> · {ago(touched(i))}
+          {i.updatedBy ? `${i.updatedBy} · ` : ''}
+          <span className="mono">{i.id}</span> · {ago(touched(i))}
         </span>
       </div>
       <h2 className="tc-title">{i.title} is ready to bloom</h2>

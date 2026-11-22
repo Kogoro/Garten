@@ -27,7 +27,7 @@ const STEPS: { at: string[]; title: string; text?: string; stages?: boolean }[] 
   {
     at: ['.toptabs', '.tabbar'],
     title: 'What agents know',
-    text: 'Documents start with vision and strategy. The glossary and the guardrails are full definitions, one page each.',
+    text: 'Documents start with vision and strategy. The guardrails and the glossary are full definitions, one page each.',
   },
   {
     at: ['.findbox', '.ws-btn'],

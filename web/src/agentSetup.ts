@@ -1,5 +1,5 @@
 // What a coding agent needs to work from this Specs server on its own: the standing prompt of a routine and the MCP connection.
-// The same texts are in the README (section "Agenten selbstständig arbeiten lassen").
+// The same texts are in docs/REFERENCE.de.md (section "Agenten selbstständig arbeiten lassen").
 
 export const ROUTINE_HEADERS = 'anthropic-beta: experimental-cc-routine-2026-04-01\nanthropic-version: 2023-06-01';
 export const ROUTINE_URL_HINT = 'https://api.anthropic.com/v1/claude_code/routines/<routine-id>/fire';

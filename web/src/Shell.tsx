@@ -208,8 +208,8 @@ export function Shell({ master, detail, single, active }: { master: ReactNode; d
   const tabs: [string, string, string, keyof typeof ic, number][] = [
     ['today', '/', 'Today', 'garden', needs],
     ['docs', '/docs', 'Documents', 'docs', 0],
-    ['glossary', '/glossary', 'Glossary', 'glossary', waiting.terms],
     ['guardrails', '/guardrails', 'Guardrails', 'shield', waiting.rules],
+    ['glossary', '/glossary', 'Glossary', 'glossary', waiting.terms],
   ];
   return (
     <div className={`shell ${single ? 'single' : ''}`} data-pane={detail ? 'detail' : 'master'}>
