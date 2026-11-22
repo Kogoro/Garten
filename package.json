@@ -2,6 +2,7 @@
   "name": "specs",
   "version": "0.11.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "Self-hosted, offline-first specification authoring for AI agents (MCP + Git)",
   "scripts": {

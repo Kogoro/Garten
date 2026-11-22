@@ -2,7 +2,7 @@
 
 **Specs your AI agents can trust.** Garten is a self-hosted place where your team writes specifications, decides together, and hands coding agents exactly what was approved – over MCP, with every version in Git.
 
-[![CI](https://github.com/Kogoro/Garten/actions/workflows/ci.yml/badge.svg)](https://github.com/Kogoro/Garten/actions/workflows/ci.yml)
+[![CI](https://github.com/Kogoro/Garten/actions/workflows/ci.yml/badge.svg)](https://github.com/Kogoro/Garten/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 <p>
   <img src="docs/images/today.png" alt="Today: what waits for you, the agents at work, and every spec by stage" width="74%">
@@ -131,3 +131,7 @@ React 19 and TypeScript (Vite, PWA) in `web/`, Node with Express, `node:sqlite` 
 ## Status
 
 Garten is young. Some paths are only tested against local stand-ins: the cloud routine loop, Git remotes on GitHub or GitLab, and touch devices. Guardrails and checks are reported, not enforced. Permissions are per team, not per spec, and there is no two-factor sign-in yet. The [reference](docs/REFERENCE.de.md#bekannte-lücken) lists the known gaps.
+
+## License
+
+[MIT](LICENSE)
