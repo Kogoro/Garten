@@ -107,6 +107,7 @@ export function useMenus() {
       pick(
         await openMenu('More', [
           { key: 'go:glossary', label: 'Glossary' },
+          { key: 'go:guardrails', label: 'Guardrails' },
           {
             key: 'go:sync',
             label: `Sync${S.queue().length + S.fbPending() + S.conflicts().length ? ` · ${S.queue().length + S.fbPending() + S.conflicts().length} waiting` : ''}`,
@@ -150,11 +151,13 @@ const PLACEHOLDER: Record<string, [keyof typeof ic, string]> = {
   specs: ['specs', 'Select a spec, or create one with “New”.'],
   docs: ['docs', 'Select a document, or create one with “New”.'],
   glossary: ['glossary', 'Select a term to see its definition, synonyms and references.'],
+  guardrails: ['rule', 'Select a rule to see why it exists, what to do instead and its exceptions.'],
 };
 const TITLES: Record<string, string> = {
   specs: 'Specs',
   docs: 'Documents',
   glossary: 'Glossary',
+  guardrails: 'Guardrails',
   release: 'Release',
   garden: 'Garden',
   sync: 'Sync',
@@ -244,6 +247,7 @@ export function Shell({ master, detail, single, active }: { master: ReactNode; d
           )}
           {link('/docs', 'Documents', 'docs')}
           {link('/glossary', 'Glossary', 'glossary')}
+          {link('/guardrails', 'Guardrails', 'rule')}
           {link('/release', 'Release', 'release')}
         </div>
         <div className="navgroup">
@@ -298,7 +302,7 @@ export function Shell({ master, detail, single, active }: { master: ReactNode; d
           type="button"
           data-act="more-menu"
           aria-label="More"
-          aria-current={['glossary', 'sync', 'team', 'account', 'admin'].includes(act) ? 'page' : undefined}
+          aria-current={['glossary', 'guardrails', 'sync', 'team', 'account', 'admin'].includes(act) ? 'page' : undefined}
           onClick={m.more}
         >
           <Icon name="more" />

@@ -24,6 +24,7 @@ import { Limiter } from './ratelimit.js';
 import { readSource, proposeTerms, deriveSpecs } from './derive.js';
 import { agentOf, recordActivity, claimSpec, releaseClaim, CLAIM_DEFAULT_MIN, CLAIM_MAX_MIN } from './agents.js';
 import { isGlossaryPath, firstParagraph, plainText } from '../shared/glossaryFiles.js';
+import { isRulePath, isGuardrailsPath, parseRuleFile, formatRuleFile, rulePath, PROPOSED_RULES_DIR } from '../shared/guardrailFiles.js';
 import { extractTermRefs } from '../shared/glossary.js';
 
 const text = (t) => ({ content: [{ type: /** @type {const} */ ('text'), text: t }] });
@@ -54,7 +55,7 @@ function buildServer(team, canDrafts, writer, agent) {
             `Before you build a spec, claim it with claim_spec (a lease of ${CLAIM_DEFAULT_MIN} minutes) and call claim_spec again while you work – it is your heartbeat; another agent's claim means: work on something else. report_implementation gives the claim back unless the status is in_progress. ` +
             'When the spec leaves a choice open that a person should make, do not guess: call request_decision with 2–6 options and your recommendation, continue with other work, and look for the answer with list_decisions later. ' +
             'If you disagree with a spec or find it conflicts with the code, do not edit it: use add_feedback (check list_feedback first). ' +
-            'To turn a document into glossary entries and specs use derive_from_document (prompt: derive_glossary_and_specs); a single new term goes through propose_term. You may create and edit DRAFTS (create_draft_spec, update_draft_spec, create_draft_document, update_draft_document, derive_from_document); you can never approve, publish or delete – a person reviews your drafts in the Specs app. When a draft is ready call propose_acceptance, and for a spec that should go call propose_deletion: an approver decides.'
+            'To turn a document into glossary entries and specs use derive_from_document (prompt: derive_glossary_and_specs); a single new term goes through propose_term, a rule you think every task should follow through propose_guardrail. You may create and edit DRAFTS (create_draft_spec, update_draft_spec, create_draft_document, update_draft_document, derive_from_document); you can never approve, publish or delete – a person reviews your drafts in the Specs app. When a draft is ready call propose_acceptance, and for a spec that should go call propose_deletion: an approver decides.'
           : ''),
     },
   );
@@ -187,17 +188,31 @@ function buildServer(team, canDrafts, writer, agent) {
       for (const d of store.pinnedDocs(t).filter((x) => x.status === 'approved' && !isGlossaryPath(x.id))) {
         try {
           const body = await store.readReleasedDoc(team, d.id);
-          if (hasContent(body)) released.set(d.id, body);
+          if (hasContent(body) && !(isRulePath(d.id) && parseRuleFile(body))) released.set(d.id, body);
         } catch {
           /* not in repo (yet) */
         }
       }
-      const order = ['vision.md', 'strategy.md', 'guardrails.md', ...[...released.keys()].filter((k) => !(k in CORE_DOCS)).sort()];
+      const rules = await store.releasedRules(team);
+      const order = ['vision.md', 'strategy.md', ...[...released.keys()].filter((k) => !(k in CORE_DOCS)).sort()];
       let md = `# Team context – ${team.name}\n`;
-      if (released.has('guardrails.md'))
+      if (rules.length)
         md +=
           '\n> GUARDRAILS below are binding on every task. If your work would break one, stop and ask (request_decision) instead of deciding yourself.\n';
-      for (const id of order) if (released.has(id)) md += `\n---\n<!-- ${id} -->\n${released.get(id).trim()}\n`;
+      const section = (id) => (md += `\n---\n<!-- ${id} -->\n${released.get(id).trim()}\n`);
+      for (const id of order.slice(0, 2)) if (released.has(id)) section(id);
+      if (rules.length) {
+        md +=
+          '\n---\n## Guardrails\n\nOne line per rule; get_guardrails returns why each rule exists, what to do instead and its exceptions.\n';
+        for (const [kind, head] of [
+          ['always', 'Always'],
+          ['never', 'Never'],
+        ]) {
+          const list = rules.filter((r) => r.kind === kind);
+          if (list.length) md += `\n### ${head}\n\n${list.map((r) => `- ${r.id}: ${r.text}`).join('\n')}\n`;
+        }
+      }
+      for (const id of order.slice(2)) if (released.has(id)) section(id);
       const terms = await glossaryEntries(team);
       if (terms.length) {
         md +=
@@ -209,6 +224,35 @@ function buildServer(team, canDrafts, writer, agent) {
       }
       if (md.length < 60) md += '\n_Nothing has been written down yet (vision, strategy and glossary are empty)._\n';
       return text(md.slice(0, 80000));
+    },
+  );
+
+  server.registerTool(
+    'get_guardrails',
+    {
+      description:
+        'The guardrails of this team in full: every rule (binding on every task) with why it exists, what to do instead and its exceptions. get_team_context lists the rules in one line each; call this when you need the reasons, or pass an id (e.g. G3) for one rule.',
+      inputSchema: { id: z.string().max(10).optional().describe('One rule, e.g. G3') },
+    },
+    async ({ id }) => {
+      const rules = await store.releasedRules(team);
+      const pick = id ? rules.filter((r) => r.id === id.trim().toUpperCase()) : rules;
+      if (id && !pick.length) return fail(`No guardrail "${id}".`);
+      if (!pick.length) return text('This team has no guardrails yet.');
+      return text(
+        JSON.stringify(
+          pick.map((r) => ({
+            id: r.id,
+            kind: r.kind,
+            rule: r.text,
+            folder: r.folder || undefined,
+            see: r.see.length ? r.see : undefined,
+            details: r.body || undefined,
+          })),
+          null,
+          2,
+        ),
+      );
     },
   );
 
@@ -628,6 +672,42 @@ function buildServer(team, canDrafts, writer, agent) {
     );
 
     server.registerTool(
+      'propose_guardrail',
+      {
+        description:
+          'Propose ONE new guardrail: a rule every agent should follow on every task (e.g. something you had to learn the hard way, or a constraint the code relies on). It lands in the Proposed tab of the Guardrails; an approver accepts, edits or declines it. Nothing changes for anyone before that. A rule that is already a guardrail word for word is refused.',
+        inputSchema: {
+          rule: z
+            .string()
+            .min(5)
+            .max(300)
+            .describe('The binding sentence, e.g. "Never call the payment provider without an idempotency key."'),
+          kind: z.enum(['always', 'never']),
+          why: z.string().max(4000).optional().describe('Markdown: why the rule matters, what to do instead, exceptions'),
+          source: z.string().max(120).optional().describe('Where it comes from (spec id, document path, PR)'),
+        },
+      },
+      run(async ({ rule, kind, why, source }) => {
+        const norm = (x) => String(x).replace(/\s+/g, ' ').trim().toLowerCase();
+        const same = (await store.releasedRules(team)).find((r) => norm(r.text) === norm(rule));
+        if (same) return { refused: 'already a guardrail', id: same.id, rule: same.text };
+        const mine = store
+          .allDocs(t)
+          .find((d) => d.id.startsWith(`${PROPOSED_RULES_DIR}/`) && norm(parseRuleFile(d.body)?.rule ?? '') === norm(rule));
+        const body = formatRuleFile({
+          rule,
+          kind,
+          body: why ?? '',
+          proposedBy: by?.name ? `${by.name}${by.via ? ` (${by.via})` : ''}` : 'an agent',
+          from: source ?? null,
+        });
+        const id = mine?.id ?? rulePath('', rule, (p) => !!store.getItem(t, p), PROPOSED_RULES_DIR);
+        const item = store.saveItem(t, { id, kind: 'doc', title: id, body, links: [] }, mine?.rev ?? 0, by);
+        return { proposed: item.id, updated: !!mine, note: 'Waits in the Guardrails until an approver accepts it.' };
+      }),
+    );
+
+    server.registerTool(
       'claim_spec',
       {
         description:
@@ -737,6 +817,10 @@ function buildServer(team, canDrafts, writer, agent) {
           throw new store.ApiError(
             'The glossary is a folder of term files that people curate. Use propose_term (or derive_from_document) to suggest a term.',
           );
+        if (isGuardrailsPath(path))
+          throw new store.ApiError(
+            'The guardrails are a folder of rule files that people curate. Use propose_guardrail to suggest a rule.',
+          );
         if (store.getItem(t, path)) throw new store.ApiError(`${path} already exists – use update_draft_document.`);
         const item = store.saveItem(t, { id: path, kind: 'doc', title: path, body: md, links: [] }, 0, by);
         return { path: item.id, rev: item.rev, status: 'draft', note: REVIEW };
@@ -752,7 +836,7 @@ function buildServer(team, canDrafts, writer, agent) {
       run(async ({ path, body: md, base_rev }) => {
         const cur = store.getItem(t, path);
         if (!cur || cur.kind !== 'doc') throw new store.ApiError(`No document "${path}".`);
-        if (cur.pinned || store.isCoreDoc(path))
+        if (cur.pinned || store.isCoreDoc(path) || isGuardrailsPath(path))
           throw new store.ApiError(`${path} is a foundation document; only people change those (it goes live without review).`);
         if (base_rev !== undefined && base_rev !== cur.rev)
           throw new store.ApiError(`Conflict: ${path} is at revision ${cur.rev}, you based your change on ${base_rev}.`, 409);

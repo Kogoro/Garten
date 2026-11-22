@@ -345,11 +345,11 @@ export function initHooks() {
       queue(teamId, 'check', `${c.specId}|${c.name}`, { spec_id: c.specId, name: c.name, state: 'failing', source, value: c.last?.value });
   });
   // new guardrails: agents check what they built against them (the work list says which specs); the garden shows the drift
-  events.on('guardrails', ({ teamId, version, by }) => {
+  events.on('guardrails', ({ teamId, rules, by }) => {
     db.prepare('UPDATE teams SET garden_rev = garden_rev + 1 WHERE id=?').run(teamId);
-    queue(teamId, 'release', 'guardrails.md', {
-      id: 'guardrails.md',
-      version,
+    queue(teamId, 'release', 'guardrails', {
+      id: 'guardrails',
+      rules,
       title: 'Guardrails (check built specs against new rules)',
       by,
     });

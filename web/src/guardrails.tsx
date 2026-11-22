@@ -1,20 +1,22 @@
 import { useState } from 'react';
 import { Sheet } from './dialogs';
 import { toast, useStore } from './ui';
-import { GUARDRAILS, addRule } from './guardrailsLib';
 
-/** "Make it a rule": word it, choose Always / Never, and it goes to the guardrails every agent receives (live after the usual short delay). */
+/** "Make it a rule": word it, choose Always / Never, and it becomes a rule file every agent receives (live after the usual short delay). */
 export function RuleSheet({ initial, source, onClose }: { initial: string; source?: string; onClose: () => void }) {
   const S = useStore();
-  const [text, setText] = useState(initial);
-  const [where, setWhere] = useState<'Always' | 'Never'>('Always');
-  const doc = S.get(GUARDRAILS);
+  const [text, setText] = useState(initial.replace(/\s+/g, ' ').trim());
+  const [where, setWhere] = useState<'always' | 'never'>('always');
   const can = S.can('write');
   function add() {
-    if (!doc || !text.trim()) return;
-    S.edit(GUARDRAILS, { body: addRule(doc.body, text, where) });
-    toast('Added to the guardrails – agents receive it shortly');
-    onClose();
+    if (!text.trim()) return;
+    try {
+      S.saveRule({ rule: text, kind: where, body: source ? `**Why:** came up in ${source}.` : '' });
+      toast('Added to the guardrails – agents receive it shortly');
+      onClose();
+    } catch (e: any) {
+      toast(e.message);
+    }
   }
   return (
     <Sheet onClose={onClose}>
@@ -36,16 +38,16 @@ export function RuleSheet({ initial, source, onClose }: { initial: string; sourc
         placeholder="e.g. Webhook signatures are always verified with a constant-time comparison."
       />
       <div className="filters" role="group" aria-label="Kind of rule">
-        <button type="button" className="filter" aria-pressed={where === 'Always'} onClick={() => setWhere('Always')}>
+        <button type="button" className="filter" aria-pressed={where === 'always'} onClick={() => setWhere('always')}>
           Always
         </button>
-        <button type="button" className="filter" aria-pressed={where === 'Never'} onClick={() => setWhere('Never')}>
+        <button type="button" className="filter" aria-pressed={where === 'never'} onClick={() => setWhere('never')}>
           Never
         </button>
       </div>
-      {!doc && <p className="muted">The guardrails document is not on this device yet – sync once.</p>}
+      <p className="muted">Add the reasons and exceptions later on the Guardrails page.</p>
       <div className="btns">
-        <button className="btn primary" data-act="rule-add" disabled={!can || !doc || !text.trim()} onClick={add}>
+        <button className="btn primary" data-act="rule-add" disabled={!can || !text.trim()} onClick={add}>
           Add to guardrails
         </button>
       </div>

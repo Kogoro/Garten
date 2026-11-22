@@ -13,6 +13,18 @@ import {
   termPath,
   folderSegment,
 } from '../shared/glossaryFiles.js';
+import {
+  isRulePath,
+  isProposedRulePath,
+  parseRuleFile,
+  formatRuleFile,
+  rulePath,
+  rulesOf,
+  ruleNumber,
+  guardrailsMarkdown,
+  splitGuardrailsMd,
+  GUARDRAILS_DIR,
+} from '../shared/guardrailFiles.js';
 import { getTeam, listTeams } from './teams.js';
 import { isKnownType } from './specTypes.js';
 import { DEFAULT_TYPE } from '../shared/spectypes.js';
@@ -34,8 +46,6 @@ export const FOLDER_ID = /^(?!.*\.\.)(?=.{1,100}$)[A-Za-z0-9_][A-Za-z0-9_.-]*(?:
 export const CORE_DOCS = {
   'vision.md': '# Vision\n\n## Where are we heading?\n\n## Why does it matter?\n',
   'strategy.md': '# Strategy\n\n## Goals\n\n## Principles and trade-offs\n\n## Out of scope\n',
-  'guardrails.md':
-    '# Guardrails\n\n<!-- Rules every agent follows on every task, unasked. One rule per line, e.g. "- G1: …". When a task would break a rule, the agent stops and asks. -->\n\n## Always\n\n## Never\n',
 };
 export const isCoreDoc = (id) => id in CORE_DOCS;
 export const hasContentDoc = (d) => hasContent(d.body);
@@ -43,6 +53,48 @@ export const DOC_ID =
   /^(?!.*\.\.)(?=.{3,120}$)[A-Za-z0-9_][A-Za-z0-9_.-]*(?:\/[A-Za-z0-9_][A-Za-z0-9_.-]*){0,7}\.(?:md|yaml|yml|json|txt)$/;
 /** A live glossary term: a Markdown file under glossary/ (not _proposed/) whose front matter names the term. Term files are foundation documents. */
 export const isTermDoc = (id, body) => isTermPath(id) && !!parseTermFile(body);
+/** A live guardrail: a Markdown file under guardrails/ (not _proposed/) whose front matter has a `rule:`. Rule files are foundation documents. */
+export const isRuleDoc = (id, body) => isRulePath(id) && !!parseRuleFile(body);
+
+/** Live rule files other than `except`: [{ id, body }]. */
+const liveRuleFiles = (t, except = null) =>
+  sql(`SELECT id, body FROM items WHERE team_id=? AND kind='doc' AND deleted=0 AND substr(id, 1, ?)=?`)
+    .all(t, GUARDRAILS_DIR.length + 1, `${GUARDRAILS_DIR}/`)
+    .filter((r) => r.id !== except && isRulePath(r.id));
+let keepRuleIds = false; // the migration keeps the ids guardrails.md had
+let leaving = new Set(); // files a sync batch deletes after it has written the others (a move: new path first, then the old one goes)
+/** Runs `fn` while the given paths count as on their way out (see withRuleId). */
+export async function whileDeleting(paths, fn) {
+  leaving = new Set(paths);
+  try {
+    return await fn();
+  } finally {
+    leaving = new Set();
+  }
+}
+/**
+ * Gives a rule file its id, never one that was given before in the team (teams.rule_seq is the highest number so far). A file keeps
+ * its id when it already had it, when the id is new (higher than any given so far), or when the file is a move: the other file with
+ * that id is deleted in the same sync, or has the very same rule. Otherwise – a new rule, a copy, an id typed by hand that belonged to
+ * a deleted rule – it gets the next number. An edit without an id (made before the server's id arrived) keeps the file's id.
+ */
+function withRuleId(t, path, body) {
+  const r = parseRuleFile(body);
+  if (!r) return body;
+  const seq = sql('SELECT rule_seq FROM teams WHERE id=?').get(t)?.rule_seq ?? 0;
+  const others = liveRuleFiles(t, path)
+    .map((x) => ({ path: x.id, ...parseRuleFile(x.body) }))
+    .filter((x) => x.rule);
+  const cur = rawItem(t, path);
+  const own = cur && !cur.deleted ? parseRuleFile(cur.body)?.id : null;
+  let id = r.id ?? own ?? null;
+  const holder = id && others.find((o) => o.id === id);
+  const moved = holder && (leaving.has(holder.path) || (holder.rule === r.rule && holder.kind === r.kind));
+  const ok = id && (keepRuleIds || (holder ? moved : id === own || ruleNumber(id) > seq));
+  if (!ok) id = `G${Math.max(seq, ...others.map((o) => ruleNumber(o.id))) + 1}`;
+  if (ruleNumber(id) > seq) sql('UPDATE teams SET rule_seq=? WHERE id=?').run(ruleNumber(id), t);
+  return id === r.id ? body : formatRuleFile({ ...r, id });
+}
 
 export class ApiError extends Error {
   constructor(message, status = 400) {
@@ -142,13 +194,14 @@ export function saveItem(t, { id, kind, title, body, links, pinned, specType }, 
   const now = new Date().toISOString();
   const cur = rawItem(t, id);
   const who = by?.name ?? null;
+  if (kind === 'doc' && body !== undefined && isRulePath(id)) body = withRuleId(t, id, body);
   const termBody = body ?? cur?.body ?? '';
   const pin =
     kind !== 'doc'
       ? 0
-      : isCoreDoc(id) || isTermDoc(id, termBody)
+      : isCoreDoc(id) || isTermDoc(id, termBody) || isRuleDoc(id, termBody)
         ? 1
-        : isProposedPath(id)
+        : isProposedPath(id) || isProposedRulePath(id)
           ? 0
           : pinned === undefined
             ? undefined
@@ -269,6 +322,18 @@ const root = (team) => team.row.git_root;
 const specPath = (team, id) => `${root(team)}/${id}.md`;
 const docPath = (team, id) => `${root(team)}/docs/${id}`;
 const glossaryPath = (team) => `${root(team)}/GLOSSARY.md`;
+const guardrailsPath = (team) => `${root(team)}/GUARDRAILS.md`;
+
+/** The rules of the released rule files in a team's repository: [{ id, kind, text, path, folder, body, see }]. */
+export async function releasedRules(team, repo = repoFor(team)) {
+  const prefix = `${root(team)}/docs/`;
+  const files = [];
+  for (const f of await repo.walk(`${prefix}${GUARDRAILS_DIR}`)) {
+    const id = f.slice(prefix.length);
+    if (isRulePath(id)) files.push({ id, body: await repo.readFile(f) });
+  }
+  return rulesOf(files);
+}
 export const tagFor = (id, version) => `${id}/v${version}`;
 
 function specFile(s, docs, version, at) {
@@ -279,7 +344,9 @@ function specFile(s, docs, version, at) {
 /** Every definition found in the released files of a team's repository. */
 export async function glossaryEntries(team, repo = repoFor(team)) {
   const r = root(team);
-  const files = (await repo.walk(r)).filter((f) => f.endsWith('.md') && f !== glossaryPath(team));
+  const files = (await repo.walk(r)).filter(
+    (f) => f.endsWith('.md') && f !== glossaryPath(team) && f !== guardrailsPath(team) && !f.startsWith(`${r}/docs/${GUARDRAILS_DIR}/`),
+  );
   const out = [];
   for (const f of files) {
     const rel = f.slice(r.length + 1);
@@ -318,7 +385,7 @@ function keepSet(t, { excludeSpec, excludeDoc, extra = [] } = {}) {
   ]);
 }
 
-/** Runs inside the commit: removes documents no released spec links to and regenerates GLOSSARY.md. */
+/** Runs inside the commit: removes documents no released spec links to and regenerates GLOSSARY.md and GUARDRAILS.md. */
 const tidy = (team, keepDocs) => async (repo) => {
   const prefix = `${root(team)}/docs/`;
   for (const f of await repo.walk(`${root(team)}/docs`)) {
@@ -327,6 +394,9 @@ const tidy = (team, keepDocs) => async (repo) => {
   const entries = await glossaryEntries(team, repo);
   if (entries.length) await repo.commitWrite(glossaryPath(team), glossaryMarkdown(entries));
   else await repo.commitRemove(glossaryPath(team));
+  const rules = await releasedRules(team, repo);
+  if (rules.length) await repo.commitWrite(guardrailsPath(team), guardrailsMarkdown(rules));
+  else await repo.commitRemove(guardrailsPath(team));
 };
 
 export async function releaseSpec(team, id, by = null) {
@@ -390,7 +460,8 @@ export async function releaseDoc(team, id, by = null) {
 }
 
 /** Releases several foundation documents in ONE commit (glossary terms change in groups: a rename, an import, the migration). */
-export async function releaseDocs(team, ids, by = null, message) {
+/** @param {any} team @param {string[]} ids @param {any} [by] @param {string} [message] @param {{ quiet?: boolean }} [opts] quiet: no "guardrails changed" event */
+export async function releaseDocs(team, ids, by = null, message = undefined, { quiet = false } = {}) {
   const t = team.id;
   const docs = [...new Set(ids)]
     .map((id) => getItem(t, id))
@@ -399,13 +470,16 @@ export async function releaseDocs(team, ids, by = null, message) {
   const at = new Date().toISOString();
   const write = Object.fromEntries(docs.map((d) => [docPath(team, d.id), d.body]));
   const terms = docs.filter((d) => isTermPath(d.id));
+  const rules = docs.filter((d) => isRulePath(d.id));
   const msg =
     message ??
     (docs.length === 1
       ? `Update ${docs[0].id} (foundation document, v${docs[0].version + 1})`
       : terms.length === docs.length
         ? `Glossary: update ${docs.length} terms`
-        : `Update ${docs.length} foundation documents`);
+        : rules.length === docs.length
+          ? `Guardrails: update ${docs.length} rules`
+          : `Update ${docs.length} foundation documents`);
   await repoFor(team).commit({ write, message: msg, author: by, post: tidy(team, keepSet(t, { extra: docs.map((d) => d.id) })) });
   for (const d of docs) {
     sql("UPDATE items SET status='approved', version=?, released_rev=?, released_at=?, released_by=?, seq=? WHERE team_id=? AND id=?").run(
@@ -419,8 +493,7 @@ export async function releaseDocs(team, ids, by = null, message) {
     );
   }
   events.emit('committed', t);
-  const g = docs.find((d) => d.id === 'guardrails.md');
-  if (g) events.emit('guardrails', { teamId: t, version: g.version + 1, by: by?.name ?? null });
+  if (rules.length && !quiet) events.emit('guardrails', { teamId: t, rules: rules.map((d) => d.id), by: by?.name ?? null });
   return docs.map((d) => d.id);
 }
 
@@ -456,9 +529,10 @@ export function scheduleFoundation(teamId, id, by) {
   timers.set(teamId, cur);
 }
 
-/** Creates the documents every team has (vision, strategy, glossary) and makes sure they are pinned. */
+/** Creates the documents every team has (vision, strategy, the guardrails folder) and makes sure they are pinned. */
 export function ensureFoundation(team) {
   const t = team.id;
+  if (!rawItem(t, GUARDRAILS_DIR) || rawItem(t, GUARDRAILS_DIR).deleted) saveItem(t, { id: GUARDRAILS_DIR, kind: 'folder' }, 0);
   for (const [id, body] of Object.entries(CORE_DOCS)) {
     const cur = rawItem(t, id);
     if (!cur || cur.deleted) saveItem(t, { id, kind: 'doc', title: id, body, links: [] }, 0);
@@ -547,6 +621,58 @@ export async function migrateGlossary(team) {
   return n;
 }
 
+/**
+ * One-time move from the single guardrails.md to a folder of rule files: every "- Gn: text" line becomes guardrails/<folder>/<rule>.md
+ * with the same id (so reports keep matching), its kind from the "## Always" / "## Never" section; other "##" headings become folders.
+ * Text that is no rule is kept in guardrails/notes.md (a foundation document). Released content is released again in one commit.
+ * Returns the number of rules written.
+ */
+export async function migrateGuardrails(team) {
+  const t = team.id;
+  const old = getItem(t, 'guardrails.md');
+  if (!old || old.kind !== 'doc') return 0;
+  const { rules, rest } = splitGuardrailsMd(old.body);
+  const taken = (p) => !!getItem(t, p);
+  const folder = (path) => {
+    const parts = path.split('/');
+    parts.forEach((_, i) => {
+      const id = parts.slice(0, i + 1).join('/');
+      if (!getItem(t, id)) saveItem(t, { id, kind: 'folder' }, 0);
+    });
+  };
+  const who = old.updatedBy ? { name: old.updatedBy } : null;
+  folder(GUARDRAILS_DIR);
+  const written = [];
+  keepRuleIds = true;
+  try {
+    for (const r of rules) {
+      if (r.folder) folder(`${GUARDRAILS_DIR}/${r.folder}`);
+      const id = rulePath(r.folder, r.text, taken);
+      saveItem(t, { id, kind: 'doc', title: id, body: formatRuleFile({ id: r.id, rule: r.text, kind: r.kind }), links: [] }, 0, who);
+      written.push(id);
+    }
+  } finally {
+    keepRuleIds = false;
+  }
+  if (rest) {
+    const id = rulePath('', 'notes', taken);
+    saveItem(t, { id, kind: 'doc', title: id, body: `# Notes on the guardrails\n\n${rest}\n`, links: [], pinned: true }, 0, who);
+    written.push(id);
+  }
+  const wasLive = old.status === 'approved';
+  sql("UPDATE items SET deleted=1, title='', body='', links='[]', pinned=0, rev=rev+1, seq=?, updated_at=? WHERE team_id=? AND id=?").run(
+    nextSeq(t),
+    new Date().toISOString(),
+    t,
+    'guardrails.md',
+  );
+  if (written.length && (wasLive || team.row.foundation_auto)) {
+    // the same rules as before: nothing new for the agents to check
+    await releaseDocs(team, written, null, `Guardrails: one file per rule (${rules.length} rules)`, { quiet: true });
+  } else if (wasLive) await repoFor(team).commit({ message: 'Guardrails: one file per rule', post: tidy(team, keepSet(t)) });
+  return rules.length;
+}
+
 /** Startup: make sure every team has its foundation documents and that auto-release is caught up. */
 export async function startupSweep() {
   for (const team of listTeams()) {
@@ -555,6 +681,12 @@ export async function startupSweep() {
       if (n) console.log(`glossary of ${team.key}: ${n} terms moved to glossary/`);
     } catch (e) {
       console.error('glossary migration', team.key, e);
+    }
+    try {
+      const n = await migrateGuardrails(team);
+      if (n) console.log(`guardrails of ${team.key}: ${n} rules moved to guardrails/`);
+    } catch (e) {
+      console.error('guardrails migration', team.key, e);
     }
     ensureFoundation(team);
     if (!team.row.foundation_auto) continue;

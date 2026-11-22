@@ -4,6 +4,7 @@ import { Dropdown } from '../dialogs';
 import { Bar, Shell } from '../Shell';
 import { CORE_LABEL, enc, foundState, hasContent } from '../lib';
 import { isGlossaryPath } from '@shared/glossaryFiles.js';
+import { isGuardrailsPath } from '@shared/guardrailFiles.js';
 import { PathSheet, type PathSheetKind } from '../sheets';
 import { openMenu, useUi } from '../state';
 import { Fab } from '../Fab';
@@ -27,8 +28,9 @@ function buildTree(S: Store): Node {
         if (!n.folders.has(seg)) n.folders.set(seg, { folders: new Map(), docs: [] });
         return n.folders.get(seg)!;
       }, root);
-  for (const p of S.folderPaths().filter((x) => !isGlossaryPath(x))) node(p);
-  for (const d of S.all('doc').filter((x) => !x.pinned && !isGlossaryPath(x.id))) node(S.folderOf(d.id)).docs.push(d);
+  for (const p of S.folderPaths().filter((x) => !isGlossaryPath(x) && !isGuardrailsPath(x))) node(p);
+  for (const d of S.all('doc').filter((x) => !x.pinned && !isGlossaryPath(x.id) && !isGuardrailsPath(x.id)))
+    node(S.folderOf(d.id)).docs.push(d);
   return root;
 }
 const countDocs = (n: Node): number => n.docs.length + [...n.folders.values()].reduce((a, f) => a + countDocs(f), 0);
@@ -125,7 +127,7 @@ function DocsList({ selected }: { selected?: string }) {
     }
     return out;
   };
-  const nDocs = S.all('doc').filter((d) => !d.pinned && !isGlossaryPath(d.id)).length;
+  const nDocs = S.all('doc').filter((d) => !d.pinned && !isGlossaryPath(d.id) && !isGuardrailsPath(d.id)).length;
   return (
     <>
       <Bar title="Documents">
@@ -194,6 +196,15 @@ function DocsList({ selected }: { selected?: string }) {
             </Link>
           );
         })}
+        <Link className="found" to="/guardrails" data-act="docs-guardrails">
+          <span className="fi">
+            <Icon name="rule" size={18} />
+          </span>
+          <span className="fb">
+            <b>Guardrails</b>
+            <span>{S.ruleItems().length ? `${S.ruleItems().length} rules, one file each` : 'Rules every agent follows on every task'}</span>
+          </span>
+        </Link>
         <div className="sect-title" style={{ marginTop: 14 }}>
           <span>Documents</span>
           <small>{nDocs}</small>

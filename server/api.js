@@ -489,8 +489,9 @@ export function apiRouter() {
         if (problem) results.push({ id: typeof ch?.id === 'string' ? ch.id.slice(0, 120) : undefined, status: 'error', message: problem });
         else valid.push(ch);
       }
+      const leaving = valid.filter((c) => c.delete).map((c) => c.id);
       for (const ch of valid.sort((a, b) => order(a) - order(b))) {
-        const out = await applyChange(ch, req.team, req.user, req.role);
+        const out = await store.whileDeleting(leaving, () => applyChange(ch, req.team, req.user, req.role));
         results.push(out);
         if (out.status === 'applied' && (ch.approve || ch.revoke))
           audit(req, ch.approve ? `${ch.kind}.approve` : `${ch.kind}.revoke`, {

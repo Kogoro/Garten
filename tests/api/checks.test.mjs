@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import { before, after, describe } from 'node:test';
 import { useServer, makeUser, chain, mcpClient, call, toolNames } from '../helpers.mjs';
+import { formatRuleFile, parseRuleFile } from '../../shared/guardrailFiles.js';
 
 describe('checks and guardrails', () => {
   const ctx = useServer();
@@ -214,46 +215,134 @@ describe('checks and guardrails', () => {
     });
   });
 
-  // guardrails: a foundation document every agent receives; agents cannot edit it
+  // guardrails: one file per rule (a foundation document every agent receives); people curate them, agents propose
   describe('guardrails', () => {
     const step = chain();
-    let gr, agent2, r;
+    let agent2, rules;
+    const ruleFiles = async () =>
+      (await admin.sync()).data.items.filter((i) => i.kind === 'doc' && /^guardrails\/(?!_proposed\/).*\.md$/.test(i.id));
     after(async () => {
       await agent2?.close();
     });
-    step('every team has a guardrails document', async () => {
-      gr = (await admin.sync()).data.items.find((i) => i.id === 'guardrails.md');
-      assert.ok(gr && gr.pinned && gr.core);
+    step('every team has a guardrails folder; each rule is a file with an id, pinned like a foundation document', async () => {
+      const items = (await admin.sync()).data.items;
+      assert.ok(items.find((i) => i.id === 'guardrails' && i.kind === 'folder'));
+      assert.ok(!items.find((i) => i.id === 'guardrails.md'));
+      rules = (await ruleFiles()).map((i) => ({ ...i, rule: parseRuleFile(i.body) }));
+      assert.deepEqual(rules.map((r) => r.rule.id).sort(), ['G1', 'G2']);
+      assert.ok(rules.every((r) => r.pinned && r.status === 'approved'));
     });
-    step('agents cannot change the guardrails', async () => {
+    step('agents cannot change the guardrails; they are told to propose', async () => {
       const kEd = await mk('editor', 'k2');
       agent2 = await mcp(
         (await kEd.c.post('/api/me/tokens', { name: 'g', scopes: ['mcp:read', 'mcp:drafts', 'mcp:write'], teamId: T1 })).data.token,
       );
       assert.match(
-        (await fails(agent2, 'update_draft_document', { path: 'guardrails.md', body: '- G1: nothing matters' })) ?? 'no error',
+        (await fails(agent2, 'update_draft_document', { path: rules[0].id, body: 'nothing matters' })) ?? 'no error',
         /foundation document/,
       );
+      assert.match(
+        (await fails(agent2, 'create_draft_document', { path: 'guardrails/mine.md', body: '---\nrule: "Anything goes"\n---\n' })) ??
+          'no error',
+        /propose_guardrail/,
+      );
     });
-    step('released guardrails reach agents with the team context, with a note that they are binding', async () => {
-      const ctx0 = (await call(agent2, 'get_team_context')).text;
-      assert.ok(!ctx0.includes('GUARDRAILS below'));
-      r = await admin.push([
+    step('released rules reach agents in the team context, one line each and binding; get_guardrails has the reasons', async () => {
+      const ctx = (await call(agent2, 'get_team_context')).text;
+      assert.match(ctx, /GUARDRAILS below are binding/);
+      assert.match(ctx, /### Always\n\n- G1: Verify the signature/);
+      assert.match(ctx, /### Never\n\n- G2: Never write card numbers/);
+      assert.ok(!ctx.includes('**Why:**'));
+      const one = JSON.parse((await call(agent2, 'get_guardrails', { id: 'g2' })).text);
+      assert.deepEqual([one[0].id, one[0].kind, one[0].folder], ['G2', 'never', 'security']);
+      assert.match(one[0].details, /\*\*Why:\*\*/);
+      assert.equal(JSON.parse((await call(agent2, 'get_guardrails')).text).length, 2);
+      assert.match((await fails(agent2, 'get_guardrails', { id: 'G99' })) ?? 'no error', /No guardrail/);
+    });
+    step('a new rule gets the next id; an id is never given twice, not even after its rule was deleted', async () => {
+      let r = await admin.push([
         {
-          id: 'guardrails.md',
+          id: 'guardrails/utc.md',
           kind: 'doc',
-          baseRev: gr.rev,
-          fields: {
-            body: '# Guardrails\n\n## Always\n- G1: Verify webhook signatures with a constant-time comparison.\n\n## Never\n- G2: Log secrets.\n',
-          },
+          baseRev: 0,
           approve: true,
+          fields: { title: 'utc', body: formatRuleFile({ rule: 'Store times in UTC.', kind: 'always' }) },
         },
       ]);
       assert.equal(r[0].status, 'applied');
+      assert.equal(parseRuleFile(r[0].item.body).id, 'G3');
+      assert.ok(r[0].item.pinned);
+      r = await admin.push([{ id: 'guardrails/utc.md', kind: 'doc', baseRev: r[0].item.rev, delete: true }]);
+      assert.equal(r[0].status, 'applied');
+      r = await admin.push([
+        {
+          id: 'guardrails/tz.md',
+          kind: 'doc',
+          baseRev: 0,
+          fields: { title: 'tz', body: formatRuleFile({ id: 'G3', rule: 'Show local times.', kind: 'always' }) },
+        },
+      ]);
+      assert.equal(parseRuleFile(r[0].item.body).id, 'G4');
+      // a move writes the new path first: the rule keeps its id
+      r = await admin.push([
+        { id: 'guardrails/security/tz.md', kind: 'doc', baseRev: 0, fields: { title: 'tz', body: r[0].item.body } },
+        { id: 'guardrails/tz.md', kind: 'doc', baseRev: r[0].item.rev, delete: true },
+      ]);
+      assert.equal(parseRuleFile(r.find((x) => x.id === 'guardrails/security/tz.md').item.body).id, 'G4');
+      // reworded and moved in one sync: the old file is deleted in the same batch, so the id moves with the rule
+      const moved = r.find((x) => x.id === 'guardrails/security/tz.md').item;
+      r = await admin.push([
+        {
+          id: 'guardrails/display/tz.md',
+          kind: 'doc',
+          baseRev: 0,
+          fields: { title: 'tz', body: formatRuleFile({ id: 'G4', rule: 'Show times in the viewer’s time zone.', kind: 'always' }) },
+        },
+        { id: 'guardrails/security/tz.md', kind: 'doc', baseRev: moved.rev, delete: true },
+      ]);
+      assert.equal(parseRuleFile(r.find((x) => x.id === 'guardrails/display/tz.md').item.body).id, 'G4');
+      // an edit without an id (made before the server's id arrived on the device) keeps the file's id
+      const tz = r.find((x) => x.id === 'guardrails/display/tz.md').item;
+      r = await admin.push([
+        {
+          id: tz.id,
+          kind: 'doc',
+          baseRev: tz.rev,
+          fields: { body: formatRuleFile({ rule: 'Show times in local time.', kind: 'always' }) },
+        },
+      ]);
+      assert.equal(parseRuleFile(r[0].item.body).id, 'G4');
       const ctx = (await call(agent2, 'get_team_context')).text;
-      assert.match(ctx, /GUARDRAILS below are binding/);
-      assert.match(ctx, /G1: Verify webhook signatures/);
-      assert.ok(ctx.indexOf('guardrails.md') < ctx.indexOf('## Glossary') || !ctx.includes('## Glossary'));
+      assert.ok(!ctx.includes('G3:'));
+    });
+    step('agents propose rules: a proposal has no id, is not released and is refused when the rule exists', async () => {
+      const out = JSON.parse(
+        (
+          await call(agent2, 'propose_guardrail', {
+            rule: 'Never retry a charge without an idempotency key.',
+            kind: 'never',
+            why: 'Double charges.',
+            source: 'SPEC-014',
+          })
+        ).text,
+      );
+      assert.match(out.proposed, /^guardrails\/_proposed\/never-retry-a-charge-without-an\.md$/);
+      const p = (await admin.sync()).data.items.find((i) => i.id === out.proposed);
+      assert.ok(p && !p.pinned && p.status === 'draft');
+      const pr = parseRuleFile(p.body);
+      assert.deepEqual([pr.id, pr.kind, pr.from], [null, 'never', 'SPEC-014']);
+      assert.match(pr.proposedBy, /editor/i);
+      const again = JSON.parse(
+        (await call(agent2, 'propose_guardrail', { rule: 'Never  retry a charge without an idempotency key.', kind: 'never' })).text,
+      );
+      assert.equal(again.updated, true);
+      const known = JSON.parse((await call(agent2, 'propose_guardrail', { rule: 'store times in utc.', kind: 'always' })).text);
+      assert.equal(known.refused, undefined); // G3 was deleted: not a guardrail any more
+      const dup = JSON.parse(
+        (await call(agent2, 'propose_guardrail', { rule: 'Never write card numbers, tokens or secrets to logs.', kind: 'never' })).text,
+      );
+      assert.equal(dup.refused, 'already a guardrail');
+      assert.equal(dup.id, 'G2');
     });
   });
 
@@ -325,10 +414,35 @@ describe('checks and guardrails', () => {
   describe('guardrail drift', () => {
     const step = chain();
     const sid = 'SPEC-891';
-    const setRules = async (body) => {
-      const g = (await admin.sync()).data.items.find((i) => i.id === 'guardrails.md');
-      const r = await admin.push([{ id: 'guardrails.md', kind: 'doc', baseRev: g.rev, approve: true, fields: { body } }]);
-      assert.equal(r[0].status, 'applied');
+    const ids = {}; // test key -> id the server gave
+    /** Makes the released rule files exactly `want` ({ key: [kind, text] }): rewords the ones with a known key, deletes the rest. */
+    const setRules = async (want) => {
+      const files = (await admin.sync()).data.items.filter((i) => i.kind === 'doc' && /^guardrails\/(?!_proposed\/).*\.md$/.test(i.id));
+      const byId = new Map(files.map((f) => [parseRuleFile(f.body)?.id, f]));
+      const changes = [];
+      for (const [k, [kind, rule]] of Object.entries(want)) {
+        const f = ids[k] && byId.get(ids[k]);
+        const body = formatRuleFile({ id: ids[k], rule, kind });
+        changes.push(
+          f
+            ? { id: f.id, kind: 'doc', baseRev: f.rev, approve: true, fields: { body } }
+            : { id: `guardrails/drift-${k}.md`, kind: 'doc', baseRev: 0, approve: true, fields: { title: k, body } },
+        );
+      }
+      const keep = new Set(Object.keys(want).map((k) => ids[k]));
+      for (const f of files)
+        if (!keep.has(parseRuleFile(f.body)?.id)) changes.push({ id: f.id, kind: 'doc', baseRev: f.rev, delete: true });
+      const r = await admin.push(changes);
+      assert.ok(
+        r.every((x) => x.status === 'applied'),
+        JSON.stringify(r),
+      );
+      for (const [k] of Object.entries(want)) {
+        const x =
+          r.find((y) => y.id === (changes.find((c) => c.fields?.title === k)?.id ?? '')) ??
+          r.find((y) => parseRuleFile(y.item?.body ?? '')?.id === ids[k]);
+        ids[k] = parseRuleFile(x.item.body).id;
+      }
     };
     const report = () =>
       call(ag, 'report_implementation', {
@@ -354,38 +468,38 @@ describe('checks and guardrails', () => {
       await ag?.close();
     });
     step('guardrails: a report records the rules it was built against', async () => {
-      await setRules('# Guardrails\n\n## Always\n- G1: Verify webhook signatures.\n\n## Never\n- G2: Log secrets.\n');
+      await setRules({ a: ['always', 'Verify webhook signatures.'], b: ['never', 'Log secrets.'] });
       await report();
       assert.equal(await entry(), undefined);
       const rep = (await admin.get(`/api/teams/${T1}/reports?spec=${sid}`)).data.reports[0];
-      assert.deepEqual(rep.guardrails, { G1: 'Verify webhook signatures.', G2: 'Log secrets.' });
+      assert.deepEqual(rep.guardrails, { [ids.a]: 'Verify webhook signatures.', [ids.b]: 'Log secrets.' });
     });
     step(
       'guardrails: new or reworded rules put an implemented spec back on the work list, with the rules to check; the garden knows',
       async () => {
-        await setRules(
-          '# Guardrails\n\n## Always\n- G1: Verify webhook signatures in constant time.\n\n## Never\n- G2: Log secrets.\n- G3: Store card numbers.\n',
-        );
+        await setRules({
+          a: ['always', 'Verify webhook signatures in constant time.'],
+          b: ['never', 'Log secrets.'],
+          c: ['never', 'Store card numbers.'],
+        });
         const e = await entry();
         assert.equal(e.state, 'guardrails_changed');
         assert.deepEqual(
           e.rules_changed.map((r) => [r.id, r.kind, r.change]),
           [
-            ['G1', 'always', 'changed'],
-            ['G3', 'never', 'added'],
+            [ids.a, 'always', 'changed'],
+            [ids.c, 'never', 'added'],
           ],
         );
         assert.match(e.hint, /report again/);
         const g = (await admin.post(`/api/teams/${T1}/sync`, { since: 1e9, changes: [] })).data.garden;
-        assert.deepEqual(g.guardrailDrift[sid], ['G1', 'G3']);
+        assert.deepEqual(g.guardrailDrift[sid], [ids.a, ids.c]);
       },
     );
     step('guardrails: reporting again clears it; removing a rule asks nothing', async () => {
       await report();
       assert.equal(await entry(), undefined);
-      await setRules(
-        '# Guardrails\n\n## Always\n- G1: Verify webhook signatures in constant time.\n\n## Never\n- G3: Store card numbers.\n',
-      );
+      await setRules({ a: ['always', 'Verify webhook signatures in constant time.'], c: ['never', 'Store card numbers.'] });
       assert.equal(await entry(), undefined);
     });
   });
