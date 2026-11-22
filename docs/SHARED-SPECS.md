@@ -140,7 +140,6 @@ What `get_team_context()` returns for WEB:
 
 - a rule has no room for **why** it exists, examples or exceptions, so agents follow the letter and miss the intent;
 - there is no **history per rule** (only of the whole file), and no way to say which rule a parent marked as required;
-- every rule goes to every task, even when it only concerns APIs or data;
 - agents cannot **propose** a rule the way they propose glossary terms.
 
 **Proposal:** a guardrail is a Markdown file, exactly as a glossary term is: `guardrails/<folder>/<slug>.md`, sub-folders group rules (`security/`, `api/`, `operations/`).
@@ -150,7 +149,6 @@ What `get_team_context()` returns for WEB:
 id: G7
 rule: 'Never store card numbers, not even truncated or encrypted.'
 kind: never # always | never
-applies_to: [api, data-model] # spec types and/or folders; empty = every task
 see: [G3, '[[Card token]]']
 required_by: 2027-01-31 # parent teams only, optional (section 3)
 ---
@@ -169,7 +167,6 @@ What each part does:
 | `id`            | Stable, assigned by the server (`G1`, `G2` …), never reused, independent of the file name. Inherited rules are shown as `ACME/G7`. | –                                                               |
 | `rule`          | The binding sentence. Exactly what an agent must follow.                                                                           | **Yes**, when added or reworded (as today)                      |
 | `kind`          | _Always_ / _Never_, as today's sections                                                                                            | Yes                                                             |
-| `applies_to`    | Spec types and/or document folders the rule concerns; empty means all                                                              | Yes, for specs that now fall under it                           |
 | Body (Markdown) | Why, examples, what to do instead, exceptions. Agents read it to apply the rule sensibly.                                          | **No**: explaining a rule better does not make built code wrong |
 | `see`           | Related rules and glossary terms                                                                                                   | No                                                              |
 | `required_by`   | Section 3: forced on child teams after this date                                                                                   | –                                                               |
@@ -180,7 +177,7 @@ What this gives, mostly by reusing what the glossary already has:
 - **Proposals:** agents propose rules with `propose_guardrail` into `guardrails/_proposed/` (never released); _Make it a rule_ on feedback or a deviation does the same for people. Only approvers accept, as with proposed terms.
 - **Health:** two rules saying the same thing, an _Always_ contradicting a _Never_, a child rule that contradicts an inherited one, rules no report was ever built against, rules pointing to unknown terms.
 - **Release:** like term files: changes are debounced into **one** commit per team (the foundation release, so one foundation version, section 3).
-- **For agents, nothing gets slower:** `get_team_context()` still lists every applicable rule as one line (`ACME/G7 (never): …`), so one call is still enough to know all rules. New `get_guardrails(spec?)` returns full rules with rationale, filtered by `applies_to` for that spec, like `get_glossary(spec)`. A generated `GUARDRAILS.md` in the repository keeps the overview for people and for agents without MCP.
+- **For agents, nothing gets slower:** `get_team_context()` still lists every rule as one line (`ACME/G7 (never): …`), so one call is still enough to know all rules. New `get_guardrails(id?)` returns the full rules with their rationale (all of them, or one). A generated `GUARDRAILS.md` in the repository keeps the overview for people and for agents without MCP.
 - **Reports** keep recording `{ id: rule }`, now with the team key for inherited rules; drift detection stays the same function.
 
 **Migration** (the same path the glossary took from `glossary.md`): at the first start after the update, every `- Gn: text` line becomes a file with `id: Gn`, `kind` from its section, `rule` = the text and an empty body; other `##` headings become folders. Ids stay, so existing reports keep matching. If `guardrails.md` was released, the folder is released in one commit and `guardrails.md` leaves the repository.
@@ -311,9 +308,11 @@ Each step is useful on its own:
 
 6. **Required guardrail updates:** optional per rule. A parent approver can set _required by \<date\>_; after it, only that rule is applied to the child automatically.
 7. **Who can share with whom:** any team with any other team on the instance, accepted by the receiving team.
-8. **Guardrails** become one file per rule, like glossary terms (section 3a): binding sentence, kind, scope and id in front matter, rationale in the body. Only changes to the binding parts trigger `guardrails_changed`.
+8. **Guardrails** become one file per rule, like glossary terms (section 3a): binding sentence, kind and id in front matter, rationale in the body. Only changes to the binding parts trigger `guardrails_changed`.
+
+9. **Guardrails apply to every task.** No scoping per spec type or folder: a rule that only concerns some work says so in its own sentence ("Every public endpoint …").
+10. **Only _Always_ and _Never_.** No soft kind such as _Prefer_: a guardrail is binding or it is not a guardrail. Strong defaults that may be broken for a reason belong in `strategy.md` (_Principles and trade-offs_) or in the spec, where a person decides them per case.
 
 ## Still open
 
-- Is `applies_to` (rules per spec type or folder) worth it, or should every rule keep going to every task? It shortens what agents read, but a wrongly scoped rule is silently missing.
-- Should there be a third kind besides _Always_ and _Never_, such as _Prefer_ (a strong default that may be broken with a reason in the report, without asking)?
+Nothing at the moment.
