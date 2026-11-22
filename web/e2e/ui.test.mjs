@@ -670,7 +670,7 @@ try {
   assert.equal(await d.locator('.topnav a.toptab[href="#/specs"][aria-current=page]').count(), 1);
   assert.ok(await d.locator('.bar .btn.primary[data-act=new-spec]', { hasText: 'New spec' }).isVisible());
   await d.evaluate(() => (location.hash = '#/'));
-  assert.ok(await d.locator('.plant-btn[data-act=new-spec]', { hasText: 'Plant a spec' }).isVisible());
+  await d.locator('.plant-btn[data-act=new-spec]', { hasText: 'Plant a spec' }).waitFor({ state: 'visible', timeout: 10000 });
   await d.evaluate(() => (location.hash = '#/specs'));
   ok('desktop: five tabs in the top bar; Specs has its own tab, New spec and Plant a spec are labelled buttons');
   await d.click('.topnav [data-act=user-menu]');
