@@ -78,7 +78,7 @@ function SpecList({ selected }: { selected?: string }) {
       <Bar title="Specs">
         {S.can('write') && (
           <button className="btn primary only-desktop" data-act="new-spec" onClick={create}>
-            <Icon name="plus" size={14} /> New
+            <Icon name="plus" size={14} /> New spec
           </button>
         )}
       </Bar>

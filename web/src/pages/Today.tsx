@@ -313,8 +313,8 @@ function Beds() {
           </Link>
         </h2>
         {S.can('write') && (
-          <button type="button" className="btn add only-desktop" data-act="new-spec" onClick={() => setNewSpec(true)}>
-            <Icon name="plus" size={14} /> Add
+          <button type="button" className="btn plant-btn only-desktop" data-act="new-spec" onClick={() => setNewSpec(true)}>
+            <GrowthIcon stage="seed" size={16} /> Plant a spec
           </button>
         )}
       </div>
