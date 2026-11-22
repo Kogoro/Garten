@@ -10,6 +10,7 @@ import { usePref } from '../prefs';
 import { Fab } from '../Fab';
 import { Tabs } from '../Tabs';
 import { foundState } from '../lib';
+import { GrowthIcon } from '../growth';
 import { Icon, ago, toast, useStore } from '../ui';
 import { api } from '../store/core';
 import { readZip, writeZip, download } from '../zip';
@@ -860,6 +861,7 @@ function GlossaryList({ arg }: { arg?: string }) {
                 to={`/glossary/${PROPOSED}${encodeURIComponent(d.id)}`}
               >
                 <div className="row-top">
+                  <GrowthIcon stage="sprout" size={14} />
                   <span className="row-title">{t.term}</span>
                 </div>
                 <div className="row-meta">

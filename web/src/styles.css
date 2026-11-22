@@ -7452,3 +7452,69 @@ h1,
   align-items: center;
   padding: 0 8px;
 }
+
+/* ============================================================ Documents: the foundation in one slim row
+   Vision and Strategy (and pinned documents) with their first line; the rest of the pane belongs to the documents. */
+.fgrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+  margin: 4px 0 10px;
+}
+.fgrid .found {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 8px 12px;
+  border-radius: 10px 3px 10px 10px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  min-width: 0;
+}
+.fgrid .found:hover,
+.fgrid .found.active {
+  border-color: var(--line2);
+  background: var(--tint);
+}
+.fgrid .found b {
+  flex: none;
+  font-weight: 600;
+}
+.fgrid .found .lead {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 13px;
+}
+.shell.single .fgrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.kindgroup .grouplabel,
+.list .grouplabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 14px 4px 4px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--muted);
+}
+.grouplabel small {
+  font-weight: 500;
+  letter-spacing: 0;
+}
+.row-folder {
+  margin-left: auto;
+  font-size: 12px;
+}
+.more-rows {
+  display: flex;
+  justify-content: center;
+  padding: 12px 0;
+}

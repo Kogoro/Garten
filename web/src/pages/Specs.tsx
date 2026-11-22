@@ -6,6 +6,7 @@ import { NewSpecSheet } from '../sheets';
 import { ImplChip } from '../reports';
 import { Icon, ago, touched, useStore } from '../ui';
 import { usePref } from '../prefs';
+import { useProgressive } from '../hooks';
 import { Fab } from '../Fab';
 import { awaitsApproval } from '../lib';
 import { Sheet } from '../dialogs';
@@ -66,6 +67,7 @@ function SpecList({ selected }: { selected?: string }) {
       });
   }, [all, q, filter, type, sort, S.getVersion()]); // eslint-disable-line react-hooks/exhaustive-deps
   const n = (f: (s: Item) => boolean) => all.filter(f).length;
+  const prog = useProgressive(specs.length, 60, `${q}|${filter}|${type}|${sort}`);
   const [newSpec, setNewSpec] = useState(false);
   const create = () => setNewSpec(true);
   // The first sync has not finished (lastSync is only set when it has): what is on the device may be a part of the team's specs, and the rest would be
@@ -157,43 +159,52 @@ function SpecList({ selected }: { selected?: string }) {
           </div>
         )}
         {!firstLoad && specs.length > 0 && (
-          <div className="list-card">
-            {specs.map((s) => (
-              <Link key={s.id} className={`row ${selected === s.id ? 'active' : ''}`} to={`/spec/${encodeURIComponent(s.id)}`}>
-                <div className="row-title">{s.title || <span className="muted">Untitled spec</span>}</div>
-                <div className="row-meta">
-                  <span className="row-id">{s.id}</span>
-                  <TypeChip s={s} S={S} />
-                  <StatusChip i={s} S={S} />
-                  <AgentChip s={s} S={S} />
-                  <ImplChip spec={s} />
-                  {S.feedbackCount(s.id) > 0 && (
-                    <span className="chip warn" title="Open feedback">
-                      {S.feedbackCount(s.id)} feedback
-                    </span>
-                  )}
-                  <ItemSync i={s} S={S} quiet />
-                  <span className="row-when">
-                    {s.links.length > 0 && (
-                      <span className="row-docs">
-                        {s.links.length} document{s.links.length === 1 ? '' : 's'}
+          <>
+            <div className="list-card">
+              {specs.slice(0, prog.shown).map((s) => (
+                <Link key={s.id} className={`row ${selected === s.id ? 'active' : ''}`} to={`/spec/${encodeURIComponent(s.id)}`}>
+                  <div className="row-title">{s.title || <span className="muted">Untitled spec</span>}</div>
+                  <div className="row-meta">
+                    <span className="row-id">{s.id}</span>
+                    <TypeChip s={s} S={S} />
+                    <StatusChip i={s} S={S} />
+                    <AgentChip s={s} S={S} />
+                    <ImplChip spec={s} />
+                    {S.feedbackCount(s.id) > 0 && (
+                      <span className="chip warn" title="Open feedback">
+                        {S.feedbackCount(s.id)} feedback
                       </span>
                     )}
-                    <span>
-                      {s.fetchedAt && !S.hasUnreleased(s) ? (
-                        <>Agent fetched {ago(Date.parse(s.fetchedAt))}</>
-                      ) : (
-                        <>
-                          <span className="row-word">Edited </span>
-                          {ago(touched(s))}
-                        </>
+                    <ItemSync i={s} S={S} quiet />
+                    <span className="row-when">
+                      {s.links.length > 0 && (
+                        <span className="row-docs">
+                          {s.links.length} document{s.links.length === 1 ? '' : 's'}
+                        </span>
                       )}
+                      <span>
+                        {s.fetchedAt && !S.hasUnreleased(s) ? (
+                          <>Agent fetched {ago(Date.parse(s.fetchedAt))}</>
+                        ) : (
+                          <>
+                            <span className="row-word">Edited </span>
+                            {ago(touched(s))}
+                          </>
+                        )}
+                      </span>
                     </span>
-                  </span>
-                </div>
-              </Link>
-            ))}
-          </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+            {specs.length > prog.shown && (
+              <div className="more-rows" ref={prog.ref}>
+                <button type="button" className="btn subtle" onClick={prog.more}>
+                  {prog.shown} of {specs.length} shown · show more
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
       {S.can('write') && <Fab label="New spec" act="new-spec" onClick={create} />}
