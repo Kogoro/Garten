@@ -1,6 +1,9 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { HashRouter } from 'react-router-dom';
+import '@fontsource-variable/geist/index.css';
+import '@fontsource-variable/geist-mono/index.css';
+import '@fontsource-variable/bricolage-grotesque/index.css';
 import './styles.css';
 import App from './App';
 import { ErrorBoundary } from './ErrorBoundary';

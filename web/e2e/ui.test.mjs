@@ -1521,14 +1521,14 @@ try {
   await d.click('[data-tab=settings]');
   await d.locator('[data-act=set-theme][data-v=light]').click();
   assert.equal(await d.evaluate(() => document.documentElement.dataset.theme), 'light');
-  assert.equal(await d.evaluate(() => getComputedStyle(document.body).backgroundColor), 'rgb(249, 250, 249)');
+  assert.equal(await d.evaluate(() => getComputedStyle(document.body).backgroundColor), 'rgb(251, 252, 248)');
   ok('appearance: light mode');
   await shot(d, '08b-desktop-light-account');
   await d.reload();
   assert.equal(await d.evaluate(() => document.documentElement.dataset.theme), 'light');
   ok('appearance: choice is remembered');
   await d.locator('[data-act=set-theme][data-v=dark]').click();
-  assert.equal(await d.evaluate(() => getComputedStyle(document.body).backgroundColor), 'rgb(11, 13, 12)');
+  assert.equal(await d.evaluate(() => getComputedStyle(document.body).backgroundColor), 'rgb(24, 29, 25)');
   ok('appearance: dark mode');
 
   // any user can create a team from the workspace menu

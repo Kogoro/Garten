@@ -1,3 +1,4 @@
+import { GrowthIcon, stageOf } from '../growth';
 import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Dropdown, Sheet, MenuHost } from '../dialogs';
@@ -116,15 +117,23 @@ export const StatusChip = ({ i, S }: { i: Item; S: Store }) => {
       </>
     );
   }
+  const st = stageOf(S, i);
   return i.approve ? (
-    <span className="chip warn">Approval queued</span>
+    <span className="chip warn stage">
+      <GrowthIcon stage="sprout" size={14} />
+      Approval queued
+    </span>
   ) : i.status === 'approved' ? (
-    <span className="chip ok">
+    <span className="chip ok stage">
+      <GrowthIcon stage={st} size={14} />
       Approved v{i.version}
       {S.hasUnreleased(i) ? ' · edited' : ''}
     </span>
   ) : (
-    <span className="chip">Draft</span>
+    <span className="chip stage">
+      <GrowthIcon stage={st} size={14} />
+      Draft
+    </span>
   );
 };
 

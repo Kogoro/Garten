@@ -2,33 +2,42 @@
    UI Design Specification: tinted neutrals (90 %+ of the surface), ONE accent (Moss green) used only for the primary action,
    focus rings, interactive text links and the active navigation indicator. Light is the base, dark and "system" redefine the same names. */
 :root {
-  --accent: #2b7a57;
-  --accent-hover: #236649;
-  --on-accent: #ffffff;
-  --bg: #f9faf9;
-  --panel: #ffffff;
-  --nav: #ffffff;
-  --tint: #f1f4f2;
-  --line: rgba(0, 0, 0, 0.08);
-  --line2: #c3cac6;
-  --text: #111815;
-  --soft: #3f4a45;
-  --muted: #59635e;
-  --ph: #66706b;
+  --accent: #1b7547;
+  --accent-hover: #165f3a;
+  --on-accent: #f6fbf7;
+  --bg: #fbfcf8;
+  --panel: #fdfefb;
+  --nav: #eceee6;
+  --tint: #e9ede3;
+  --line: rgba(22, 32, 26, 0.1);
+  --line2: #c4ccba;
+  --text: #16201a;
+  --soft: #38443b;
+  --muted: #5b675d;
+  --ph: #66706a;
   --amber: #8a5a00;
-  --amber-bg: #fff3d6;
+  --amber-bg: #fbefd6;
   --amber-line: #e8c97e;
   --red: #b3261e;
   --red-bg: #fdecea;
   --red-line: #f0b7b2;
   --blue: #1b57b5;
   --blue-bg: #e7effc;
-  --toast-bg: #111815;
-  --toast-fg: #f2f5f3;
-  --scrim: rgba(17, 24, 21, 0.4);
-  --sans: Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --display: var(--sans);
-  --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --toast-bg: #16201a;
+  --toast-fg: #f2f5f0;
+  --scrim: rgba(10, 16, 12, 0.32);
+  /* Garten identity: growth stages and the leaf shape */
+  --leaf: var(--accent);
+  --leaf-soft: #dff0e4;
+  --pollen: #a86a0c;
+  --soil: #8a6748;
+  --soil-soft: #f1e9e0;
+  --acrylic: rgba(251, 252, 248, 0.82);
+  --leaf-r: 14px 4px 14px 4px;
+  --leaf-r-sm: 10px 3px 10px 3px;
+  --sans: 'Geist Variable', Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --display: 'Bricolage Grotesque Variable', 'Bricolage Grotesque', var(--sans);
+  --mono: 'Geist Mono Variable', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   /* spacing: 4/8 scale only */
   --space-1: 4px;
   --space-2: 8px;
@@ -43,68 +52,80 @@
   --r: 8px;
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.03);
   --shadow-pop: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.08);
-  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  --t-in: 200ms;
+  --ease-out: cubic-bezier(0.1, 0.9, 0.2, 1); /* Fluent decelerate */
+  --ease-grow: cubic-bezier(0.2, 1.4, 0.4, 1);
+  --t-in: 250ms;
   --t-out: 130ms;
+  --t-slow: 500ms;
   --h: 48px;
   --hf: 48px;
   --hc: 48px; /* control heights: touch-sized on phones, compact on desktop */
   color-scheme: light;
 }
 :root[data-theme='dark'] {
-  --accent: #4db38a;
-  --accent-hover: #6cc4a1;
-  --on-accent: #07140d;
-  --bg: #0b0d0c;
-  --panel: #141614;
-  --nav: #141614;
-  --tint: #1d211f;
+  --accent: #5fcf8f;
+  --accent-hover: #7fdca6;
+  --on-accent: #08170e;
+  --bg: #181d19;
+  --panel: #1e241f;
+  --nav: #101411;
+  --tint: #252c26;
   --line: rgba(255, 255, 255, 0.08);
-  --line2: #3b423e;
-  --text: #f2f5f3;
-  --soft: #c9d1cd;
-  --muted: #9ca8a2;
-  --ph: #8a948f;
-  --amber: #e0b04a;
-  --amber-bg: #221c0c;
+  --line2: #3a443c;
+  --text: #edf2ec;
+  --soft: #c6d0c7;
+  --muted: #96a298;
+  --ph: #8a968c;
+  --amber: #f0b34a;
+  --amber-bg: #32250e;
   --amber-line: #5a4a1e;
-  --red: #f28b82;
-  --red-bg: #24130f;
+  --red: #ff8a80;
+  --red-bg: #2a1512;
   --red-line: #5c2f28;
   --blue: #8db8ff;
   --blue-bg: #14223a;
-  --toast-bg: #f2f5f3;
-  --toast-fg: #111815;
+  --toast-bg: #edf2ec;
+  --toast-fg: #16201a;
   --scrim: rgba(0, 0, 0, 0.6);
+  --leaf-soft: #123020;
+  --pollen: #f0b34a;
+  --soil: #c9a27f;
+  --soil-soft: #2b221a;
+  --acrylic: rgba(30, 36, 31, 0.82);
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.2), 0 4px 12px rgba(0, 0, 0, 0.15);
   color-scheme: dark;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
-    --accent: #4db38a;
-    --accent-hover: #6cc4a1;
-    --on-accent: #07140d;
-    --bg: #0b0d0c;
-    --panel: #141614;
-    --nav: #141614;
-    --tint: #1d211f;
+    --accent: #5fcf8f;
+    --accent-hover: #7fdca6;
+    --on-accent: #08170e;
+    --bg: #181d19;
+    --panel: #1e241f;
+    --nav: #101411;
+    --tint: #252c26;
     --line: rgba(255, 255, 255, 0.08);
-    --line2: #3b423e;
-    --text: #f2f5f3;
-    --soft: #c9d1cd;
-    --muted: #9ca8a2;
-    --ph: #8a948f;
-    --amber: #e0b04a;
-    --amber-bg: #221c0c;
+    --line2: #3a443c;
+    --text: #edf2ec;
+    --soft: #c6d0c7;
+    --muted: #96a298;
+    --ph: #8a968c;
+    --amber: #f0b34a;
+    --amber-bg: #32250e;
     --amber-line: #5a4a1e;
-    --red: #f28b82;
-    --red-bg: #24130f;
+    --red: #ff8a80;
+    --red-bg: #2a1512;
     --red-line: #5c2f28;
     --blue: #8db8ff;
     --blue-bg: #14223a;
-    --toast-bg: #f2f5f3;
-    --toast-fg: #111815;
+    --toast-bg: #edf2ec;
+    --toast-fg: #16201a;
     --scrim: rgba(0, 0, 0, 0.6);
+    --leaf-soft: #123020;
+    --pollen: #f0b34a;
+    --soil: #c9a27f;
+    --soil-soft: #2b221a;
+    --acrylic: rgba(30, 36, 31, 0.82);
     --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.2), 0 4px 12px rgba(0, 0, 0, 0.15);
     color-scheme: dark;
   }
@@ -6703,4 +6724,124 @@ i.dot-b {
 .term-body:focus-within {
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent);
+}
+
+/* ============================================================ Garten identity (Fluent bones, own look)
+   The leaf: two round corners and two tight ones, on the one primary action, the avatar, checkboxes and stage icons.
+   It turns over on hover. Growth icon: seed (draft) -> sprout (waiting for approval) -> bloom (live for agents). */
+.btn.primary,
+.btn.primary.small {
+  border-radius: var(--leaf-r);
+  transition:
+    background var(--t-out),
+    border-radius var(--t-in) var(--ease-out),
+    transform var(--t-out) var(--ease-out);
+}
+.btn.primary:hover,
+.btn.primary.small:hover {
+  border-radius: 4px 14px 4px 14px;
+}
+.btn:active {
+  transform: scale(0.97);
+}
+h1,
+.bar h1,
+.bar h2 {
+  font-family: var(--display);
+  letter-spacing: -0.015em;
+}
+.g {
+  color: var(--muted);
+  flex: none;
+}
+.g .stem,
+.g .lf,
+.g .fl {
+  transform-box: fill-box;
+  transition:
+    stroke-dashoffset var(--t-slow) var(--ease-out),
+    opacity var(--t-in),
+    transform var(--t-slow) var(--ease-grow);
+}
+.g .stem {
+  stroke-dasharray: 12;
+  stroke-dashoffset: 12;
+}
+.g .lf {
+  opacity: 0;
+  transform: scale(0.2);
+  transform-origin: center bottom;
+}
+.g .fl {
+  opacity: 0;
+  transform: scale(0.2);
+  transform-origin: center;
+}
+.g.seed {
+  color: var(--soil);
+}
+.g.sprout {
+  color: var(--pollen);
+}
+.g.bloom {
+  color: var(--leaf);
+}
+.g.sprout .stem,
+.g.bloom .stem {
+  stroke-dashoffset: 0;
+}
+.g.sprout .lf,
+.g.bloom .lf {
+  opacity: 1;
+  transform: none;
+  transition-delay: 120ms;
+}
+.g.bloom .fl {
+  opacity: 1;
+  transform: none;
+  transition-delay: 260ms;
+  color: var(--pollen);
+}
+.burst {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.burst i {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  margin: -2.5px;
+  border-radius: 50%;
+  background: var(--pollen);
+  animation: burst 700ms var(--ease-out) forwards;
+}
+@keyframes burst {
+  from {
+    transform: rotate(var(--a)) translateX(5px);
+    opacity: 1;
+  }
+  to {
+    transform: rotate(var(--a)) translateX(26px);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .g .stem,
+  .g .lf,
+  .g .fl,
+  .btn.primary {
+    transition: none;
+  }
+  .burst {
+    display: none;
+  }
+}
+.chip.stage {
+  gap: 4px;
+}
+.chip.stage::before {
+  display: none;
 }
