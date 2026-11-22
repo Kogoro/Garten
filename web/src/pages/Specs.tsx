@@ -38,7 +38,15 @@ function SpecList({ selected }: { selected?: string }) {
   const specs = useMemo(() => {
     const ql = q.trim().toLowerCase();
     return all
-      .filter((s) => filter === 'all' || (filter === 'pending' ? isPending(s) : (filter === 'approved') === (s.status === 'approved')))
+      .filter(
+        (s) =>
+          filter === 'all' ||
+          (filter === 'pending'
+            ? isPending(s)
+            : filter === 'approved'
+              ? s.status === 'approved'
+              : s.status !== 'approved' && !isPending(s)),
+      )
       .filter((s) => !type || s.specType === type)
       .filter((s) => !ql || `${s.id} ${s.title} ${s.body}`.toLowerCase().includes(ql))
       .sort((a, b) => {
@@ -89,9 +97,9 @@ function SpecList({ selected }: { selected?: string }) {
           {(
             [
               ['all', 'All', all.length],
-              ...(S.can('approve') ? [['pending', 'To approve', n(isPending)] as const] : []),
-              ['draft', 'Draft', n((s) => s.status !== 'approved')],
-              ['approved', 'Approved', n((s) => s.status === 'approved')],
+              ...(S.can('approve') ? [['pending', 'Sprout', n(isPending)] as const] : []),
+              ['draft', 'Seed', n((s) => s.status !== 'approved' && !isPending(s))],
+              ['approved', 'Bloom', n((s) => s.status === 'approved')],
             ] as const
           ).map(([k, l, c]) => (
             <button key={k} className="filter" type="button" aria-pressed={filter === k} onClick={() => setFilter(k)}>
@@ -110,7 +118,7 @@ function SpecList({ selected }: { selected?: string }) {
             <option value="updated">Recently edited</option>
             <option value="id">ID</option>
             <option value="title">Title A–Z</option>
-            <option value="status">Approved first</option>
+            <option value="status">In bloom first</option>
             <option value="impl">Needs attention first</option>
           </select>
           <select id="typeFilter" className="filter sel" aria-label="Filter by type" value={type} onChange={(e) => setType(e.target.value)}>
@@ -193,7 +201,7 @@ function SpecList({ selected }: { selected?: string }) {
             <option value="updated">Recently edited</option>
             <option value="id">ID</option>
             <option value="title">Title A–Z</option>
-            <option value="status">Approved first</option>
+            <option value="status">In bloom first</option>
             <option value="impl">Needs attention first</option>
           </select>
           <label className="sr" htmlFor="m-type">

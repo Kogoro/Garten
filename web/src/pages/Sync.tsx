@@ -28,7 +28,7 @@ export function SyncPage() {
                   </span>
                 </div>
                 <p className="note">
-                  Everything is saved on this device and syncs when your server is reachable. Approved specs reach your agent after the next
+                  Everything is saved on this device and syncs when your server is reachable. Specs in bloom reach your agent after the next
                   sync.
                 </p>
                 <span className="mono" style={{ fontSize: 13, color: 'var(--soft)' }}>

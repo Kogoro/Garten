@@ -995,10 +995,10 @@ export function TeamPage() {
                               );
                             })}
                           />{' '}
-                          Release foundation documents (vision, strategy, glossary …) automatically after edits
+                          Let foundation documents (vision, strategy, glossary …) bloom by themselves after edits
                         </label>
                         <p className="note" style={{ marginTop: -6 }}>
-                          Off: they reach agents only after an approver presses “Release now”.
+                          Off: they reach agents only after an approver presses “Let it bloom”.
                         </p>
                         <FeedbackMailToggle t={t} S={S} mailEnabled={!!d?.mailEnabled} />
                         <FeedbackKeep t={t} S={S} />

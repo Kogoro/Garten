@@ -1101,11 +1101,11 @@ function History({ path }: { path: string }) {
       {it && S.hasUnreleased(it) && (
         <div className="row">
           <div className="row-top">
-            <span className="row-title">Draft</span>
+            <span className="row-title">Seed</span>
           </div>
           <div className="row-meta">
             Edited {ago(Date.parse(it.updatedAt ?? '') || it.editedAt)}
-            {it.updatedBy ? ` by ${it.updatedBy}` : ''} · not live yet
+            {it.updatedBy ? ` by ${it.updatedBy}` : ''} · not in bloom yet
           </div>
         </div>
       )}
@@ -1234,10 +1234,10 @@ function GlossaryDetail({ arg }: { arg: string }) {
             data-act="gl-release"
             onClick={() => {
               S.requestApprove(own.item.id);
-              toast('Releasing…');
+              toast('Blooming…');
             }}
           >
-            Release now
+            Let it bloom
           </button>
         )}
       </div>

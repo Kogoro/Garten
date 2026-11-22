@@ -317,7 +317,7 @@ try {
   ok('@ reference links the document (shown in the overview)');
   await page.locator('#edMeta', { hasText: 'not synced' }).waitFor();
   await page.click('[data-act=approve]');
-  await page.getByRole('button', { name: /Approval queued/ }).waitFor();
+  await page.getByRole('button', { name: /Blooms after sync/ }).waitFor();
   ok('approve offline is queued');
   const specId = await page.evaluate(() => decodeURIComponent(location.hash.split('/').pop()));
   await page.click('a[aria-label=Back]');
@@ -612,7 +612,7 @@ try {
   await page.locator('.sumstrip').waitFor();
   assert.equal(await page.locator('.toolbar').count(), 0);
   assert.equal(await page.locator('[data-act=edit-done]').count(), 0);
-  assert.match(await page.locator('#edMeta').innerText(), /Approved v\d/);
+  assert.match(await page.locator('#edMeta').innerText(), /Bloom v\d|edited since v\d/);
   assert.ok((await page.locator('#tab-feedback').isVisible()) && (await page.locator('.sumcell', { hasText: 'Documents' }).isVisible()));
   ok('phone: a spec opens read-only with status, the four tabs and its documents at a glance');
   await page.click('[data-act=edit]');

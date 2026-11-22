@@ -26,7 +26,7 @@ export function Onboarding() {
     },
     { done: S.all('spec').length > 0, text: 'Write a first spec', to: '/' },
     { done: S.termItems().length > 0, text: 'Add the words your team uses to the glossary', to: '/glossary' },
-    { done: S.all('spec').some((s) => s.status === 'approved'), text: 'Approve a spec so it is released to agents', to: '/release' },
+    { done: S.all('spec').some((s) => s.status === 'approved'), text: 'Let a spec bloom so agents can read it', to: '/' },
     ...(S.can('admin') ? [{ done: false, text: 'Connect Git and an agent (Members & Git → Agent setup)', to: '/team' }] : []),
   ];
   const pending = steps.filter((s) => !s.done);
