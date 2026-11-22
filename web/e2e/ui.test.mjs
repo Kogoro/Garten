@@ -666,8 +666,13 @@ try {
   await d.goto(BASE);
   await signIn(d, 'admin@localhost', 'adminpass1');
   await d.locator('.row', { hasText: 'SPEC-014' }).waitFor();
-  assert.ok((await d.locator('.topnav').isVisible()) && (await d.locator('.topnav .toptab').count()) === 4);
-  ok('desktop: four tabs in the top bar');
+  assert.ok((await d.locator('.topnav').isVisible()) && (await d.locator('.topnav .toptab').count()) === 5);
+  assert.equal(await d.locator('.topnav a.toptab[href="#/specs"][aria-current=page]').count(), 1);
+  assert.ok(await d.locator('.bar .btn.primary[data-act=new-spec]', { hasText: 'New spec' }).isVisible());
+  await d.evaluate(() => (location.hash = '#/'));
+  await d.locator('.plant-btn[data-act=new-spec]', { hasText: 'Plant a spec' }).waitFor({ state: 'visible', timeout: 10000 });
+  await d.evaluate(() => (location.hash = '#/specs'));
+  ok('desktop: five tabs in the top bar; Specs has its own tab, New spec and Plant a spec are labelled buttons');
   await d.click('.topnav [data-act=user-menu]');
   await d.getByRole('button', { name: 'Take the tour' }).click();
   await d.locator('.tour-coach', { hasText: 'What needs you' }).waitFor();

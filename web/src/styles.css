@@ -7725,3 +7725,15 @@ h1,
   width: 18px;
   background: var(--leaf);
 }
+/* Today: planting a spec is the main thing people do – a clear, labelled button, not a quiet link */
+.btn.plant-btn {
+  gap: 6px;
+  border-color: var(--leaf);
+  color: var(--leaf);
+  font-weight: 600;
+  border-radius: var(--leaf-r);
+}
+.btn.plant-btn:hover {
+  background: var(--leaf-soft);
+  border-radius: 4px 14px 4px 14px;
+}

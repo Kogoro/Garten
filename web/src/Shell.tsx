@@ -152,7 +152,7 @@ export function Bar({ title, children, quiet }: { title: string; children?: Reac
 }
 
 const PLACEHOLDER: Record<string, [keyof typeof ic, string]> = {
-  specs: ['specs', 'Select a spec, or create one with “New”.'],
+  specs: ['specs', 'Select a spec, or create one with “New spec”.'],
   docs: ['docs', 'Select a document, or create one with “New”.'],
   glossary: ['glossary', 'Select a term to see its definition, synonyms and references.'],
   guardrails: ['rule', 'Select a rule to see why it exists, what to do instead and its exceptions.'],
@@ -178,7 +178,7 @@ export function sectionOf(pathname: string) {
 /** Which of the four tabs a section belongs to: specs and agents live under Today. */
 const TAB_OF: Record<string, string> = {
   today: 'today',
-  specs: 'today',
+  specs: 'specs',
   activity: 'today',
   history: 'today',
   queue: 'today',
@@ -207,6 +207,7 @@ export function Shell({ master, detail, single, active }: { master: ReactNode; d
   const waiting = proposalsWaiting(S);
   const tabs: [string, string, string, keyof typeof ic, number][] = [
     ['today', '/', 'Today', 'garden', needs],
+    ['specs', '/specs', 'Specs', 'specs', 0],
     ['docs', '/docs', 'Documents', 'docs', 0],
     ['guardrails', '/guardrails', 'Guardrails', 'shield', waiting.rules],
     ['glossary', '/glossary', 'Glossary', 'glossary', waiting.terms],

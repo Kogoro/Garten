@@ -6,7 +6,7 @@ Everything a team writes grows through three stages, shown as one growth icon: *
 
 | Idea                                                        | Word                                                                                   | Not                                      |
 | ----------------------------------------------------------- | -------------------------------------------------------------------------------------- | ---------------------------------------- |
-| A private draft                                             | **Seed** (_Plant a spec_ creates one)                                                  | draft (in visible text)                  |
+| A private draft                                             | **Seed** (_Plant a spec_ on Today, _New spec_ in Specs)                                | draft (in visible text)                  |
 | A spec or document that waits for an approver               | **Sprout** (_Ask for approval_, _Waiting for approval_)                                | pending, to approve                      |
 | A person confirms a spec or foundation document             | **Let it bloom** (button _Let it bloom_, _Let v2 bloom_)                               | approve (as a button), sign off, accept  |
 | The approved version reaches the team repository and agents | **Bloom** / _In bloom_ (state _Bloom v1_, version history _v1 · Bloomed_)              | released, publish, deploy, go live       |
