@@ -435,6 +435,8 @@ try {
     /Waiting for a decision|Building SPEC-012/,
   );
   ok('garden: a claim shows which agent builds a spec; the agent list comes from the server');
+  await page.click('a[href="#/history"]');
+  await page.locator('#gd-history-impl').waitFor();
   await page.locator('#gd-quality summary').click();
   assert.match(await page.locator('#gd-quality [data-type=api]').innerText(), /API spec[\s\S]*questions \/ spec/);
   await page.locator('#gd-quality a.gd-row', { hasText: 'SPEC-012' }).waitFor();
@@ -666,6 +668,16 @@ try {
   await d.locator('.row', { hasText: 'SPEC-014' }).waitFor();
   assert.ok((await d.locator('.topnav').isVisible()) && (await d.locator('.topnav .toptab').count()) === 4);
   ok('desktop: four tabs in the top bar');
+  await d.click('.topnav [data-act=user-menu]');
+  await d.getByRole('button', { name: 'Take the tour' }).click();
+  await d.locator('.tour-coach', { hasText: 'What needs you' }).waitFor();
+  await d.locator('.tour-coach .btn.primary').click();
+  await d.locator('.tour-coach', { hasText: 'Everything grows' }).waitFor();
+  await d.keyboard.press('Escape');
+  await d.locator('.tour-coach').waitFor({ state: 'detached' });
+  await d.evaluate(() => (location.hash = '#/specs'));
+  await d.locator('.row', { hasText: 'SPEC-014' }).waitFor();
+  ok('the tour starts from your menu, walks the real screen and closes with Escape');
   assert.ok(await d.locator('.detail .placeholder').isVisible());
   ok('desktop: empty detail pane until a spec is selected');
   await d.locator('.row', { hasText: 'SPEC-014' }).click();

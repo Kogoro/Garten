@@ -84,6 +84,7 @@ export function useMenus() {
     if (key.startsWith('theme:')) return setTheme(key.slice(6));
     if (key.startsWith('density:')) return setDensity(key.slice(8) as 'compact' | 'comfortable');
     if (key === 'create-team') return setCreateTeam(true);
+    if (key === 'tour') return void window.dispatchEvent(new Event('garten:tour'));
     if (key === 'switch') return pick(await openMenu('Team', workspaceItems()));
     if (key === 'logout') {
       const n = [...S.state.maps.values()].reduce((a, m) => a + [...m.values()].filter(S.isPending).length, 0);
@@ -106,6 +107,7 @@ export function useMenus() {
           ...(S.isInstanceAdmin() ? [{ key: 'go:admin', label: 'Admin' }] : []),
           { key: 'go:sync', label: `Sync${waitingSync ? ` · ${waitingSync} waiting` : ''}` },
           { key: 'go:account', label: 'Account & agent access' },
+          { key: 'tour', label: 'Take the tour' },
           ...themeItems,
           ...densityItems,
           { key: 'logout', label: 'Sign out', danger: true },
@@ -158,6 +160,7 @@ const PLACEHOLDER: Record<string, [keyof typeof ic, string]> = {
 const TITLES: Record<string, string> = {
   today: 'Today',
   activity: 'Agents',
+  history: 'History',
   specs: 'Specs',
   docs: 'Documents',
   glossary: 'Glossary',
@@ -177,6 +180,7 @@ const TAB_OF: Record<string, string> = {
   today: 'today',
   specs: 'today',
   activity: 'today',
+  history: 'today',
   queue: 'today',
   docs: 'docs',
   glossary: 'glossary',

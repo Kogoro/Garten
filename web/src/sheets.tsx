@@ -391,7 +391,7 @@ export function LinkSheet({ specId, onClose, onPick }: { specId: string; onClose
       <p>
         {ref
           ? 'Inserts an @reference at the cursor and links the document to this spec.'
-          : 'Linked documents are released together with this spec. Foundation documents (vision, strategy, glossary) are always available to agents and need no link.'}
+          : 'Linked documents bloom together with this spec. Foundation documents (vision, strategy, glossary) are always available to agents and need no link.'}
       </p>
       {docs.length ? (
         docs.map((d) => (

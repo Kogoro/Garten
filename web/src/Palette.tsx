@@ -181,6 +181,14 @@ function PaletteDialog({ onClose, onNewSpec }: { onClose: () => void; onNewSpec:
       { id: 'go-guardrails', label: 'Go to Guardrails', hint: 'g u', run: go('/guardrails') },
       { id: 'go-agents', label: 'Go to Agents', hint: 'g a', run: go('/activity') },
       { id: 'connect', label: 'Connect an agent', run: go('/release') },
+      {
+        id: 'tour',
+        label: 'Take the tour',
+        run: () => {
+          onClose();
+          window.dispatchEvent(new Event('garten:tour'));
+        },
+      },
       { id: 'go-team', label: 'Go to Members & Git', hint: 'g t', run: go('/team') },
       { id: 'go-sync', label: 'Go to Sync', hint: 'g y', run: go('/sync') },
       { id: 'go-account', label: 'Go to Account & agent access', hint: 'g c', run: go('/account') },

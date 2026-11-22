@@ -73,7 +73,7 @@ function ProposalActions({ f, act }: { f: any; act: Act }) {
     if (
       del &&
       !confirm(
-        `Delete ${f.specId}? ${S.get(f.specId)?.status === 'approved' ? 'It is released and will be revoked first. ' : ''}Its feedback and reports are deleted with it.`,
+        `Delete ${f.specId}? ${S.get(f.specId)?.status === 'approved' ? 'It is in bloom and will be revoked first. ' : ''}Its feedback and reports are deleted with it.`,
       )
     )
       return;
@@ -82,7 +82,7 @@ function ProposalActions({ f, act }: { f: any; act: Act }) {
     try {
       await S.teamApi('PATCH', `/feedback/${f.id}`, { status: 'accepted', reply });
       await S.sync();
-      toast(del ? `${f.specId} deleted` : `${f.specId} released`);
+      toast(del ? `${f.specId} deleted` : `${f.specId} is in bloom`);
     } catch (x: any) {
       setErr(x instanceof TypeError ? 'This needs a connection to the server.' : x.message);
     }
@@ -118,7 +118,7 @@ function ProposalActions({ f, act }: { f: any; act: Act }) {
             disabled={busy || !S.state.online}
             onClick={accept}
           >
-            {del ? 'Accept & delete spec' : 'Accept & release spec'}
+            {del ? 'Accept & delete spec' : 'Accept & let it bloom'}
           </button>
         )}
         {S.can('write') && (
@@ -329,7 +329,7 @@ export function DecisionCard({ f, showSpec, act, collapsed }: { f: any; showSpec
           {spec && (
             <label className="check dc-record">
               <input type="checkbox" data-act="dc-record" checked={record} onChange={(e) => setRecord(e.target.checked)} /> Also write it
-              into the spec (under DECISIONS – released with its next version)
+              into the spec (under DECISIONS – it blooms with its next version)
             </label>
           )}
           <div className="btns">
@@ -401,7 +401,7 @@ export function DecisionCard({ f, showSpec, act, collapsed }: { f: any; showSpec
                   className="btn small"
                   type="button"
                   data-act="dc-to-spec"
-                  title="Write the decision into the spec under DECISIONS, as a draft change released with its next version"
+                  title="Write the decision into the spec under DECISIONS, as a draft change that blooms with its next version"
                   onClick={() => {
                     toSpec(f.answer, f.reply ?? '');
                     toast('Added to the spec as a draft change');

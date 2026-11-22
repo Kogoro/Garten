@@ -332,7 +332,7 @@ function DocsDd({ i, S, onNew }: { i: Item; S: Store; onNew: () => void }) {
     >
       {(close) => (
         <>
-          <div className="dd-title">Linked documents · released with this spec</div>
+          <div className="dd-title">Linked documents · bloom with this spec</div>
           {docs.length ? (
             docs.map((d) => {
               const on = i.links.includes(d.id);

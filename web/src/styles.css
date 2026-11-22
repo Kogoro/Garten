@@ -7518,3 +7518,210 @@ h1,
   justify-content: center;
   padding: 12px 0;
 }
+
+/* ============================================================ Agents: Activity and History */
+.viewbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.viewbar .seg a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 12px;
+}
+.viewbar .seg a[aria-current='page'] {
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: var(--shadow-card);
+}
+.hchart {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 160px;
+  padding: 8px 0 24px;
+  border-bottom: 1px solid var(--line);
+}
+.hbar {
+  position: relative;
+  flex: 1;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.hfill {
+  display: block;
+  width: min(32px, 70%);
+  min-height: 2px;
+  border-radius: 4px 4px 0 0;
+  background: var(--leaf);
+  transition: opacity var(--t-out);
+}
+.hchart:hover .hbar:not(.on) .hfill {
+  opacity: 0.4;
+}
+.hlabel {
+  position: absolute;
+  bottom: -22px;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.htip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-pop);
+  font-size: 12.5px;
+  white-space: nowrap;
+  z-index: 2;
+}
+.implbar {
+  display: flex;
+  gap: 3px;
+  height: 10px;
+  margin: 12px 0;
+  transform-origin: left;
+  animation: barin 900ms var(--ease-out) both;
+}
+.implbar span {
+  border-radius: 3px;
+  min-width: 4px;
+}
+@keyframes barin {
+  from {
+    transform: scaleX(0);
+  }
+}
+.impl-implemented {
+  background: var(--leaf);
+}
+.impl-in_progress {
+  background: var(--pollen);
+}
+.impl-blocked {
+  background: var(--red);
+}
+.impl-none {
+  background: var(--line2);
+}
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  font-size: 13px;
+  color: var(--soft);
+}
+.legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.legend i {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+.legend b {
+  font-weight: 600;
+  color: var(--text);
+}
+@media (prefers-reduced-motion: reduce) {
+  .implbar {
+    animation: none;
+  }
+}
+
+/* ============================================================ first-run tour */
+.tour-block {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+}
+.tour-spot {
+  position: fixed;
+  z-index: 90;
+  border-radius: 14px;
+  box-shadow:
+    0 0 0 9999px var(--scrim),
+    0 0 0 2px var(--leaf);
+  pointer-events: none;
+  transition:
+    top var(--t-slow) var(--ease-out),
+    left var(--t-slow) var(--ease-out),
+    width var(--t-slow) var(--ease-out),
+    height var(--t-slow) var(--ease-out);
+}
+.tour-coach {
+  position: fixed;
+  z-index: 91;
+  width: min(340px, calc(100vw - 32px));
+  padding: 18px 18px 14px;
+  border-radius: 14px 4px 14px 14px;
+  background: var(--panel);
+  box-shadow: var(--shadow-pop);
+  transition:
+    top var(--t-slow) var(--ease-out),
+    left var(--t-slow) var(--ease-out);
+}
+.tour-body {
+  animation: cardin var(--t-slow) var(--ease-out) both;
+}
+.tour-coach h2 {
+  margin: 6px 0;
+  font: 650 20px/1.3 var(--display);
+  letter-spacing: -0.015em;
+}
+.tour-coach p {
+  margin: 0;
+  color: var(--soft);
+  line-height: 1.5;
+}
+.tour-stages {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+.tour-stages div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--soft);
+}
+.tour-stages b {
+  color: var(--text);
+}
+.tour-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+.tour-foot .dots {
+  display: flex;
+  gap: 5px;
+  margin-right: auto;
+}
+.tour-foot .dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--line2);
+  transition:
+    width var(--t-in) var(--ease-out),
+    background var(--t-in);
+}
+.tour-foot .dots i.on {
+  width: 18px;
+  background: var(--leaf);
+}

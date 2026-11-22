@@ -7,6 +7,7 @@ import { Login } from './pages/Login';
 import { NoTeamPage } from './pages/NoTeam';
 import { SpecsPage } from './pages/Specs';
 import { Palette } from './Palette';
+import { Tour } from './Tour';
 import { Shell } from './Shell';
 import { Toaster, useStore } from './ui';
 
@@ -74,6 +75,7 @@ export default function App() {
           <Route path="/guardrails/*" element={<GuardrailsPage />} />
           <Route path="/release" element={<ReleasePage />} />
           <Route path="/activity" element={<AgentsPage />} />
+          <Route path="/history" element={<AgentsPage />} />
           <Route path="/garden" element={<Navigate to="/" replace />} />
           <Route path="/sync" element={<SyncPage />} />
           <Route path="/team" element={<TeamPage />} />
@@ -87,6 +89,7 @@ export default function App() {
     <>
       {body}
       <Palette />
+      <Tour />
       <MenuHost />
       {relogin && <ReloginSheet onClose={() => setRelogin(false)} />}
       <Toaster />

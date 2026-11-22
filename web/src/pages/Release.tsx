@@ -125,7 +125,7 @@ export function ReleasePage() {
                 })()}
                 <p className="note">
                   Served via <span className="mono">get_team_context</span> as soon as they contain something
-                  {S.team()?.foundationAuto === false ? ' and have been approved' : ' – they are released automatically after edits'}.
+                  {S.team()?.foundationAuto === false ? ' and have been approved' : ' – they bloom by themselves after edits'}.
                 </p>
               </section>
               <section className="card">
@@ -185,7 +185,7 @@ export function ReleasePage() {
                           <TypeChip s={s} S={S} /> {s.title}
                           {S.hasUnreleased(s) && (
                             <span className="chip warn" style={{ marginLeft: 4 }}>
-                              edited since release
+                              edited since it bloomed
                             </span>
                           )}
                         </b>
