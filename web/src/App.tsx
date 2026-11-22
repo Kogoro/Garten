@@ -19,6 +19,7 @@ const AdminPage = page(() => import('./pages/Admin'), 'AdminPage');
 const DocsPage = page(() => import('./pages/Docs'), 'DocsPage');
 const GardenPage = page(() => import('./pages/Garden'), 'GardenPage');
 const GlossaryPage = page(() => import('./pages/Glossary'), 'GlossaryPage');
+const GuardrailsPage = page(() => import('./pages/Guardrails'), 'GuardrailsPage');
 const ReleasePage = page(() => import('./pages/Release'), 'ReleasePage');
 const SyncPage = page(() => import('./pages/Sync'), 'SyncPage');
 const TeamPage = page(() => import('./pages/Team'), 'TeamPage');
@@ -66,6 +67,7 @@ export default function App() {
           <Route path="/docs" element={<DocsPage />} />
           <Route path="/doc/*" element={<DocsPage />} />
           <Route path="/glossary/*" element={<GlossaryPage />} />
+          <Route path="/guardrails/*" element={<GuardrailsPage />} />
           <Route path="/release" element={<ReleasePage />} />
           <Route path="/garden" element={<GardenPage />} />
           <Route path="/sync" element={<SyncPage />} />

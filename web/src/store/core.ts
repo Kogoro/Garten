@@ -17,6 +17,17 @@ import {
   refsIn,
   GLOSSARY_DIR,
 } from '@shared/glossaryFiles.js';
+import {
+  parseRuleFile,
+  formatRuleFile,
+  rulePath,
+  ruleFolder,
+  ruleNumber,
+  isRulePath,
+  isProposedRulePath,
+  isGuardrailsPath,
+  GUARDRAILS_DIR,
+} from '@shared/guardrailFiles.js';
 
 export const state: any = {
   me: null as Me | null, // cached so the app opens offline
@@ -482,9 +493,9 @@ export function moveFolder(oldPath: string, newPath: string) {
 
 /** Foundation documents are always available to agents (vision, strategy, glossary, anything pinned). */
 export const foundationDocs = () => {
-  const order = ['vision.md', 'strategy.md', 'guardrails.md'];
+  const order = ['vision.md', 'strategy.md'];
   return all('doc')
-    .filter((d) => d.pinned && !isGlossaryPath(d.id))
+    .filter((d) => d.pinned && !isGlossaryPath(d.id) && !isGuardrailsPath(d.id))
     .sort(
       (a: any, b: any) =>
         (order.indexOf(a.id) < 0 ? 9 : order.indexOf(a.id)) - (order.indexOf(b.id) < 0 ? 9 : order.indexOf(b.id)) ||
@@ -836,6 +847,81 @@ export function saveTerm(t: TermInput, opts: { path?: string; updateRefs?: boole
   }
   if (renamed && opts.updateRefs) rewriteAll(prev!.term, term, target);
   return target;
+}
+
+// Guardrails are a folder of rule files (docs/guardrails/<folder>/<rule>.md, shared/guardrailFiles.js), one rule per file. The server
+// gives each rule its id (G1, G2 …); guardrails/_proposed/ holds rules agents proposed until an approver accepts them.
+export interface RuleInput {
+  rule: string;
+  kind: 'always' | 'never';
+  body?: string;
+  folder?: string;
+  see?: string[];
+}
+/** Rule files on this device, by id number (rules not synced yet – no id – last). */
+export const ruleItems = (): Item[] =>
+  all('doc')
+    .filter((d) => isRulePath(d.id) && !!parseRuleFile(d.body))
+    .sort(
+      (a, b) => (ruleNumber(parseRuleFile(a.body)!.id) || 1e9) - (ruleNumber(parseRuleFile(b.body)!.id) || 1e9) || a.id.localeCompare(b.id),
+    );
+export const proposedRuleItems = (): Item[] => all('doc').filter((d) => isProposedRulePath(d.id) && !!parseRuleFile(d.body));
+/** Other files in the guardrails folder (notes kept by the migration, anything written by hand). */
+export const guardrailNotes = (): Item[] =>
+  all('doc').filter((d) => isGuardrailsPath(d.id) && !isProposedRulePath(d.id) && !parseRuleFile(d.body));
+/** Folder paths below guardrails/ ("security", "security/keys"), sorted. */
+export const ruleFolders = (): string[] =>
+  folderPaths()
+    .filter((p) => p.startsWith(`${GUARDRAILS_DIR}/`) && !isProposedRulePath(p))
+    .map((p) => p.slice(GUARDRAILS_DIR.length + 1))
+    .sort((a, b) => a.localeCompare(b));
+function checkRule(r: RuleInput, except?: string) {
+  const rule = r.rule.replace(/\s+/g, ' ').trim();
+  if (!rule) throw new Error('Write the rule');
+  if (rule.length > 400) throw new Error('A rule has 400 characters at most – put the reasons in the details');
+  if (ruleItems().some((d) => d.id !== except && parseRuleFile(d.body)!.rule.toLowerCase() === rule.toLowerCase()))
+    throw new Error('This rule exists already');
+}
+/** Creates or changes a rule file (`path` = its file when it exists; another folder moves it). The id stays; a new rule gets one from the server. Returns the path. */
+export function saveRule(r: RuleInput, path?: string): string {
+  const old = path ? get(path) : undefined;
+  const prev = old ? parseRuleFile(old.body) : null;
+  checkRule(r, old?.id);
+  const folder = cleanFolder(r.folder ?? (old ? ruleFolder(old.id) : ''));
+  const body = formatRuleFile({
+    id: prev?.id ?? null,
+    rule: r.rule,
+    kind: r.kind,
+    see: r.see ?? prev?.see ?? [],
+    body: r.body ?? prev?.body ?? '',
+  });
+  if (!old) {
+    const target = rulePath(folder, r.rule, (p: string) => !!get(p));
+    createDoc(target, body);
+    edit(target, { pinned: true });
+    return target;
+  }
+  if (body !== old.body) edit(old.id, { body });
+  if (ruleFolder(old.id) === folder) return old.id;
+  const target = rulePath(folder, r.rule, (p: string) => !!get(p));
+  moveDoc(old.id, target);
+  edit(target, { pinned: true });
+  return target;
+}
+export const deleteRule = (path: string) => deleteItem(path);
+/** An approver takes a proposed rule (optionally reworded) into the guardrails. */
+export function acceptProposedRule(path: string, patch: Partial<RuleInput> = {}): string {
+  if (!can('approve')) throw new Error('Only approvers accept proposed rules');
+  const it = get(path);
+  const p = it && parseRuleFile(it.body);
+  if (!it || !p) throw new Error('This proposal no longer exists');
+  const target = saveRule({ rule: p.rule, kind: p.kind, body: p.body, see: p.see, ...patch });
+  deleteItem(path);
+  return target;
+}
+export function declineProposedRule(path: string) {
+  if (!can('approve')) throw new Error('Only approvers decline proposed rules');
+  deleteItem(path);
 }
 
 /** Removes a term. References become plain text, or (merge) point to another term which takes over the name as a synonym. */

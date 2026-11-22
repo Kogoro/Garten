@@ -525,16 +525,26 @@ try {
   await page.getByRole('button', { name: 'Always' }).click();
   await page.click('[data-act=rule-add]');
   await page.evaluate(() => dispatchEvent(new Event('online')));
+  const ruleFile = 'guardrails/every-change-of-a-signing-key.md';
   for (let i = 0; i < 40; i++) {
-    const g = (await admin.sync()).data.items.find((x) => x.id === 'guardrails.md');
-    if (/G1: Every change of a signing key/.test(g?.body ?? '')) break;
+    const g = (await admin.sync()).data.items.find((x) => x.id === ruleFile);
+    if (/^id: G\d+$/m.test(g?.body ?? '')) break;
     await page.waitForTimeout(250);
   }
-  assert.match(
-    (await admin.sync()).data.items.find((x) => x.id === 'guardrails.md').body,
-    /## Always\n- G1: Every change of a signing key is written to the audit log\./,
-  );
-  ok('guardrails: a deviation becomes a rule in the guardrails document');
+  const ruleBody = (await admin.sync()).data.items.find((x) => x.id === ruleFile)?.body ?? '';
+  assert.match(ruleBody, /^id: G3\nrule: "Every change of a signing key is written to the audit log\."\nkind: always$/m);
+  assert.match(ruleBody, /\*\*Why:\*\* came up in the report on SPEC-012\./);
+  ok('guardrails: a deviation becomes a rule file with the next id and where it came from');
+  await page.keyboard.press('Escape').catch(() => {});
+  await page.evaluate(() => (location.hash = '#/guardrails'));
+  await page.locator('#grList a.row[data-rule=G3]').waitFor({ timeout: 10000 });
+  assert.equal(await page.locator('#grList a.row[data-rule]').count(), 3);
+  await page.click('#grList a.row[data-rule=G3]');
+  await page.locator('#grDetail [data-rule-text]', { hasText: 'Every change of a signing key' }).waitFor();
+  await page.locator('#grDetail .gd-def', { hasText: 'came up in the report on SPEC-012' }).waitFor();
+  ok('guardrails page: every rule with its id and kind, the details on the rule itself');
+  await page.evaluate(() => (location.hash = '#/garden'));
+  await page.locator('[data-act=more-menu]').waitFor();
   await page.keyboard.press('Escape').catch(() => {});
   await page.click('[data-act=more-menu]');
   await page.getByRole('button', { name: /^Sync/ }).click();

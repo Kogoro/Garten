@@ -421,6 +421,10 @@ const MIGRATIONS = [
     // how long a team keeps closed feedback (days); 0 = forever, which is what every team starts with
     db.exec('ALTER TABLE teams ADD COLUMN feedback_keep_days INTEGER NOT NULL DEFAULT 0');
   },
+  /* 4 */ () => {
+    // guardrails are one file per rule; their ids (G1, G2 …) are given by the server and never twice: the highest number given so far
+    db.exec('ALTER TABLE teams ADD COLUMN rule_seq INTEGER NOT NULL DEFAULT 0');
+  },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.length;
 

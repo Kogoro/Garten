@@ -6,7 +6,7 @@ import { bumpGarden, DECISION } from './feedback.js';
 import { listChecks, summarize, checksBySpec } from './checks.js';
 import { specCriteria, findCriterion } from '../shared/criteria.js';
 import { activeClaims } from './agents.js';
-import { parseRules, ruleSnapshot, rulesChanged } from '../shared/guardrails.js';
+import { ruleSnapshot, rulesChanged } from '../shared/guardrails.js';
 import { steeringOf } from './steering.js';
 
 export const REPORT_STATUSES = ['implemented', 'partial', 'blocked', 'in_progress'];
@@ -68,12 +68,10 @@ const clip = (s, n) =>
     .trim()
     .slice(0, n);
 
-/** The rules of the team's released guardrails ([] when none are released). */
+/** The rules of the team's released guardrails ([] when none are released): one file per rule in docs/guardrails/. */
 export async function releasedRules(team) {
-  const g = store.getItem(team.id, 'guardrails.md');
-  if (!g || g.status !== 'approved') return [];
   try {
-    return parseRules(await store.readReleasedDoc(team, 'guardrails.md'));
+    return await store.releasedRules(team);
   } catch {
     return [];
   }
@@ -362,7 +360,7 @@ export async function workList(team, agentKey = null) {
       ...(state === 'guardrails_changed'
         ? {
             rules_changed: drift.map((r) => ({ id: r.id, ...(r.kind ? { kind: r.kind } : {}), text: r.text, change: r.change })),
-            hint: 'The guardrails changed since your last report. Check the code of this spec against these rules (get_team_context has all of them). If it complies, report again (report_implementation, same status and criteria); if not, fix it – or ask with request_decision when a rule and the spec contradict each other.',
+            hint: 'The guardrails changed since your last report. Check the code of this spec against these rules (get_team_context lists them, get_guardrails explains them). If it complies, report again (report_implementation, same status and criteria); if not, fix it – or ask with request_decision when a rule and the spec contradict each other.',
           }
         : {}),
       ...(state === 'recheck'

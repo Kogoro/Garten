@@ -21,6 +21,12 @@ export const ic = {
   sync: (s?: number) =>
     svg('<path d="M20 12a8 8 0 0 0-14-5.3L4 9"/><path d="M4 4v5h5"/><path d="M4 12a8 8 0 0 0 14 5.3L20 15"/><path d="M20 20v-5h-5"/>', s),
   account: (s?: number) => svg('<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/>', s),
+  rule: (s: number = 18) =>
+    svg(
+      '<path d="M10 6h10"/><path d="M10 12h10"/><path d="M10 18h10"/><path d="M3.5 6l1.5 1.5L7.5 5"/><path d="M3.5 12l1.5 1.5L7.5 11"/><path d="M3.5 18l1.5 1.5L7.5 17"/>',
+      s,
+      2,
+    ),
   glossary: (s?: number) =>
     svg('<path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19V5"/><path d="M9 8h6"/><path d="M9 12h4"/>', s),
   pause: (s?: number) => svg('<path d="M9 5v14"/><path d="M15 5v14"/>', s),

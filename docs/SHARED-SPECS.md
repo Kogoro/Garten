@@ -1,6 +1,6 @@
 # Shared specs: parent, child and sibling teams
 
-Status: **concept**, nothing of this is built yet. The decisions taken so far are listed at the end.
+Status: **concept**. Step 0 (guardrails as files, section 3a) is built; the rest is not. The decisions taken so far are listed at the end.
 
 ## The problem
 
@@ -166,7 +166,7 @@ What each part does:
 | --------------- | ---------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
 | `id`            | Stable, assigned by the server (`G1`, `G2` …), never reused, independent of the file name. Inherited rules are shown as `ACME/G7`. | –                                                               |
 | `rule`          | The binding sentence. Exactly what an agent must follow.                                                                           | **Yes**, when added or reworded (as today)                      |
-| `kind`          | _Always_ / _Never_, as today's sections                                                                                            | Yes                                                             |
+| `kind`          | _Always_ / _Never_, as today's sections                                                                                            | Together with the wording: reports record the rule sentence     |
 | Body (Markdown) | Why, examples, what to do instead, exceptions. Agents read it to apply the rule sensibly.                                          | **No**: explaining a rule better does not make built code wrong |
 | `see`           | Related rules and glossary terms                                                                                                   | No                                                              |
 | `required_by`   | Section 3: forced on child teams after this date                                                                                   | –                                                               |

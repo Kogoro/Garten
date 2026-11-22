@@ -25,9 +25,9 @@ export const isTermPath = (id) => String(id).startsWith(`${GLOSSARY_DIR}/`) && S
 
 const LIST_KEYS = ['aliases', 'avoid', 'distinct', 'see'];
 const STR_KEYS = ['term', 'source', 'folder', 'proposed_by', 'from'];
-const FM = /^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
+export const FM = /^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
 
-const unquote = (v) => {
+export const unquote = (v) => {
   v = v.trim();
   if (/^".*"$/.test(v)) {
     try {
@@ -39,7 +39,7 @@ const unquote = (v) => {
   if (/^'.*'$/.test(v)) return v.slice(1, -1).replace(/''/g, "'");
   return v;
 };
-const parseList = (v) => {
+export const parseList = (v) => {
   v = v.trim();
   if (!v) return [];
   if (v.startsWith('[')) {

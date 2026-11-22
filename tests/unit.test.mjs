@@ -207,6 +207,132 @@ test('guardrails: rules are parsed by section; new and reworded rules count, whi
   assert.deepEqual(rulesChanged(r, null), []);
 });
 
+// guardrails as files: one Markdown file per rule
+test('guardrail files: front matter round trip, paths, ids, GUARDRAILS.md', async () => {
+  const g = await import('../shared/guardrailFiles.js');
+  const { parseRules } = await import('../shared/guardrails.js');
+  const md = g.formatRuleFile({
+    id: 'G7',
+    rule: 'Never store card numbers,\n not even truncated.',
+    kind: 'never',
+    see: ['G3'],
+    body: '**Why:** PCI.',
+  });
+  const r = g.parseRuleFile(md);
+  assert.deepEqual(
+    [r.id, r.rule, r.kind, r.see, r.body],
+    ['G7', 'Never store card numbers, not even truncated.', 'never', ['G3'], '**Why:** PCI.'],
+  );
+  assert.equal(g.formatRuleFile(r), md);
+  assert.equal(g.parseRuleFile('---\nterm: "x"\n---\n'), null);
+  assert.equal(g.parseRuleFile('---\nid: nonsense\nrule: "x"\n---\n').id, null);
+  assert.equal(g.parseRuleFile('---\nrule: x\nkind: sometimes\n---\n').kind, 'always');
+  assert.equal(
+    g.rulePath('security', 'Never store card numbers, not even truncated.'),
+    'guardrails/security/never-store-card-numbers-not-even.md',
+  );
+  assert.equal(
+    g.rulePath('', 'Log in UTC', (p) => p === 'guardrails/log-in-utc.md'),
+    'guardrails/log-in-utc-2.md',
+  );
+  assert.ok(g.isRulePath('guardrails/a/b.md') && !g.isRulePath('guardrails/_proposed/b.md') && !g.isRulePath('guardrails.md'));
+  const rules = g.rulesOf([
+    { id: 'guardrails/b.md', body: md },
+    { id: 'guardrails/a.md', body: g.formatRuleFile({ id: 'G2', rule: 'Log in UTC.', kind: 'always' }) },
+    { id: 'guardrails/c.md', body: g.formatRuleFile({ id: 'G2', rule: 'A duplicate id', kind: 'always' }) },
+    { id: 'guardrails/_proposed/d.md', body: g.formatRuleFile({ rule: 'Proposed', kind: 'always' }) },
+    { id: 'guardrails/notes.md', body: '# Notes' },
+  ]);
+  assert.deepEqual(
+    rules.map((x) => [x.id, x.text]),
+    [
+      ['G2', 'Log in UTC.'],
+      ['G7', 'Never store card numbers, not even truncated.'],
+    ],
+  );
+  // GUARDRAILS.md keeps the old one-line format, so it reads like the old guardrails.md
+  assert.deepEqual(
+    parseRules(g.guardrailsMarkdown(rules)).map((x) => [x.id, x.kind]),
+    [
+      ['G2', 'always'],
+      ['G7', 'never'],
+    ],
+  );
+});
+
+test('guardrail files: the old guardrails.md splits into rules (kind from the section, other sections become folders) and the rest', async () => {
+  const { splitGuardrailsMd } = await import('../shared/guardrailFiles.js');
+  const out = splitGuardrailsMd(
+    '# Guardrails\n\n<!-- One rule per line,\n e.g. "- G1: …". -->\n\nWe keep these short.\n\n## Always\n- G1: Verify signatures.\n\n## Never\n- G2: Log secrets.\n\n## Data & Privacy\n- G4: Never export personal data.\n- G5: Pseudonymise test data.\n```\n- G9: in a fence\n```\n',
+  );
+  assert.deepEqual(
+    out.rules.map((r) => [r.id, r.kind, r.folder]),
+    [
+      ['G1', 'always', ''],
+      ['G2', 'never', ''],
+      ['G4', 'never', 'Data-Privacy'],
+      ['G5', 'always', 'Data-Privacy'],
+    ],
+  );
+  assert.match(out.rest, /We keep these short\./);
+  assert.ok(!out.rest.includes('One rule per line'));
+});
+
+test('guardrails: the one-time migration turns guardrails.md into rule files with the same ids, quietly', async () => {
+  const store = await import('../server/store.js');
+  const { createTeam } = await import('../server/teams.js');
+  const { parseRuleFile } = await import('../shared/guardrailFiles.js');
+  const team = createTeam({ name: 'Migration Lab' });
+  const t = team.id;
+  store.ensureFoundation(team);
+  store.saveItem(
+    t,
+    {
+      id: 'guardrails.md',
+      kind: 'doc',
+      title: 'guardrails.md',
+      pinned: true,
+      body: '# Guardrails\n\nRead before every task.\n\n## Always\n- G1: Verify signatures.\n\n## Never\n- G3: Log secrets.\n',
+    },
+    0,
+  );
+  await store.releaseDoc(team, 'guardrails.md');
+  let events = 0;
+  const on = () => events++;
+  store.events.on('guardrails', on);
+  assert.equal(await store.migrateGuardrails(team), 2);
+  store.events.off('guardrails', on);
+  assert.equal(events, 0);
+  assert.equal(store.getItem(t, 'guardrails.md'), undefined);
+  const files = store.allDocs(t).filter((d) => d.id.startsWith('guardrails/'));
+  assert.deepEqual(
+    files.map((d) => [d.id, parseRuleFile(d.body)?.id ?? null, d.pinned, d.status]),
+    [
+      ['guardrails/log-secrets.md', 'G3', true, 'approved'],
+      ['guardrails/notes.md', null, true, 'approved'],
+      ['guardrails/verify-signatures.md', 'G1', true, 'approved'],
+    ],
+  );
+  assert.deepEqual(
+    (await store.releasedRules(team)).map((r) => [r.id, r.kind, r.text]),
+    [
+      ['G1', 'always', 'Verify signatures.'],
+      ['G3', 'never', 'Log secrets.'],
+    ],
+  );
+  const repo = store.repoFor(team);
+  assert.match(await repo.readFile(`${team.row.git_root}/GUARDRAILS.md`), /## Never\n\n- G3: Log secrets\./);
+  assert.equal(await repo.readFile(`${team.row.git_root}/docs/guardrails.md`).catch(() => 'gone'), 'gone');
+  // the next new rule continues after the highest id: G2 was never given, but G4 comes next
+  const n = store.saveItem(
+    t,
+    { id: 'guardrails/utc.md', kind: 'doc', title: 'utc', body: '---\nrule: "Log in UTC."\nkind: always\n---\n' },
+    0,
+  );
+  assert.equal(parseRuleFile(n.body).id, 'G4');
+  assert.equal(await store.migrateGuardrails(team), 0);
+});
+
 // bounded history: reports per spec, closed feedback
 describe('bounded history', () => {
   const step = chain();

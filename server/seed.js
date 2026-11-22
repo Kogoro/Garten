@@ -1,5 +1,6 @@
 import * as store from './store.js';
 import { formatTermFile, termPath } from '../shared/glossaryFiles.js';
+import { formatRuleFile, rulePath } from '../shared/guardrailFiles.js';
 import { createGlobalTerm, listGlobalTerms } from './globalGlossary.js';
 
 /** Demo content mirroring the design mockup. Only runs on an empty team (after ensureFoundation). */
@@ -50,6 +51,25 @@ export async function seedDemo(team) {
     term('', { term: 'Idempotency key', body: 'A client-chosen token that makes a charge request safe to repeat.' }),
   ];
   await store.releaseDocs(team, terms);
+  // guardrails: one file per rule, binding on every task; the body says why
+  const rule = (folder, x) => {
+    const id = rulePath(folder, x.rule);
+    doc(id, formatRuleFile(x));
+    return id;
+  };
+  store.saveItem(t, { id: 'guardrails/security', kind: 'folder' }, 0);
+  await store.releaseDocs(team, [
+    rule('security', {
+      rule: 'Verify the signature of every incoming webhook before reading its body.',
+      kind: 'always',
+      body: '**Why:** unsigned webhooks let anyone fake payment events.\n\n**How:** compare the HMAC with a constant-time check; during a key rotation accept `current` and `previous`.',
+    }),
+    rule('security', {
+      rule: 'Never write card numbers, tokens or secrets to logs.',
+      kind: 'never',
+      body: '**Why:** logs are kept for months and read by many people; one leaked key means rotating every client.',
+    }),
+  ]);
 
   store.saveItem(t, { id: 'adr', kind: 'folder' }, 0);
   store.saveItem(t, { id: 'schemas', kind: 'folder' }, 0);

@@ -32,13 +32,15 @@ describe('teams of their own, foundation documents and invitations', () => {
   });
 
   describe('foundation documents: vision, strategy, glossary', () => {
-    step('every new team starts with vision, strategy and guardrails (the glossary is a folder of term files)', async () => {
+    step('every new team starts with vision, strategy and a guardrails folder (glossary and guardrails are folders of files)', async () => {
       own2 = (await editor.c.get('/api/teams')).data.teams.find((x) => x.name === 'Editor Lab');
       lab = new Client(ctx.base);
       lab.cookie = editor.c.cookie;
       lab.tid = own2.id;
-      labDocs = (await lab.sync()).data.items.filter((i) => i.kind === 'doc');
-      assert.deepEqual(labDocs.map((d) => d.id).sort(), ['guardrails.md', 'strategy.md', 'vision.md']);
+      const items = (await lab.sync()).data.items;
+      labDocs = items.filter((i) => i.kind === 'doc');
+      assert.deepEqual(labDocs.map((d) => d.id).sort(), ['strategy.md', 'vision.md']);
+      assert.ok(items.find((i) => i.id === 'guardrails' && i.kind === 'folder'));
       assert.ok(labDocs.every((d) => d.pinned && d.core));
     });
     step('empty foundation documents are not served (template-only = empty)', async () => {
