@@ -161,7 +161,7 @@ async function applyChange(ch, team, user, role) {
     if (!cur || hasFields) {
       // a spec that implements another: the reference is checked (and given a version) here, so a bad one fails early
       const impl =
-        kind === 'spec' && 'implements' in fields
+        kind === 'spec' && 'implements' in fields && (fields.implements || null) !== (cur?.implements ?? null)
           ? fields.implements
             ? sharing.normaliseImplements(team, fields.implements)
             : null

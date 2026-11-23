@@ -27,6 +27,10 @@ export interface Item {
   pinned: boolean;
   core: boolean;
   specType: string;
+  /** specs only: the spec this one implements – "SPEC-007@v2" of this team or "@KEY/SPEC-ID@v3" of another */
+  implements?: string | null;
+  /** an adopted copy: where it came from, "KEY/path@4" */
+  origin?: string | null;
   rev: number;
   status: 'draft' | 'approved';
   version: number;

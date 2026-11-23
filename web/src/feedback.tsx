@@ -163,6 +163,7 @@ export function FbItem({ f, version, showSpec, act }: { f: any; version?: number
         </span>
         {f.section && <span className="mono fb-sec">{f.section}</span>}
         <span className="muted fb-meta">
+          {f.fromTeam ? `${f.fromTeam.key} · ` : ''}
           {f.via ?? f.author} · {ago(Date.parse(f.createdAt))}
           {version !== undefined && f.specVersion !== version ? ` · on v${f.specVersion || 0}` : ''}
         </span>
@@ -287,6 +288,7 @@ export function DecisionCard({ f, showSpec, act, collapsed }: { f: any; showSpec
         </span>
         {f.section && <span className="mono fb-sec">{f.section}</span>}
         <span className="muted fb-meta">
+          {f.fromTeam ? `${f.fromTeam.key} · ` : ''}
           {f.via ?? f.author} asks · {ago(Date.parse(f.createdAt))}
         </span>
         <Waiting id={f.id} />
