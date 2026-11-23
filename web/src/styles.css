@@ -7878,3 +7878,13 @@ details.row > :not(summary) {
 .shared-sect .row-top .chip.from {
   margin-left: auto;
 }
+.btns.tight {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+.btns.tight > * {
+  flex: none;
+}
+.notice-row .btns {
+  flex: none;
+}

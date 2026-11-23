@@ -1,6 +1,6 @@
 # Shared specs: parent, child and sibling teams
 
-Status: **concept**. Step 0 (guardrails as files, section 3a) is built; the rest is not. The decisions taken so far are listed at the end.
+Status: **built** (steps 0–4). How it works in the app and over MCP: [REFERENCE.de.md → Teilen zwischen Teams](REFERENCE.de.md#teilen-zwischen-teams). Two details differ from the sketch below: foundation versions and versions of shared items are kept as snapshots in the database (`foundation_versions`, `shared_versions`) rather than as Git tags of the owner, and a folder share covers the documents below the folder at the time they are released. The decisions taken are listed at the end.
 
 ## The problem
 

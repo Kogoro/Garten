@@ -10,6 +10,7 @@ import path from 'node:path';
 import { createServer } from 'node:http';
 import { startServer, Client, startSmtpSink } from '../../tests/helpers.mjs';
 import { formatTermFile } from '../../shared/glossaryFiles.js';
+import { formatRuleFile } from '../../shared/guardrailFiles.js';
 
 const SHOTS = process.env.SHOTS;
 if (SHOTS) mkdirSync(SHOTS, { recursive: true });
@@ -1575,7 +1576,7 @@ try {
   await d.click('[data-tab=members]');
   await d.focus('[data-tab=members]');
   await d.keyboard.press('ArrowRight');
-  await d.locator('[data-tab=types][aria-selected=true]').waitFor();
+  await d.locator('[data-tab=sharing][aria-selected=true]').waitFor();
   await d.click('[data-tab=members]');
   ok('tabs: arrow keys move between the sections of a page');
   await d.fill('#inv-email', 'ed@example.com');
@@ -1685,8 +1686,8 @@ try {
   assert.equal(await d.locator('.rel', { hasText: 'Dunning level' }).locator('.gl-ex em').innerText(), 'often');
   ok('admin: a global term is written with formatting; the list shows its first paragraph formatted');
   await d.click('[data-tab=teams]');
-  await d.locator('.user:has(.ws-av)', { hasText: 'Platform Crew' }).waitFor();
-  await d.locator('.user:has(.ws-av)', { hasText: 'Payments' }).waitFor();
+  await d.locator('.user:has(.ws-av) .grow > b', { hasText: 'Platform Crew' }).waitFor();
+  await d.locator('.user:has(.ws-av) .grow > b', { hasText: 'Payments' }).waitFor();
   await d.click('[data-tab=accounts]');
   await d.locator('.user:has(.avatar)', { hasText: 'Ed Editor' }).waitFor();
   assert.equal(await d.locator('#userForm').count(), 0);
@@ -1703,6 +1704,71 @@ try {
   await dctx.close();
 
   // =============================================================== VIEWER (rights in the UI)
+  // ---- sharing between teams: a parent team passes on its guardrails, another team shares a folder that this team accepts and links
+  {
+    const mk = async (name, key) => (await admin.post('/api/teams', { name, key })).data.team;
+    const zeta = await mk('Zeta Group', 'ZETA');
+    const zulu = await mk('Zulu API', 'ZULU');
+    const own = admin.me.teams[0];
+    await admin.push(
+      [
+        {
+          id: 'guardrails/fridays.md',
+          kind: 'doc',
+          fields: { title: 'x', body: formatRuleFile({ rule: 'Never ship on Fridays.', kind: 'never' }) },
+        },
+      ],
+      zeta.id,
+    );
+    for (let i = 0; i < 60 && !(await admin.get(`/api/teams/${zeta.id}/sharing`)).data.sharing.foundationVersion; i++)
+      await new Promise((r) => setTimeout(r, 100));
+    assert.equal((await admin.post(`/api/admin/teams/${own.id}/parent`, { parentId: zeta.id })).status, 200);
+    await admin.push(
+      [
+        { id: 'api', kind: 'folder' },
+        { id: 'api/zulu.yaml', kind: 'doc', fields: { title: 'api/zulu.yaml', body: 'openapi: 3.1.0\ninfo: { title: Zulu }\n' } },
+        { id: 'ZULU-001', kind: 'spec', fields: { title: 'Zulu API', body: '## Goal\nServe.\n', links: ['api/zulu.yaml'] }, approve: true },
+      ],
+      zulu.id,
+    );
+    assert.equal((await admin.post(`/api/teams/${zulu.id}/shares`, { itemId: 'api', audience: 'teams', teams: [own.key] })).status, 200);
+    const sctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const z = await sctx.newPage();
+    watch(z);
+    await z.goto(BASE);
+    await signIn(z, 'admin@localhost', 'adminpass1');
+    // a fresh session opens the first team: open the one that got the parent and the share
+    await z.evaluate(() => (location.hash = '#/admin'));
+    await z.click('[data-tab=teams]');
+    await z.locator(`.user:has(.chip:text-is("${own.key}")) [data-act=admin-open-team]`).click();
+    await z.waitForFunction((n) => (document.querySelector('.topnav .ws')?.textContent ?? '').includes(n), own.name);
+    await z.evaluate(() => (location.hash = '#/team?tab=sharing'));
+    await z.locator('#treeCard', { hasText: 'Zeta Group' }).waitFor();
+    await z.locator('#inheritCard', { hasText: 'Zeta Group foundation v1' }).waitFor();
+    await z.locator('#sharedWithCard [data-shared="ZULU/api"]', { hasText: 'waiting for you' }).waitFor();
+    ok('sharing: the parent team and a share waiting for acceptance show under Members & Git → Sharing');
+    await z.click('#sharedWithCard [data-act=accept-share]');
+    await z.locator('#sharedWithCard [data-shared="ZULU/api"]', { hasText: 'folder · 1 document' }).waitFor();
+    await z.evaluate(() => (location.hash = '#/guardrails'));
+    await z.locator('[data-from=ZETA] [data-rule="ZETA/G1"]', { hasText: 'Never ship on Fridays.' }).waitFor();
+    ok('sharing: inherited rules appear in Guardrails, grouped by the parent team, with KEY/Gn ids');
+    await z.evaluate(() => (location.hash = '#/docs'));
+    await z.click('#shared-doc [data-ref="@ZULU/api/zulu.yaml"]');
+    await z.locator('#sharedView .codeview', { hasText: 'openapi: 3.1.0' }).waitFor();
+    assert.ok(await z.locator('#sharedView [data-act=adopt]').isVisible());
+    ok('sharing: an accepted folder appears under Documents → From Zulu API and opens read-only with Adopt');
+    await z.evaluate(() => (location.hash = '#/spec/SPEC-014'));
+    await z.click('#docsDd [data-act=dd-toggle]');
+    await z.click('[data-act=dd-link-shared][data-id="@ZULU/api/zulu.yaml"]');
+    await z.keyboard.press('Escape');
+    await z.locator('#shareStrip [data-link="@ZULU/api/zulu.yaml@v1"]').waitFor();
+    ok('sharing: a spec links a shared document at its newest version, shown above the content');
+    await z.click('#shareStrip [aria-label="Remove link to @ZULU/api/zulu.yaml@v1"]');
+    await z.locator('#shareStrip').waitFor({ state: 'detached' });
+    await sctx.close();
+    await admin.post(`/api/admin/teams/${own.id}/parent`, { parentId: null });
+  }
+
   const vctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const v = await vctx.newPage();
   watch(v);

@@ -452,7 +452,7 @@ export function AdminPage() {
                                   id={`par-${t.id}`}
                                   className="field"
                                   data-act="admin-parent"
-                                  style={{ maxWidth: 260, height: 34 }}
+                                  style={{ maxWidth: 260, minHeight: 40 }}
                                   value={t.parentId ?? ''}
                                   onChange={guard(async (e) => {
                                     await S.api('POST', `/api/admin/teams/${t.id}/parent`, { parentId: e.target.value || null });

@@ -123,7 +123,7 @@ export function SharingTab() {
           </div>
         )}
         {s.links.incoming.map((r) => (
-          <div className="card soft notice-row" key={r.team.id} data-req={r.team.key}>
+          <div className="notice-row" key={r.team.id} data-req={r.team.key}>
             <div className="grow">
               <b>{r.team.name}</b> wants to be your parent team{r.requestedBy ? ` (asked by ${r.requestedBy})` : ''}.
               <div className="muted">Your agents then follow its guardrails, and you inherit its vision, strategy and glossary.</div>
@@ -268,7 +268,7 @@ export function SharingTab() {
                 </p>
               )}
               {a.update && (
-                <div className="card soft notice-row" data-act="foundation-update">
+                <div className="notice-row" data-act="foundation-update">
                   <div className="grow">
                     <b>Update available: v{a.update.version}</b> · {plural(a.update.changes.length, 'change')}
                     {a.update.since ? ` · waiting since ${when(a.update.since)}` : ''}
@@ -666,7 +666,7 @@ export function SharedView({ refId }: { refId: string }) {
           {!err && !it && <p className="muted">{S.state.online ? 'Loading…' : 'Other teams’ items need a connection the first time.'}</p>}
           {it && (
             <>
-              <div className="btns">
+              <div className="btns tight">
                 {data.versions.length > 1 && (
                   <>
                     <label className="sr" htmlFor="sv-version">
