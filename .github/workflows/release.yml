@@ -82,5 +82,10 @@ jobs:
         run: |
           flags=""
           case "$GITHUB_REF_NAME" in *-*) flags="--prerelease" ;; esac
-          gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes --title "$GITHUB_REF_NAME" $flags \
-            "dist/garten-$GITHUB_REF_NAME.tar.gz" "dist/garten-$GITHUB_REF_NAME.tar.gz.sha256"
+          files=("dist/garten-$GITHUB_REF_NAME.tar.gz" "dist/garten-$GITHUB_REF_NAME.tar.gz.sha256")
+          # A release drafted by hand in GitHub (which also creates the tag) already exists: attach the archive to it.
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes --title "$GITHUB_REF_NAME" $flags "${files[@]}"
+          fi

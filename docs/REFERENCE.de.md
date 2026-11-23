@@ -58,6 +58,8 @@ Version in `package.json` erhöhen, committen, dann Tag setzen und pushen:
 git tag v0.12.0 && git push origin v0.12.0
 ```
 
+Alternativ in GitHub unter _Releases → Draft a new release_ den Tag auf `main` anlegen und veröffentlichen; der Workflow hängt das Archiv dann an diesen Release an.
+
 Der Workflow `.github/workflows/release.yml` führt zuerst dieselben Prüfungen wie CI aus (Tests, Installer-Skript, Docker-Build, Audit) und prüft, dass der Tag zur `package.json`-Version passt. Erst dann veröffentlicht er:
 
 - das Docker-Image `ghcr.io/kogoro/garten:<version>` für amd64 und arm64, bei regulären Releases zusätzlich `:latest`,
