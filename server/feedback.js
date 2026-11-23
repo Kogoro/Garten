@@ -39,8 +39,14 @@ const view = (r) => ({
   resolvedBy: r.resolved_by,
   resolvedAt: r.resolved_at,
   reply: r.reply,
+  ...(r.from_team_id ? { fromTeam: teamBrief(r.from_team_id) } : {}),
   ...(r.kind === DECISION ? { blocking: !!r.blocking, options: json(r.options, []), recommended: r.recommended, answer: r.answer } : {}),
 });
+/** Feedback and decisions can come from another team the spec is shared with (or that implements it). */
+const teamBrief = (id) => {
+  const t = sql('SELECT id, key, name FROM teams WHERE id=?').get(id);
+  return t ? { id: t.id, key: t.key, name: t.name } : { id, key: '?', name: 'a deleted team' };
+};
 const row = (teamId, id) => sql('SELECT * FROM feedback WHERE team_id=? AND id=?').get(teamId, id);
 
 /** Everything the garden view shows changes with this counter (feedback, decisions, reports). */
@@ -58,7 +64,7 @@ function insert(teamId, spec, f, by) {
   if (open >= 50) throw new ApiError('This spec already has 50 open entries – ask a person to triage them first.', 429);
   const id = randomUUID();
   sql(
-    'INSERT INTO feedback (id,team_id,spec_id,spec_version,kind,section,text,evidence,status,author,author_id,via,created_at,blocking,options,recommended) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+    'INSERT INTO feedback (id,team_id,spec_id,spec_version,kind,section,text,evidence,status,author,author_id,via,created_at,blocking,options,recommended,from_team_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
   ).run(
     id,
     teamId,
@@ -76,6 +82,7 @@ function insert(teamId, spec, f, by) {
     f.blocking ? 1 : 0,
     f.options ? JSON.stringify(f.options) : null,
     f.recommended ?? null,
+    by?.fromTeamId && by.fromTeamId !== teamId ? by.fromTeamId : null,
   );
   bumpGarden(teamId);
   const created = view(row(teamId, id));
@@ -322,3 +329,12 @@ async function flush(teamId) {
   }
 }
 export const flushFeedbackMail = flush; // for tests
+
+/** Decisions and feedback a team's agents left on specs of other teams (shared or implemented specs), newest first. */
+/** @param {string} fromTeamId @param {{ kind?: string }} [opts] */
+export function feedbackFrom(fromTeamId, { kind } = {}) {
+  return sql('SELECT * FROM feedback WHERE from_team_id=? ORDER BY created_at DESC LIMIT 200')
+    .all(fromTeamId)
+    .filter((r) => !kind || r.kind === kind)
+    .map((r) => ({ ...view(r), team: teamBrief(r.team_id) }));
+}

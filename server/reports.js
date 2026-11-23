@@ -8,6 +8,7 @@ import { specCriteria, findCriterion } from '../shared/criteria.js';
 import { activeClaims } from './agents.js';
 import { ruleSnapshot, rulesChanged } from '../shared/guardrails.js';
 import { steeringOf } from './steering.js';
+import { effectiveRules } from './sharing.js';
 
 export const REPORT_STATUSES = ['implemented', 'partial', 'blocked', 'in_progress'];
 export const CRITERION_STATUSES = ['met', 'deviating', 'open'];
@@ -68,10 +69,13 @@ const clip = (s, n) =>
     .trim()
     .slice(0, n);
 
-/** The rules of the team's released guardrails ([] when none are released): one file per rule in docs/guardrails/. */
+/**
+ * The rules a team's agents follow ([] when none): the inherited rules of its parent teams (ids KEY/Gn, at the pinned foundation
+ * versions) and the team's own released rule files in docs/guardrails/.
+ */
 export async function releasedRules(team) {
   try {
-    return await store.releasedRules(team);
+    return await effectiveRules(team);
   } catch {
     return [];
   }

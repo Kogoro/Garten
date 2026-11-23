@@ -425,6 +425,80 @@ const MIGRATIONS = [
     // guardrails are one file per rule; their ids (G1, G2 …) are given by the server and never twice: the highest number given so far
     db.exec('ALTER TABLE teams ADD COLUMN rule_seq INTEGER NOT NULL DEFAULT 0');
   },
+  /* 5 */ () => {
+    // Sharing between teams (docs/SHARED-SPECS.md). Teams form a tree: a child inherits the foundation of its ancestors, pinned
+    // to one foundation version per ancestor. Any team can share released documents, folders and specs with other teams; links
+    // in the receiving team point to one released version (a snapshot in shared_versions).
+    db.exec(`
+      ALTER TABLE teams ADD COLUMN parent_id TEXT;
+      ALTER TABLE teams ADD COLUMN foundation_version INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE items ADD COLUMN implements TEXT;          -- "@PLAT/SPEC-012@3" or "SPEC-007@2" (inside the team)
+      ALTER TABLE items ADD COLUMN origin TEXT;              -- adopted copies: "API/api/payments.yaml@4"
+      ALTER TABLE feedback ADD COLUMN from_team_id TEXT;     -- feedback and decisions from a team the item is shared with
+      CREATE TABLE team_links (                              -- parent link requests, waiting for the child team's admin
+        parent_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+        child_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+        requested_by TEXT,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (parent_id, child_id)
+      );
+      CREATE TABLE foundation_versions (                     -- one row per foundation release of a team: the released foundation files
+        team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+        version INTEGER NOT NULL,
+        files TEXT NOT NULL,                                 -- JSON [{ id, body }]: vision, strategy, other foundation documents, rules, terms
+        hash TEXT NOT NULL,
+        at TEXT NOT NULL,
+        by TEXT,
+        PRIMARY KEY (team_id, version)
+      );
+      CREATE TABLE foundation_pins (                         -- which foundation version of each ancestor a team builds against
+        team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+        ancestor_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+        version INTEGER NOT NULL,
+        accepted_by TEXT,
+        accepted_at TEXT,
+        PRIMARY KEY (team_id, ancestor_id)
+      );
+      CREATE TABLE forced_rules (                            -- rules applied to a team after their "required by" date passed
+        team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+        ancestor_id TEXT NOT NULL,
+        rule_id TEXT NOT NULL,
+        version INTEGER NOT NULL,                            -- the ancestor's foundation version the rule was taken from
+        applied_at TEXT NOT NULL,
+        PRIMARY KEY (team_id, ancestor_id, rule_id)
+      );
+      CREATE TABLE shares (
+        team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+        item_id TEXT NOT NULL,
+        kind TEXT NOT NULL,                                  -- spec | doc | folder
+        audience TEXT NOT NULL,                              -- children | descendants | teams
+        created_by TEXT,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (team_id, item_id)
+      );
+      CREATE TABLE share_teams (                             -- audience = teams: who it is shared with, and who accepted
+        team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+        item_id TEXT NOT NULL,
+        to_team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+        accepted_by TEXT,
+        accepted_at TEXT,
+        PRIMARY KEY (team_id, item_id, to_team_id)
+      );
+      CREATE TABLE shared_versions (                         -- released versions of shared documents and specs, as other teams read them
+        team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+        item_id TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        kind TEXT NOT NULL,
+        title TEXT NOT NULL DEFAULT '',
+        body TEXT NOT NULL,
+        at TEXT NOT NULL,
+        by TEXT,
+        PRIMARY KEY (team_id, item_id, version)
+      );
+      CREATE TABLE sharing_state (id INTEGER PRIMARY KEY CHECK (id = 1), rev INTEGER NOT NULL);
+      INSERT INTO sharing_state (id, rev) VALUES (1, 1);
+    `);
+  },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.length;
 

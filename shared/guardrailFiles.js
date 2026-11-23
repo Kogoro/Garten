@@ -25,7 +25,7 @@ export const RULE_ID = /^G[1-9]\d{0,5}$/;
 export const KINDS = ['always', 'never'];
 
 /**
- * @typedef {{ id: string|null, rule: string, kind: 'always'|'never', see: string[], proposedBy: string|null, from: string|null, body: string }} RuleFile
+ * @typedef {{ id: string|null, rule: string, kind: 'always'|'never', see: string[], requiredBy: string|null, proposedBy: string|null, from: string|null, body: string }} RuleFile
  */
 /** @param {string} md @returns {RuleFile|null} Front matter + body, or null when this is not a rule file. */
 export function parseRuleFile(md) {
@@ -52,6 +52,8 @@ export function parseRuleFile(md) {
     rule,
     kind: String(meta.kind ?? '').toLowerCase() === 'never' ? 'never' : 'always',
     see: meta.see ?? [],
+    // parent teams only: after this date (YYYY-MM-DD) the rule applies to child teams even before they accept the foundation update
+    requiredBy: /^\d{4}-\d{2}-\d{2}$/.test(String(meta.required_by ?? '').trim()) ? String(meta.required_by).trim() : null,
     proposedBy: meta.proposed_by ?? null,
     from: meta.from ?? null,
     body: text
@@ -67,7 +69,7 @@ const q = (s) =>
       .replace(/[\r\n]+/g, ' ')
       .trim(),
   );
-/** { id?, rule, kind, see?, proposedBy?, from?, body? } -> Markdown with front matter */
+/** { id?, rule, kind, see?, requiredBy?, proposedBy?, from?, body? } -> Markdown with front matter */
 export function formatRuleFile(r) {
   const lines = [];
   if (r.id) lines.push(`id: ${r.id}`);
@@ -80,6 +82,7 @@ export function formatRuleFile(r) {
     )
     .filter(Boolean);
   if (see.length) lines.push(`see: [${see.map((x) => JSON.stringify(x)).join(', ')}]`);
+  if (r.requiredBy && /^\d{4}-\d{2}-\d{2}$/.test(r.requiredBy)) lines.push(`required_by: ${r.requiredBy}`);
   if (r.proposedBy) lines.push(`proposed_by: ${q(r.proposedBy)}`);
   if (r.from) lines.push(`from: ${q(r.from)}`);
   const body = String(r.body ?? '').trim();
@@ -112,7 +115,7 @@ export const ruleFolder = (path) => String(path).split('/').slice(1, -1).join('/
 export const ruleNumber = (id) => (RULE_ID.test(String(id ?? '')) ? Number(String(id).slice(1)) : 0);
 
 /**
- * The rules of a set of files: [{ id, kind, text, path, folder, body, see }], sorted by number. Files without a valid id or with an id
+ * The rules of a set of files: [{ id, kind, text, path, folder, body, see, requiredBy }], sorted by number. Files without a valid id or with an id
  * an earlier file already has are left out (the server gives every saved rule a unique id, so this only happens to hand-made files).
  * @param {{ id: string, body: string }[]} files
  */
@@ -124,7 +127,16 @@ export function rulesOf(files) {
     const r = parseRuleFile(f.body);
     if (!r?.id || seen.has(r.id)) continue;
     seen.add(r.id);
-    out.push({ id: r.id, kind: r.kind, text: r.rule, path: f.id, folder: ruleFolder(f.id), body: r.body, see: r.see });
+    out.push({
+      id: r.id,
+      kind: r.kind,
+      text: r.rule,
+      path: f.id,
+      folder: ruleFolder(f.id),
+      body: r.body,
+      see: r.see,
+      requiredBy: r.requiredBy,
+    });
   }
   return out.sort((a, b) => ruleNumber(a.id) - ruleNumber(b.id));
 }
