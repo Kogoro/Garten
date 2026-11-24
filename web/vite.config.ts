@@ -116,7 +116,16 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
         navigateFallback: '/index.html',
         // /authorize, /token, /register and /revoke: the MCP OAuth endpoints (mcpAuthRouter mounts them at the root).
-        navigateFallbackDenylist: [/^\/api\//, /^\/mcp/, /^\/(authorize|token|register|revoke)(\/|$)/, /^\/oauth/, /^\/\.well-known/, /^\/auth\//, /^\/healthz/, /^\/invite/],
+        navigateFallbackDenylist: [
+          /^\/api\//,
+          /^\/mcp/,
+          /^\/(authorize|token|register|revoke)(\/|$)/,
+          /^\/oauth/,
+          /^\/\.well-known/,
+          /^\/auth\//,
+          /^\/healthz/,
+          /^\/invite/,
+        ],
         // /assets/ names carry a content hash, so a cached copy is never stale: cache first. Precached files never get here.
         // Chunks of older builds stay until evicted (least recently used first), so a page still running an old build keeps its diagrams.
         runtimeCaching: [
