@@ -499,6 +499,18 @@ const MIGRATIONS = [
       INSERT INTO sharing_state (id, rev) VALUES (1, 1);
     `);
   },
+  /* 6 */ () => {
+    db.exec(`
+      -- the links of the released version of a spec (JSON): pinned @KEY/… versions count from here, never from the working copy
+      ALTER TABLE items ADD COLUMN released_links TEXT;
+      -- 0 = the account was created from an invitation link the inviter could see: the e-mail address is not proven
+      ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 1;
+      -- 1 = the invitation link went only to the invited mailbox, or an instance admin invited
+      ALTER TABLE invites ADD COLUMN vouched INTEGER NOT NULL DEFAULT 0;
+    `);
+    // unchanged since the release: the working copy is the released state. Others are read from Git at startup (backfillReleasedLinks).
+    db.exec("UPDATE items SET released_links = links WHERE kind='spec' AND deleted=0 AND status='approved' AND rev = released_rev");
+  },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.length;
 

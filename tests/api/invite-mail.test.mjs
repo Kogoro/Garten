@@ -17,26 +17,37 @@ describe('e-mail delivery of invitations', () => {
     t2 = (await admin.post('/api/teams', { name: 'Payments', key: 'PAY' })).data.team; // a second team for the HTML-escaping check
   });
 
-  step('invitation is e-mailed when a mail server is configured (link still returned)', async () => {
+  step('invitation is e-mailed when a mail server is configured (the link goes only to the mailbox)', async () => {
     mailTo = `mailtest-${uniq}@example.com`;
     sent = await admin.post(`/api/teams/${T1}/invites`, { email: mailTo, role: 'editor' });
     assert.equal(sent.status, 200);
     assert.equal(sent.data.mailEnabled, true);
     assert.equal(sent.data.emailed, true);
-    assert.ok(sent.data.link);
+    assert.equal(sent.data.link, undefined, 'the inviter does not get the mailed link');
   });
   step('the mail names team, inviter and role, contains the one-time link and its expiry', async () => {
     got = smtp.mails.find((m) => m.to.includes(mailTo));
     assert.ok(got, 'mail arrived at the sink');
     assert.match(got.subject, /invited you to specs/);
     assert.match(got.from, /specs@example\.test/);
-    assert.ok(got.text.includes(sent.data.link), 'mail contains the one-time link');
+    assert.match(got.text, /#\/invite\/inv_[\w-]+/, 'mail contains the one-time link');
     assert.match(got.text, /as editor/);
     assert.match(got.text, /expires in 7 days/);
   });
   step('the link from the e-mail is valid', async () => {
     tokenFromMail = /#\/invite\/(inv_[\w-]+)/.exec(got.text)[1];
     assert.equal((await new Client(ctx.base).get(`/api/invites/${tokenFromMail}`)).status, 200);
+  });
+  step('an account created from a mailed link counts as verified, also when a non-admin invited', async () => {
+    const own = (await viewer.c.post('/api/teams', { name: 'Viewer own', key: 'VOWN' })).data.team;
+    const to = `mailed-${uniq}@example.com`;
+    const inv = await viewer.c.post(`/api/teams/${own.id}/invites`, { email: to, role: 'viewer' });
+    assert.equal(inv.data.emailed, true);
+    assert.equal(inv.data.link, undefined);
+    const tok = /#\/invite\/(inv_[\w-]+)/.exec(smtp.mails.find((m) => m.to.includes(to)).text)[1];
+    const reg = await new Client(ctx.base).post(`/api/invites/${tok}/accept`, { name: 'Mailed', password: 'mailed-pass-1' });
+    assert.equal(reg.status, 200, JSON.stringify(reg.data));
+    assert.equal(reg.data.me.emailVerified, true);
   });
   step('re-sending replaces the old link (the old one stops working)', async () => {
     const again = await admin.post(`/api/teams/${T1}/invites`, { email: mailTo, role: 'viewer' });

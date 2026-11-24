@@ -555,7 +555,9 @@ export function linkedVersions(teamId, { drafts = false } = {}) {
   const out = {};
   for (const s of store.allSpecs(teamId, { body: false })) {
     if (!drafts && s.status !== 'approved') continue;
-    for (const l of [...s.links, ...(s.implements ? [s.implements] : [])]) {
+    // released only: the links of the released version – an unreleased edit must not grant access to anything
+    const links = drafts ? s.links : (s.releasedLinks ?? []);
+    for (const l of [...links, ...(s.implements ? [s.implements] : [])]) {
       const r = parseRef(l);
       if (!r?.version) continue;
       const k = `@${r.key}/${r.id}`;
@@ -613,6 +615,12 @@ export function validateLinks(team, links) {
     const r = resolveRef(team, l);
     return r.ref;
   });
+}
+
+/** Links an edit adds to an item: each @KEY/… link must be readable by the team now (an accepted share or a released pin). */
+export function checkNewLinks(team, links, before = []) {
+  const had = new Set(before);
+  for (const l of links ?? []) if (isSharedRef(l) && !had.has(l)) resolveRef(team, l);
 }
 
 /** Everything other teams shared with `team`, accepted or waiting: [{ owner, itemId, kind, accepted, items: [...] }]. */

@@ -50,6 +50,7 @@ export const meSummary = (u) => ({
   name: u.name,
   email: u.email,
   admin: u.admin,
+  emailVerified: u.emailVerified,
   teams: teamsFor(u).map(({ team, role }) => ({
     id: team.id,
     key: team.key,
@@ -150,6 +151,7 @@ const toUser = (r) =>
     admin: !!r.admin,
     disabled: !!r.disabled,
     hasPassword: !!r.password_hash,
+    emailVerified: r.email_verified !== 0,
     sso: !!r.oidc_sub,
     createdAt: r.created_at,
     lastLoginAt: r.last_login_at,
@@ -168,8 +170,8 @@ export class AuthError extends Error {
   }
 }
 
-/** @param {{ email: string, name?: string, admin?: boolean, password?: string, oidcSub?: string, skipPolicy?: boolean }} u */
-export async function createUser({ email, name, admin = false, password, oidcSub, skipPolicy = false }) {
+/** @param {{ email: string, name?: string, admin?: boolean, password?: string, oidcSub?: string, skipPolicy?: boolean, emailVerified?: boolean }} u */
+export async function createUser({ email, name, admin = false, password, oidcSub, skipPolicy = false, emailVerified = true }) {
   email = String(email ?? '')
     .trim()
     .toLowerCase();
@@ -180,7 +182,7 @@ export async function createUser({ email, name, admin = false, password, oidcSub
   }
   if (getUserByEmail(email)) throw new AuthError('A user with this e-mail already exists', 409);
   const id = randomUUID();
-  sql('INSERT INTO users (id,email,name,admin,password_hash,oidc_sub,created_at) VALUES (?,?,?,?,?,?,?)').run(
+  sql('INSERT INTO users (id,email,name,admin,password_hash,oidc_sub,created_at,email_verified) VALUES (?,?,?,?,?,?,?,?)').run(
     id,
     email,
     String(name || email.split('@')[0])
@@ -190,6 +192,7 @@ export async function createUser({ email, name, admin = false, password, oidcSub
     password ? await hashPassword(password) : null,
     oidcSub ?? null,
     iso(),
+    emailVerified ? 1 : 0,
   );
   return getUser(id);
 }
@@ -239,6 +242,10 @@ export async function setPassword(id, password, { skipPolicy = false } = {}) {
   }
   sql('UPDATE users SET password_hash=? WHERE id=?').run(await hashPassword(String(password)), id);
   sql('DELETE FROM sessions WHERE user_id=?').run(id);
+}
+
+export function markEmailVerified(id) {
+  sql('UPDATE users SET email_verified=1 WHERE id=?').run(id);
 }
 
 export function linkOidc(id, sub) {

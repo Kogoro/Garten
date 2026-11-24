@@ -64,6 +64,7 @@ import {
   acceptForUser,
   declineForUser,
   invitesForEmail,
+  markInviteMailed,
 } from './invites.js';
 import {
   listGlobalTerms,
@@ -95,7 +96,8 @@ import { listTypes, createType, updateType, deleteType, TypeError_ } from './spe
 import * as store from './store.js';
 import * as sharing from './sharing.js';
 
-const me = (u) => ({ ...meSummary(u), invites: invitesForEmail(u.email) });
+// pending invitations by e-mail address only for accounts whose address is proven (others accept by the link they were sent)
+const me = (u) => ({ ...meSummary(u), invites: u.emailVerified ? invitesForEmail(u.email) : [] });
 
 // ---- input check of one change of a sync batch (the body is untrusted: types, sizes)
 const isStr = (v, max) => v == null || (typeof v === 'string' && v.length <= max);
@@ -133,6 +135,18 @@ async function applyChange(ch, team, user, role) {
       };
     const cur = store.getItem(t, id);
     if (cur && cur.kind !== kind) throw new store.ApiError(`${id} exists as a ${cur.kind}`);
+    // Withdrawing a released foundation document (vision, a guardrail, a glossary term …) takes it away from every agent: like
+    // revoking a spec it needs approval rights – unless the team lets edits of foundation documents go live by themselves anyway.
+    const releasedFoundation = cur?.kind === 'doc' && cur.pinned && cur.status === 'approved' && !cur.core;
+    const withdraws = releasedFoundation && (ch.delete || ('pinned' in fields && fields.pinned === false));
+    if (withdraws && !rights.includes('approve') && !team.row.foundation_auto)
+      return {
+        id,
+        status: 'error',
+        forbidden: true,
+        message: `${id} is released: your role (${role}) cannot withdraw it. Ask an approver.`,
+        item: cur,
+      };
 
     if (ch.delete) {
       if (!cur) return { id, status: 'applied', deleted: true };
@@ -177,6 +191,7 @@ async function applyChange(ch, team, user, role) {
         implements: impl,
       };
       if (f.links && !Array.isArray(f.links)) throw new store.ApiError('links must be an array');
+      if (f.links) sharing.checkNewLinks(team, f.links, cur?.links); // a link to another team's item needs access to it
       item = store.saveItem(t, f, baseRev, user);
     }
     if (kind === 'spec' && approve) item = await store.releaseSpec(team, id, user);
@@ -303,7 +318,7 @@ export function apiRouter() {
         // existing account, signed in as the invited address
         const teamId = acceptForUser(session, { token: req.params.token });
         audit(req, 'invite.accept', { team: teamId, actor: session });
-        return res.json({ me: me(session), teamId });
+        return res.json({ me: me(getUser(session.id)), teamId });
       }
       const { user, teamId } = await registerFromInvite(req.params.token, { name: req.body?.name, password: req.body?.password });
       startSession(res, user, req.get('user-agent'));
@@ -922,7 +937,7 @@ export function apiRouter() {
     requireTeam('admin'),
     wrap(async (req, res) => {
       inviteBudget(req.team.id);
-      const out = createInvite({ team: req.team, email: req.body?.email, role: req.body?.role, by: req.user });
+      const out = createInvite({ team: req.team, email: req.body?.email, role: req.body?.role, by: req.user, vouched: req.user.admin });
       audit(req, 'invite.create', { team: req.team.id, target: out.invite.email, detail: { role: out.invite.role } });
       let emailed = false;
       let emailError = null;
@@ -941,13 +956,16 @@ export function apiRouter() {
             }),
           });
           emailed = true;
+          markInviteMailed(out.invite.id); // the link reached the mailbox only: whoever uses it controls the address
         } catch (e) {
           emailError = `The e-mail could not be sent (${mailError(e)}). Send the link yourself.`;
           console.error('invite mail:', mailError(e));
         }
       }
       res.json({
-        link: out.link,
+        // A mailed link is not shown to the inviter: an account created from it proves the address. Without mail (or when it
+        // failed) the inviter passes the link on, so an account created from it counts as unverified (see invites.js).
+        ...(emailed ? {} : { link: out.link }),
         userExists: out.userExists,
         invite: out.invite,
         invites: listInvites(req.team.id),

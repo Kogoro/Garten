@@ -121,6 +121,7 @@ const toItem = (r) =>
     pinned: !!r.pinned,
     specType: r.spec_type,
     implements: r.implements ?? null,
+    releasedLinks: r.released_links ? JSON.parse(r.released_links) : null,
     origin: r.origin ?? null,
     updatedVia: r.updated_via,
     core: r.kind === 'doc' && isCoreDoc(r.id),
@@ -154,7 +155,7 @@ export const itemsSince = (t, seq) =>
     .map((i) => (i.deleted ? { id: i.id, kind: i.kind, deleted: true, rev: i.rev } : i));
 // every column but the body: for lists that only need the metadata (items without `body`)
 const META =
-  'id,kind,title,links,pinned,spec_type,implements,origin,updated_via,rev,status,version,released_rev,released_at,released_by,updated_by,fetched_at,created_at,updated_at,deleted';
+  'id,kind,title,links,released_links,pinned,spec_type,implements,origin,updated_via,rev,status,version,released_rev,released_at,released_by,updated_by,fetched_at,created_at,updated_at,deleted';
 const live = (t, kind, body) =>
   sql(`SELECT ${body ? '*' : META} FROM items WHERE team_id=? AND kind=? AND deleted=0 ORDER BY id`)
     .all(t, kind)
@@ -291,6 +292,8 @@ export function deleteItem(t, id, baseRev) {
   if (!cur) return;
   if (cur.rev !== baseRev) throw new ApiError('conflict', 409);
   if (cur.kind === 'spec' && cur.status === 'approved') throw new ApiError(`${id} is released – revoke it before deleting`, 409);
+  if (cur.kind === 'doc' && cur.pinned && cur.status === 'approved')
+    throw new ApiError(`${id} is released – withdraw it before deleting`, 409);
   if (cur.kind === 'doc' && isCoreDoc(id)) throw new ApiError(`${id} is a foundation document every team has – it cannot be deleted`, 409);
   if (
     cur.kind === 'folder' &&
@@ -452,15 +455,9 @@ export async function releaseSpec(team, id, by = null) {
   const sha = await repo.commit({ write, message: `Release ${id} v${version}: ${spec.title}`, tag, author: by, post: tidy(team, keep) });
   if (!sha) await repo.tag(tag);
 
-  sql("UPDATE items SET status='approved', version=?, released_rev=?, released_at=?, released_by=?, seq=? WHERE team_id=? AND id=?").run(
-    version,
-    relRev,
-    at,
-    by?.name ?? null,
-    nextSeq(t),
-    t,
-    id,
-  );
+  sql(
+    "UPDATE items SET status='approved', version=?, released_rev=?, released_links=?, released_at=?, released_by=?, seq=? WHERE team_id=? AND id=?",
+  ).run(version, relRev, JSON.stringify(spec.links), at, by?.name ?? null, nextSeq(t), t, id);
   events.emit('committed', t);
   events.emit('released', { teamId: t, id, version, title: spec.title, by: by?.name ?? null });
   return getItem(t, id);
@@ -474,9 +471,49 @@ export async function revokeSpec(team, id, by = null) {
   if (spec.status !== 'approved') return spec;
   const keep = keepSet(t, { excludeSpec: id });
   await repoFor(team).commit({ remove: [specPath(team, id)], message: `Revoke ${id}`, author: by, post: tidy(team, keep) });
-  sql("UPDATE items SET status='draft', seq=? WHERE team_id=? AND id=?").run(nextSeq(t), t, id);
+  sql("UPDATE items SET status='draft', released_links=NULL, seq=? WHERE team_id=? AND id=?").run(nextSeq(t), t, id);
   events.emit('committed', t);
   return getItem(t, id);
+}
+
+/** The `documents:` list of a released spec file (own paths and @KEY/…@vN links of other teams). */
+export function releasedLinksOf(md) {
+  const fm = /^---\n([\s\S]*?)\n---\n/.exec(String(md ?? ''))?.[1] ?? '';
+  const out = [];
+  let inDocs = false;
+  for (const line of fm.split('\n')) {
+    if (!inDocs) {
+      inDocs = /^documents:\s*$/.test(line);
+      continue;
+    }
+    const m = /^ {2}- (.*)$/.exec(line);
+    if (!m) break;
+    let v = m[1];
+    if (v.startsWith('"')) {
+      try {
+        v = JSON.parse(v);
+      } catch {
+        /* keep as written */
+      }
+    }
+    out.push(v);
+  }
+  return out;
+}
+/** Startup: released specs from before released_links existed (and edited since) get the links of their released file. */
+export async function backfillReleasedLinks() {
+  const rows = sql("SELECT team_id, id FROM items WHERE kind='spec' AND deleted=0 AND status='approved' AND released_links IS NULL").all();
+  for (const r of rows) {
+    const team = getTeam(r.team_id);
+    if (!team) continue;
+    let links = [];
+    try {
+      links = releasedLinksOf(await readReleasedSpec(team, r.id));
+    } catch {
+      /* no released file: nothing is pinned */
+    }
+    sql('UPDATE items SET released_links=? WHERE team_id=? AND id=?').run(JSON.stringify(links), r.team_id, r.id);
+  }
 }
 
 // ---------------------------------------------------------------- foundation documents (vision, strategy, glossary, …)
