@@ -9,6 +9,7 @@ import { effectiveTheme } from '../ui';
 import { bnToMd, mdToBn, type BnBlock } from './convert';
 import { inlineToMd } from './inline';
 import { schema } from './schema';
+import { imageUrl, uploadImage } from '../store/core';
 
 /** Enter in a requirement starts the next requirement; Enter in an empty one leaves the list. Enter in a definition leaves it. */
 const requirementEnter = createExtension({
@@ -124,6 +125,9 @@ export function SpecEditor({
       schema,
       initialContent: initial as any,
       extensions: [requirementEnter],
+      // images: picked, pasted or dropped files are uploaded to the team; the Markdown keeps images/<name>
+      uploadFile: (file: File) => uploadImage(file),
+      resolveFileUrl: async (url: string) => imageUrl(url),
       domAttributes: { editor: { 'aria-label': 'Content', 'aria-multiline': 'true' } } as any,
     },
     [docKey],

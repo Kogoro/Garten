@@ -95,6 +95,8 @@ import { publicHook, saveHook, testHook } from './hooks.js';
 import { listTypes, createType, updateType, deleteType, TypeError_ } from './specTypes.js';
 import * as store from './store.js';
 import * as sharing from './sharing.js';
+import { saveImage, findImage, ImageError } from './images.js';
+import { IMAGE_MAX_BYTES } from '../shared/images.js';
 
 // pending invitations by e-mail address only for accounts whose address is proven (others accept by the link they were sent)
 const me = (u) => ({ ...meSummary(u), invites: u.emailVerified ? invitesForEmail(u.email) : [] });
@@ -257,6 +259,7 @@ const teamView = (team, role) => ({
 
 // keeps one admin from using the invite form as a mail cannon
 const inviteLimiter = new Limiter({ windowMs: 3600_000, max: 30 });
+const imageLimiter = new Limiter({ windowMs: 3600_000, max: 300 });
 function inviteBudget(teamId) {
   if (!inviteLimiter.hit(teamId)) throw new AuthError('Too many invitations in the last hour – try again later', 429);
 }
@@ -608,6 +611,33 @@ export function apiRouter() {
         ...(gardenData ? { garden: gardenData } : {}),
         ...(sharingData ? { sharing: sharingData } : {}),
       });
+    }),
+  );
+
+  // images in specs and documents: editors upload (the raw bytes as the body), members read. Shared items of other teams show
+  // their owner's images, so an image this team does not have is looked up in the teams that share with it.
+  team.post('/images', requireTeam('write'), express.raw({ type: () => true, limit: IMAGE_MAX_BYTES }), (req, res) => {
+    if (!imageLimiter.hit(req.user.id)) return res.status(429).json({ error: 'Too many uploads in the last hour – try again later' });
+    try {
+      res.status(201).json(saveImage(req.team.id, req.body, req.user.name ?? null));
+    } catch (e) {
+      if (e instanceof ImageError) return res.status(e.status).json({ error: e.message });
+      throw e;
+    }
+  });
+  team.get(
+    '/images/:name',
+    requireTeam('read'),
+    wrap(async (req, res) => {
+      const img = await findImage(req.team, String(req.params.name), store.repoFor, sharing.shareOwners(req.team));
+      if (!img) return res.status(404).json({ error: 'unknown image' });
+      res.set({
+        'Content-Type': img.mime,
+        'Cache-Control': 'private, max-age=31536000, immutable', // the name is the content hash
+        'Content-Security-Policy': "default-src 'none'; sandbox",
+        'Content-Disposition': 'inline',
+      });
+      res.end(img.data);
     }),
   );
 

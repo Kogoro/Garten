@@ -511,6 +511,19 @@ const MIGRATIONS = [
     // unchanged since the release: the working copy is the released state. Others are read from Git at startup (backfillReleasedLinks).
     db.exec("UPDATE items SET released_links = links WHERE kind='spec' AND deleted=0 AND status='approved' AND rev = released_rev");
   },
+  /* 7 */ () => {
+    // images uploaded into specs and documents, addressed by their content (server/images.js); released copies live in Git
+    db.exec(`CREATE TABLE images (
+      team_id TEXT NOT NULL,
+      name TEXT NOT NULL,                                    -- <sha256, 32 hex>.<ext>, referenced in Markdown as images/<name>
+      mime TEXT NOT NULL,
+      size INTEGER NOT NULL,
+      data BLOB NOT NULL,
+      created_by TEXT,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (team_id, name)
+    )`);
+  },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.length;
 

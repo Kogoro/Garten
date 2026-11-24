@@ -6347,6 +6347,21 @@ i.dot-b {
   overflow-x: auto;
   margin: 0 0 12px;
 }
+.md .md-img {
+  margin: 0 0 12px;
+}
+.md .md-img img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+}
+.md .md-img figcaption {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
 .md table {
   border-collapse: collapse;
   font-size: 14px;

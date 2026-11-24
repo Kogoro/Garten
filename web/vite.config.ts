@@ -131,6 +131,16 @@ export default defineConfig({
         // Chunks of older builds stay until evicted (least recently used first), so a page still running an old build keeps its diagrams.
         runtimeCaching: [
           {
+            // uploaded images are named by their content, so a cached copy is never stale: specs keep their images offline
+            urlPattern: ({ url, sameOrigin }) => sameOrigin && /^\/api\/teams\/[^/]+\/images\/[a-f0-9]{32}\.\w+$/.test(url.pathname),
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'images',
+              expiration: { maxEntries: 500, purgeOnQuotaError: true },
+              cacheableResponse: { statuses: [200] },
+            },
+          },
+          {
             urlPattern: ({ url, sameOrigin }) => sameOrigin && url.pathname.startsWith('/assets/'),
             handler: 'CacheFirst',
             options: {

@@ -3,6 +3,7 @@ import { idb } from './idb';
 import type { Item, Me, SpecType, TeamInfo } from './types';
 import { BUILTIN_TYPES, DEFAULT_TYPE, typeFrom } from '@shared/spectypes.js';
 import { parse as parseBlocks, serialize as serializeBlocks } from '@shared/blocksModel.js';
+import { IMAGE_REF, IMAGE_MAX_BYTES } from '@shared/images.js';
 import {
   parseTermFile,
   formatTermFile,
@@ -158,6 +159,26 @@ export async function api(method: string, url: string, body?: unknown): Promise<
   return data;
 }
 export const teamApi = (method: string, path: string, body?: unknown) => api(method, `/api/teams/${state.teamId}${path}`, body);
+
+/** Where the browser loads an image a spec or document shows: uploaded images (images/<name>) come from the team, other URLs stay. */
+export const imageUrl = (src: string) => {
+  const m = IMAGE_REF.exec(src);
+  return m ? `/api/teams/${state.teamId}/images/${m[1]}` : src;
+};
+/** Uploads an image into the current team; returns the path the Markdown keeps (images/<name>). Needs a connection. */
+export async function uploadImage(file: Blob): Promise<string> {
+  if (file.size > IMAGE_MAX_BYTES) throw new Error(`The image is larger than ${IMAGE_MAX_BYTES / 1024 / 1024} MB`);
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) throw new Error('Adding an image needs a connection');
+  const res = await fetch(`/api/teams/${state.teamId}/images`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'x-specs': '1', 'content-type': file.type || 'application/octet-stream' },
+    body: file,
+  });
+  const data = res.headers.get('content-type')?.includes('json') ? await res.json() : null;
+  if (!res.ok) throw new Error(data?.error ?? `Server error ${res.status}`);
+  return data.src;
+}
 
 export async function loadAuthConfig() {
   try {

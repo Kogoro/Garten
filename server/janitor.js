@@ -1,9 +1,10 @@
 // Hourly cleanup: expired sessions, OAuth requests/codes/tokens, old invitations, unused dynamic clients, old audit entries,
-// old closed feedback (see pruneFeedback for what is kept).
+// old closed feedback (see pruneFeedback for what is kept), uploaded images nothing shows any more.
 import { db } from './db.js';
 import { pruneAudit } from './audit.js';
 import { pruneFeedback } from './feedback.js';
 import { sweepSharing } from './sharing.js';
+import { pruneImages } from './images.js';
 
 export function sweepExpired() {
   const t = Math.floor(Date.now() / 1000);
@@ -23,6 +24,7 @@ export function sweepExpired() {
   pruneAudit();
   pruneFeedback();
   sweepSharing();
+  pruneImages();
 }
 
 export function startJanitor() {

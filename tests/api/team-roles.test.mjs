@@ -206,6 +206,7 @@ describe('users, roles, releases and the Git connection', () => {
         'get_document',
         'get_glossary',
         'get_guardrails',
+        'get_image',
         'get_spec',
         'get_spec_changes',
         'get_team_context',
