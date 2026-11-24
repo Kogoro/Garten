@@ -75,6 +75,7 @@ What agents get: the team context in one call (vision, strategy, glossary, guard
 - **Glossary** – one file per word: definition, other names, words to avoid, not-to-be-confused-with, see-also. Health checks find conflicting definitions and words to avoid in specs. Import and export as ZIP or CSV.
 - **Agents** – who is working on what, the implementation of every spec in bloom, checks, and the history of the last weeks.
 - **Teams** – invitations, roles (viewer, editor, approver, admin), one Git repository per team, optional single sign-on (OpenID Connect).
+- **Sharing between teams** – parent teams pass on their guardrails, vision and glossary to child teams, pinned to a version the child accepts; any team shares documents, folders and specs with others, linked at one version with _Update available_; specs say which spec of another team they implement, and the owner sees the reports rolled up.
 - **Offline-first** – install it on your phone, write and answer without a connection; changes sync when you are back.
 
 <img src="docs/images/today-dark.png" alt="Today in dark mode" width="74%">

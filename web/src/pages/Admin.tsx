@@ -348,6 +348,37 @@ export function AdminPage() {
                       change a term here. Import a file with <span className="mono">term, definition, aliases, see</span> columns (CSV), a
                       JSON list, or a Markdown definition list.
                     </p>
+                    {!!gl?.length && !!teams?.length && (
+                      <div className="btns" id="glToTeam">
+                        <label className="sr" htmlFor="gl-to-team">
+                          Team that gets the global glossary
+                        </label>
+                        <select id="gl-to-team" className="field" style={{ flex: 3 }} defaultValue="">
+                          <option value="">Move into the glossary of a team…</option>
+                          {teams.map((x) => (
+                            <option key={x.id} value={x.id}>
+                              {x.name} ({x.key})
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          className="btn"
+                          data-act="gl-to-team"
+                          onClick={guard(async () => {
+                            const id = (document.getElementById('gl-to-team') as HTMLSelectElement).value;
+                            if (!id) return toast('Choose a team first');
+                            const r = await S.api('POST', '/api/admin/global-glossary/to-team', { teamId: id });
+                            toast(`${r.terms} term${r.terms === 1 ? '' : 's'} added – its child teams inherit them`);
+                          })}
+                        >
+                          Copy terms
+                        </button>
+                      </div>
+                    )}
+                    <p className="note">
+                      With a team tree, put company-wide terms into the glossary of the top team: every team below inherits them, pinned to
+                      a version it accepts.
+                    </p>
                     {gl ? (
                       gl.length ? (
                         gl.map((g) => (
@@ -412,6 +443,32 @@ export function AdminPage() {
                                 {t.members} member{t.members === 1 ? '' : 's'} · {t.items} item{t.items === 1 ? '' : 's'}
                                 {t.gitUrl ? ' · git connected' : ''}
                                 {t.createdBy ? ` · created by ${t.createdBy}` : ''}
+                              </span>
+                              <span className="btns" style={{ marginTop: 4 }}>
+                                <label className="sr" htmlFor={`par-${t.id}`}>
+                                  Parent team of {t.name}
+                                </label>
+                                <select
+                                  id={`par-${t.id}`}
+                                  className="field"
+                                  data-act="admin-parent"
+                                  style={{ maxWidth: 260, minHeight: 40 }}
+                                  value={t.parentId ?? ''}
+                                  onChange={guard(async (e) => {
+                                    await S.api('POST', `/api/admin/teams/${t.id}/parent`, { parentId: e.target.value || null });
+                                    toast(e.target.value ? 'Parent team set' : 'No parent team any more');
+                                    await load();
+                                  })}
+                                >
+                                  <option value="">No parent team</option>
+                                  {teams
+                                    .filter((x) => x.id !== t.id)
+                                    .map((x) => (
+                                      <option key={x.id} value={x.id}>
+                                        Parent: {x.name} ({x.key})
+                                      </option>
+                                    ))}
+                                </select>
                               </span>
                             </div>
                           </div>

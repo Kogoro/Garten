@@ -96,6 +96,14 @@ function withRuleId(t, path, body) {
   return id === r.id ? body : formatRuleFile({ ...r, id });
 }
 
+/** Set by sharing.js: checks @KEY/… links of a spec (returns them with versions) and its `implements` (returns the normalised value). */
+const hooks = { links: (_team, links) => links, implements: (_team, v) => v || null };
+export const setLinkValidator = (fn) => (hooks.links = fn);
+export const setImplementsValidator = (fn) => (hooks.implements = fn);
+/** A link to an item of another team (@KEY/path@vN): not a document of this team. */
+export const isSharedLink = (l) => String(l).startsWith('@');
+const ownLinks = (links) => links.filter((l) => !isSharedLink(l));
+
 export class ApiError extends Error {
   constructor(message, status = 400) {
     super(message);
@@ -112,6 +120,8 @@ const toItem = (r) =>
     links: JSON.parse(r.links),
     pinned: !!r.pinned,
     specType: r.spec_type,
+    implements: r.implements ?? null,
+    origin: r.origin ?? null,
     updatedVia: r.updated_via,
     core: r.kind === 'doc' && isCoreDoc(r.id),
     rev: r.rev,
@@ -144,7 +154,7 @@ export const itemsSince = (t, seq) =>
     .map((i) => (i.deleted ? { id: i.id, kind: i.kind, deleted: true, rev: i.rev } : i));
 // every column but the body: for lists that only need the metadata (items without `body`)
 const META =
-  'id,kind,title,links,pinned,spec_type,updated_via,rev,status,version,released_rev,released_at,released_by,updated_by,fetched_at,created_at,updated_at,deleted';
+  'id,kind,title,links,pinned,spec_type,implements,origin,updated_via,rev,status,version,released_rev,released_at,released_by,updated_by,fetched_at,created_at,updated_at,deleted';
 const live = (t, kind, body) =>
   sql(`SELECT ${body ? '*' : META} FROM items WHERE team_id=? AND kind=? AND deleted=0 ORDER BY id`)
     .all(t, kind)
@@ -187,8 +197,8 @@ export const fetchedSince = (t, since) =>
 export const lastFetched = (t) => sql('SELECT MAX(fetched_at) AS at FROM items WHERE team_id=?').get(t).at ?? '';
 
 /** Create or update an item. `baseRev` must equal the current revision (0 = create). */
-/** @param {any} t @param {{ id: string, kind: string, title?: string, body?: string, links?: string[], pinned?: boolean, specType?: string }} item @param {number} [baseRev] @param {any} [by] */
-export function saveItem(t, { id, kind, title, body, links, pinned, specType }, baseRev, by = null) {
+/** @param {any} t @param {{ id: string, kind: string, title?: string, body?: string, links?: string[], pinned?: boolean, specType?: string, implements?: string|null, origin?: string|null }} item @param {number} [baseRev] @param {any} [by] */
+export function saveItem(t, { id, kind, title, body, links, pinned, specType, implements: impl, origin }, baseRev, by = null) {
   if (specType !== undefined && kind === 'spec' && !isKnownType(t, specType)) throw new ApiError(`unknown spec type: ${specType}`);
   const st = kind === 'spec' ? specType : undefined;
   const now = new Date().toISOString();
@@ -215,7 +225,7 @@ export function saveItem(t, { id, kind, title, body, links, pinned, specType }, 
     if (kind === 'folder' && rawItem(t, id)?.kind === 'doc') throw new ApiError(`${id} is a document`);
     if (cur?.deleted) {
       sql(
-        "UPDATE items SET updated_via=?, spec_type=?, kind=?, title=?, body=?, links=?, pinned=?, deleted=0, rev=rev+1, seq=?, status='draft', released_rev=0, released_at=NULL, released_by=NULL, updated_at=?, updated_by=? WHERE team_id=? AND id=?",
+        "UPDATE items SET updated_via=?, spec_type=?, kind=?, title=?, body=?, links=?, pinned=?, implements=?, origin=?, deleted=0, rev=rev+1, seq=?, status='draft', released_rev=0, released_at=NULL, released_by=NULL, updated_at=?, updated_by=? WHERE team_id=? AND id=?",
       ).run(
         by?.via ?? null,
         st ?? DEFAULT_TYPE,
@@ -224,6 +234,8 @@ export function saveItem(t, { id, kind, title, body, links, pinned, specType }, 
         body ?? '',
         JSON.stringify(links ?? []),
         pin ?? 0,
+        kind === 'spec' ? (impl ?? null) : null,
+        origin ?? null,
         nextSeq(t),
         now,
         who,
@@ -232,7 +244,7 @@ export function saveItem(t, { id, kind, title, body, links, pinned, specType }, 
       );
     } else {
       sql(
-        'INSERT INTO items (team_id,id,kind,title,body,links,pinned,spec_type,rev,seq,created_at,updated_at,updated_by,updated_via) VALUES (?,?,?,?,?,?,?,?,1,?,?,?,?,?)',
+        'INSERT INTO items (team_id,id,kind,title,body,links,pinned,spec_type,implements,origin,rev,seq,created_at,updated_at,updated_by,updated_via) VALUES (?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?)',
       ).run(
         t,
         id,
@@ -242,6 +254,8 @@ export function saveItem(t, { id, kind, title, body, links, pinned, specType }, 
         JSON.stringify(links ?? []),
         pin ?? 0,
         st ?? DEFAULT_TYPE,
+        kind === 'spec' ? (impl ?? null) : null,
+        origin ?? null,
         nextSeq(t),
         now,
         now,
@@ -252,13 +266,14 @@ export function saveItem(t, { id, kind, title, body, links, pinned, specType }, 
   } else {
     if (cur.rev !== baseRev) throw new ApiError('conflict', 409);
     sql(
-      'UPDATE items SET title=?, body=?, links=?, pinned=?, spec_type=?, rev=rev+1, seq=?, updated_at=?, updated_by=?, updated_via=? WHERE team_id=? AND id=?',
+      'UPDATE items SET title=?, body=?, links=?, pinned=?, spec_type=?, implements=?, rev=rev+1, seq=?, updated_at=?, updated_by=?, updated_via=? WHERE team_id=? AND id=?',
     ).run(
       title ?? cur.title,
       body ?? cur.body,
       JSON.stringify(links ?? cur.links),
       pin ?? (cur.pinned ? 1 : 0),
       st ?? cur.specType,
+      kind === 'spec' ? (impl === undefined ? cur.implements : impl || null) : null,
       nextSeq(t),
       now,
       who ?? cur.updatedBy,
@@ -336,9 +351,11 @@ export async function releasedRules(team, repo = repoFor(team)) {
 }
 export const tagFor = (id, version) => `${id}/v${version}`;
 
-function specFile(s, docs, version, at) {
-  const list = docs.length ? '\n' + docs.map((d) => `  - ${d.id}`).join('\n') : ' []';
-  return `---\nid: ${s.id}\ntype: ${s.specType}\ntitle: ${JSON.stringify(s.title)}\nversion: ${version}\nstatus: approved\napproved_at: ${at}\ndocuments:${list}\n---\n\n# ${s.title}\n\n${s.body.trim()}\n`;
+function specFile(s, docs, version, at, shared = []) {
+  const ids = [...docs.map((d) => d.id), ...shared.map((l) => JSON.stringify(l))];
+  const list = ids.length ? '\n' + ids.map((d) => `  - ${d}`).join('\n') : ' []';
+  const impl = s.implements ? `\nimplements: ${JSON.stringify(s.implements)}` : '';
+  return `---\nid: ${s.id}\ntype: ${s.specType}\ntitle: ${JSON.stringify(s.title)}\nversion: ${version}\nstatus: approved\napproved_at: ${at}\ndocuments:${list}${impl}\n---\n\n# ${s.title}\n\n${s.body.trim()}\n`;
 }
 
 /** Every definition found in the released files of a team's repository. */
@@ -377,7 +394,7 @@ function keepSet(t, { excludeSpec, excludeDoc, extra = [] } = {}) {
   return new Set([
     ...approvedSpecs(t)
       .filter((s) => s.id !== excludeSpec)
-      .flatMap((s) => s.links),
+      .flatMap((s) => ownLinks(s.links)),
     ...pinnedDocs(t)
       .filter((d) => d.status === 'approved' && d.id !== excludeDoc)
       .map((d) => d.id),
@@ -401,20 +418,35 @@ const tidy = (team, keepDocs) => async (repo) => {
 
 export async function releaseSpec(team, id, by = null) {
   const t = team.id;
-  const spec = getItem(t, id);
+  let spec = getItem(t, id);
   if (!spec || spec.kind !== 'spec') throw new ApiError(`unknown spec: ${id}`, 404);
   if (!spec.title.trim()) throw new ApiError('a spec needs a title before it can be approved');
   if (spec.status === 'approved' && spec.rev === spec.releasedRev) return spec; // nothing new to release
-  const docs = spec.links.map((l) => getItem(t, l));
-  const missing = spec.links.filter((_, i) => !docs[i] || docs[i].kind !== 'doc');
+  // links to other teams' items name one released version; a link without one gets the newest now, so the release is reproducible
+  const shared = hooks.links(team, spec.links.filter(isSharedLink));
+  const impl = spec.implements ? hooks.implements(team, spec.implements) : null;
+  const links = [...ownLinks(spec.links), ...shared];
+  if (JSON.stringify(links) !== JSON.stringify(spec.links) || impl !== spec.implements) {
+    sql('UPDATE items SET links=?, implements=?, rev=rev+1, seq=? WHERE team_id=? AND id=?').run(
+      JSON.stringify(links),
+      impl,
+      nextSeq(t),
+      t,
+      id,
+    );
+    spec = getItem(t, id);
+  }
+  const own = ownLinks(spec.links);
+  const docs = own.map((l) => getItem(t, l));
+  const missing = own.filter((_, i) => !docs[i] || docs[i].kind !== 'doc');
   if (missing.length) throw new ApiError(`linked documents missing on server: ${missing.join(', ')}`);
 
   const relRev = spec.rev; // an edit may arrive while git works: only this revision is released
   const version = spec.version + 1;
   const at = new Date().toISOString();
-  const write = { [specPath(team, id)]: specFile(spec, docs, version, at) };
+  const write = { [specPath(team, id)]: specFile(spec, docs, version, at, shared) };
   for (const d of docs) write[docPath(team, d.id)] = d.body;
-  const keep = keepSet(t, { excludeSpec: id, extra: spec.links });
+  const keep = keepSet(t, { excludeSpec: id, extra: own });
   const tag = tagFor(id, version);
   const repo = repoFor(team);
   const sha = await repo.commit({ write, message: `Release ${id} v${version}: ${spec.title}`, tag, author: by, post: tidy(team, keep) });
@@ -590,7 +622,7 @@ export async function migrateGlossary(team) {
       n += written.length;
     }
   }
-  const linkedLive = new Set(approvedSpecs(t).flatMap((s) => s.links));
+  const linkedLive = new Set(approvedSpecs(t).flatMap((s) => ownLinks(s.links)));
   for (const d of allDocs(t).filter((x) => /^glossary\/from-[^/]+\.md$/.test(x.id) && !linkedLive.has(x.id))) {
     const from = /^# Terms derived from (.+)$/m.exec(d.body)?.[1]?.trim() ?? null;
     for (const e of parseDefinitions(d.body)) {

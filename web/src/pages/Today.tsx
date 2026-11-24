@@ -162,8 +162,47 @@ function Notices() {
   const git = info?.git;
   const queued = S.all('spec').filter((x) => x.approve);
   const waiting = S.fbPending();
+  const sh = S.sharing();
+  const asks = S.can('admin') ? sh.links.incoming : [];
+  const offers = S.can('approve') ? sh.sharedWith.filter((x: any) => !x.accepted) : [];
+  const updates = sh.inherited.filter((a) => a.update);
+  const linkUpd = S.linkUpdates();
+  const sharingNews = asks.length + offers.length + updates.length + linkUpd.length;
   return (
     <>
+      {sharingNews > 0 && (
+        <section className="card warn" id="gd-sharing" role="status">
+          <span style={{ color: 'var(--amber)' }}>
+            <Icon name="link" size={18} />
+          </span>
+          <div className="grow">
+            <b>
+              {[
+                asks.length && `${asks.map((a) => a.team.name).join(', ')} want${asks.length === 1 ? 's' : ''} to be your parent team`,
+                updates.length && `New foundation from ${updates.map((a) => a.team.key).join(', ')}`,
+                offers.length && `${offers.length} share${offers.length === 1 ? '' : 's'} from other teams`,
+                linkUpd.length && `Update available for ${linkUpd.length} link${linkUpd.length === 1 ? '' : 's'}`,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </b>
+            <span>
+              {updates.some((a) => a.update!.required.length)
+                ? 'Some parent rules are required by a date and apply by themselves then.'
+                : linkUpd.length && !asks.length && !offers.length && !updates.length
+                  ? linkUpd.map((x) => `${x.spec.id}: ${x.ref.replace(/@v\d+$/, '')} v${x.newest}`).join(', ')
+                  : 'Accepting changes what your agents work with.'}
+            </span>
+          </div>
+          <Link
+            className="btn small"
+            style={{ flex: 'none' }}
+            to={asks.length || offers.length || updates.length ? '/team?tab=sharing' : `/spec/${encodeURIComponent(linkUpd[0].spec.id)}`}
+          >
+            Review
+          </Link>
+        </section>
+      )}
       {paused && (
         <section className="card warn" id="gd-paused" role="status">
           <span style={{ color: 'var(--amber)' }}>

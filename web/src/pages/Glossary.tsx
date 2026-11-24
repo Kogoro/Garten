@@ -842,6 +842,38 @@ function GlossaryList({ arg }: { arg?: string }) {
                 {specsOpen && specs.map((t) => row(t, 1))}
               </>
             )}
+            {S.sharing().inherited.map((a) => {
+              const own = new Set(all.map((t: any) => String(t.term).toLowerCase()));
+              const list = a.terms.filter(
+                (t: any) => !ql || t.term.toLowerCase().includes(ql) || (t.aliases ?? []).some((x: string) => x.toLowerCase().includes(ql)),
+              );
+              if (!list.length) return null;
+              return (
+                <div key={a.team.id} className="inherited" data-from={a.team.key}>
+                  <div className="sect-title" style={{ marginTop: 14 }}>
+                    <span>From {a.team.name}</span>
+                    <small>v{a.pinned}</small>
+                  </div>
+                  {list.map((t: any) => (
+                    <details key={t.id} className="row inh-term" data-term={t.term}>
+                      <summary>
+                        <div className="row-top">
+                          <span className="row-title">{t.term}</span>
+                          {own.has(t.term.toLowerCase()) && <span className="chip warn">your team defines it too – yours wins</span>}
+                        </div>
+                        <div className="row-meta">
+                          <span>
+                            {(t.aliases ?? []).length ? `also ${t.aliases.join(', ')}` : ''}
+                            {(t.avoid ?? []).length ? ` · do not say ${t.avoid.join(', ')}` : ''}
+                          </span>
+                        </div>
+                      </summary>
+                      <Md text={t.body ?? ''} idx={new Map()} />
+                    </details>
+                  ))}
+                </div>
+              );
+            })}
           </div>
         </>
       )}

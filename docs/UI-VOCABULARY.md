@@ -22,3 +22,10 @@ Everything a team writes grows through three stages, shown as one growth icon: *
 | A rule every agent follows                                  | **Guardrail** (kinds _Always_, _Never_)                                                | policy, constraint                       |
 | A term in the glossary                                      | **Word** (_Add a word_, _Make it a word_)                                              | entry                                    |
 | What agents know besides specs                              | **Documents**, **Guardrails**, **Glossary** (one tab each; vision and strategy on top) | context (as a page name), knowledge base |
+| The team above / below in the tree                          | **Parent team** / **Child team**                                                       | org, sub-team, workspace                 |
+| Foundation a team receives from its parent teams            | **Inherited** (_Inherited from Acme_, _From Acme_ in Guardrails and Glossary)          | merged, global                           |
+| A team makes released items visible to other teams          | **Share** (_Share with teams…_)                                                        | publish, expose                          |
+| An item of another team as the receiving team sees it       | **From** + team (_From Payments API_, chip with the team key)                          | external, imported                       |
+| A spec builds (part of) a spec of another team              | **Implements** (_Implemented by_ at the owner)                                         | child of, realises, epic                 |
+| A newer version of a linked or inherited item               | **Update available: v5** (_Update link_, _Accept v5_)                                  | outdated, stale                          |
+| A team takes a shared item as its own editable copy         | **Adopt** (_Adopt as own copy_)                                                        | fork, clone, import                      |

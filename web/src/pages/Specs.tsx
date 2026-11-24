@@ -1,3 +1,4 @@
+import { SharedSection, SharedView } from '../sharing';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { Bar, Shell } from '../Shell';
@@ -206,6 +207,7 @@ function SpecList({ selected }: { selected?: string }) {
             )}
           </>
         )}
+        {filter === 'all' && !q && <SharedSection kind="spec" selected={selected} />}
       </div>
       {S.can('write') && <Fab label="New spec" act="new-spec" onClick={create} />}
       {newSpec && <NewSpecSheet onClose={() => setNewSpec(false)} />}
@@ -256,6 +258,7 @@ function SpecList({ selected }: { selected?: string }) {
 
 function SpecEditorPage({ id }: { id: string }) {
   const S = useStore();
+  if (id.startsWith('@')) return <SharedView refId={id} />;
   const item = S.get(id);
   if (!item || item.kind !== 'spec') return <NotFound what="spec" to="/specs" back="Specs" />;
   return <ItemEditor item={item} />;

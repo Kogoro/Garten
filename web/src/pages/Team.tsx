@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { FormError, Sheet } from '../dialogs';
 import { guard, useTeamInfo } from '../hooks';
 import { Bar, Shell } from '../Shell';
@@ -9,6 +9,7 @@ import { Icon, ago, copy, toast, useStore } from '../ui';
 import { FIELD_KINDS, KIND_LABELS } from '@shared/specForm.js';
 import { ROLES, RIGHTS, ROLE_RIGHTS } from './Account';
 import { ROUTINE_HEADERS, ROUTINE_URL_HINT, ciWorkflow, mcpJson, routinePrompt } from '../agentSetup';
+import { SharingTab, sharingWaiting } from '../sharing';
 
 type Store = ReturnType<typeof useStore>;
 
@@ -873,9 +874,10 @@ export function TeamPage() {
   const [gitRes, setGitRes] = useState<{ ok: boolean; text: string } | null>(null);
   const [hookRes, setHookRes] = useState<HookRes>(null);
   const [tsheet, setTsheet] = useState<null | { type?: any }>(null);
-  const [tab, setTab] = usePref<'team' | 'members' | 'types' | 'git' | 'agents'>('tab-team', 'team', [
+  const [tab, setTab] = usePref<'team' | 'members' | 'sharing' | 'types' | 'git' | 'agents'>('tab-team', 'team', [
     'team',
     'members',
+    'sharing',
     'types',
     'git',
     'agents',
@@ -884,6 +886,12 @@ export function TeamPage() {
   const admin = S.can('admin');
   const online = S.state.online && !S.state.sessionExpired;
   const me = S.state.me!;
+  // links from Today and the guardrails open a tab directly: /team?tab=sharing
+  const [params] = useSearchParams();
+  useEffect(() => {
+    const want = params.get('tab');
+    if (want === 'sharing' || want === 'git' || want === 'members') setTab(want);
+  }, [params]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!t)
     return (
       <Shell
@@ -930,6 +938,7 @@ export function TeamPage() {
             tabs={[
               { id: 'team', label: 'Team' },
               { id: 'members', label: 'Members', badge: d ? d.members.length : '' },
+              { id: 'sharing', label: 'Sharing', badge: sharingWaiting(S) || undefined },
               { id: 'types', label: 'Spec types' },
               { id: 'git', label: 'Git' },
               { id: 'agents', label: 'Agents' },
@@ -1020,6 +1029,7 @@ export function TeamPage() {
                 </>
               )}
 
+              {tab === 'sharing' && <SharingTab />}
               {tab === 'members' && (
                 <>
                   <section className="card">

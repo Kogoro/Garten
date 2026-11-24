@@ -93,6 +93,7 @@ import { recordRun, listChecks, runHistory, checksBySpec } from './checks.js';
 import { publicHook, saveHook, testHook } from './hooks.js';
 import { listTypes, createType, updateType, deleteType, TypeError_ } from './specTypes.js';
 import * as store from './store.js';
+import * as sharing from './sharing.js';
 
 const me = (u) => ({ ...meSummary(u), invites: invitesForEmail(u.email) });
 
@@ -112,6 +113,7 @@ function changeProblem(ch) {
   if (f.pinned != null && typeof f.pinned !== 'boolean') return 'Invalid pinned flag.';
   if (f.links != null && (!Array.isArray(f.links) || f.links.length > 100 || f.links.some((l) => typeof l !== 'string' || l.length > 120)))
     return 'Invalid links.';
+  if (!isStr(f.implements, 120)) return 'Invalid implements.';
   return null;
 }
 
@@ -146,16 +148,34 @@ async function applyChange(ch, team, user, role) {
         !approve &&
         !revoke &&
         Object.keys(fields).length > 0 &&
-        ['title', 'body', 'pinned', 'specType'].every((k) => !(k in fields) || fields[k] === cur[k]) &&
+        ['title', 'body', 'pinned', 'specType', 'implements'].every(
+          (k) => !(k in fields) || (fields[k] || null) === (cur[k] || null) || fields[k] === cur[k],
+        ) &&
         (!('links' in fields) || JSON.stringify(fields.links) === JSON.stringify(cur.links));
       return same ? { id, status: 'applied', item: cur } : { id, status: 'conflict', server: cur };
     }
     if (!cur && baseRev !== 0) return { id, status: 'conflict', server: null };
 
-    const hasFields = ['title', 'body', 'links', 'pinned', 'specType'].some((k) => k in fields);
+    const hasFields = ['title', 'body', 'links', 'pinned', 'specType', 'implements'].some((k) => k in fields);
     let item = cur;
     if (!cur || hasFields) {
-      const f = { id, kind, title: fields.title, body: fields.body, links: fields.links, pinned: fields.pinned, specType: fields.specType };
+      // a spec that implements another: the reference is checked (and given a version) here, so a bad one fails early
+      const impl =
+        kind === 'spec' && 'implements' in fields && (fields.implements || null) !== (cur?.implements ?? null)
+          ? fields.implements
+            ? sharing.normaliseImplements(team, fields.implements)
+            : null
+          : undefined;
+      const f = {
+        id,
+        kind,
+        title: fields.title,
+        body: fields.body,
+        links: fields.links,
+        pinned: fields.pinned,
+        specType: fields.specType,
+        implements: impl,
+      };
       if (f.links && !Array.isArray(f.links)) throw new store.ApiError('links must be an array');
       item = store.saveItem(t, f, baseRev, user);
     }
@@ -479,7 +499,7 @@ export function apiRouter() {
     '/sync',
     requireTeam('read'),
     wrap(async (req, res) => {
-      const { since = 0, changes = [], feedbackOps, gardenRev: have, fetchedSince } = req.body ?? {};
+      const { since = 0, changes = [], feedbackOps, gardenRev: have, fetchedSince, sharingRev: haveSharing } = req.body ?? {};
       if (!Array.isArray(changes)) return res.status(400).json({ error: 'changes must be an array' });
       if (changes.length > 2000) return res.status(413).json({ error: 'Too many changes in one sync (2000 at most)' });
       const results = [];
@@ -550,6 +570,11 @@ export function apiRouter() {
         };
       };
       const gardenData = have === rev ? null : await garden();
+      // parent and child teams, inherited foundation, shares in both directions: only sent when something about sharing changed
+      const sharingData =
+        haveSharing === undefined || haveSharing === sharing.sharingRev()
+          ? null
+          : await sharing.sharingView(req.team, (id) => latestReports(id));
       res.json({
         results,
         fbResults,
@@ -566,6 +591,7 @@ export function apiRouter() {
           ? { fetched: from ? store.fetchedSince(t, fetchedSince) : {}, fetchedCursor: store.lastFetched(t) }
           : {}),
         ...(gardenData ? { garden: gardenData } : {}),
+        ...(sharingData ? { sharing: sharingData } : {}),
       });
     }),
   );
@@ -720,12 +746,149 @@ export function apiRouter() {
       audit(req, 'team.delete', { team: req.team.id, target: req.team.key });
       await store.deleteTeamData(req.team);
       await forgetHostKey(req.team.id);
+      sharing.beforeDeleteTeam(req.team.id); // child teams move up; shares of and to this team end
       deleteTeamRows(req.team.id);
       res.json({ ok: true, me: me(req.user) });
     }),
   );
 
   // ---- spec types (built-in + team-defined)
+  // ---- sharing between teams (docs/SHARED-SPECS.md)
+  const sharingOf = async (req) => sharing.sharingView(getTeam(req.team.id), (id) => latestReports(id));
+  team.get(
+    '/sharing',
+    requireTeam('read'),
+    wrap(async (req, res) => res.json({ sharing: await sharingOf(req) })),
+  );
+  // the parent team's admin asks a team to become its child; the child's admin accepts
+  team.post(
+    '/children',
+    requireTeam('admin'),
+    wrap(async (req, res) => {
+      const child = sharing.requestLink(req.team, req.body?.key, req.user);
+      audit(req, 'team.child.request', { team: req.team.id, target: child.key });
+      res.json({ sharing: await sharingOf(req) });
+    }),
+  );
+  /** ends a request, or the link to a child team */
+  team.post(
+    '/children/:cid/remove',
+    requireTeam('admin'),
+    wrap(async (req, res) => {
+      const child = getTeam(req.params.cid);
+      if (!child) throw new store.ApiError('No such team.', 404);
+      sharing.cancelLink(req.team.id, child.id);
+      if (child.row.parent_id === req.team.id) {
+        sharing.unlink(child.id);
+        audit(req, 'team.child.unlink', { team: req.team.id, target: child.key });
+      }
+      res.json({ sharing: await sharingOf(req) });
+    }),
+  );
+  team.post(
+    '/parent/:pid/accept',
+    requireTeam('admin'),
+    wrap(async (req, res) => {
+      await sharing.acceptLink(req.team, req.params.pid, req.user);
+      audit(req, 'team.parent.accept', { team: req.team.id, target: getTeam(req.params.pid)?.key });
+      res.json({ sharing: await sharingOf(req) });
+    }),
+  );
+  team.post(
+    '/parent/:pid/decline',
+    requireTeam('admin'),
+    wrap(async (req, res) => {
+      sharing.cancelLink(req.params.pid, req.team.id);
+      res.json({ sharing: await sharingOf(req) });
+    }),
+  );
+  team.post(
+    '/parent/unlink',
+    requireTeam('admin'),
+    wrap(async (req, res) => {
+      const parent = getTeam(req.team.row.parent_id ?? '');
+      sharing.unlink(req.team.id);
+      audit(req, 'team.parent.unlink', { team: req.team.id, target: parent?.key });
+      res.json({ sharing: await sharingOf(req) });
+    }),
+  );
+  // a newer foundation version of a parent team: what changed, and accepting it (it changes what agents build against)
+  team.get('/foundation/:aid/diff', requireTeam('read'), (req, res) => {
+    if (!sharing.ancestors(req.team.id).some((a) => a.id === req.params.aid))
+      throw new store.ApiError('Not a parent team of this team.', 404);
+    res.json({ changes: sharing.foundationDiff(req.params.aid, Number(req.query.from) || 0, Number(req.query.to) || 0) });
+  });
+  team.post(
+    '/foundation/:aid/accept',
+    requireTeam('approve'),
+    wrap(async (req, res) => {
+      const a = sharing.acceptFoundation(req.team, req.params.aid, req.body?.version, req.user);
+      audit(req, 'foundation.accept', { team: req.team.id, target: a?.team.key, detail: { version: a?.pinned } });
+      res.json({ sharing: await sharingOf(req) });
+    }),
+  );
+  team.post(
+    '/foundation/adopt',
+    requireTeam('write'),
+    wrap(async (req, res) => {
+      const item = sharing.adoptInherited(req.team, req.body?.team, String(req.body?.file ?? ''), req.user);
+      res.json({ item, sharing: await sharingOf(req) });
+    }),
+  );
+  // shares this team makes (approvers) and answers to shares of other teams (approvers)
+  team.post(
+    '/shares',
+    requireTeam('approve'),
+    wrap(async (req, res) => {
+      const { itemId, audience, teams } = req.body ?? {};
+      const s = await sharing.share(req.team, String(itemId ?? ''), { audience, teams: Array.isArray(teams) ? teams : [] }, req.user);
+      audit(req, 'share.update', {
+        team: req.team.id,
+        target: s.itemId,
+        detail: { audience: s.audience, teams: s.teams.map((x) => x.key) },
+      });
+      res.json({ share: s, sharing: await sharingOf(req) });
+    }),
+  );
+  team.post(
+    '/shares/remove',
+    requireTeam('approve'),
+    wrap(async (req, res) => {
+      sharing.unshare(req.team, String(req.body?.itemId ?? ''));
+      audit(req, 'share.remove', { team: req.team.id, target: String(req.body?.itemId ?? '') });
+      res.json({ sharing: await sharingOf(req) });
+    }),
+  );
+  team.post(
+    '/shared/answer',
+    requireTeam('approve'),
+    wrap(async (req, res) => {
+      const owner = getTeam(String(req.body?.owner ?? ''));
+      if (!owner) throw new store.ApiError('No such team.', 404);
+      sharing.answerShare(req.team, owner, String(req.body?.itemId ?? ''), !!req.body?.accept, req.user);
+      audit(req, req.body?.accept ? 'share.accept' : 'share.end', { team: req.team.id, target: `${owner.key}/${req.body?.itemId}` });
+      res.json({ sharing: await sharingOf(req) });
+    }),
+  );
+  /** one version of an item another team shared (?ref=@KEY/path@v3), with the list of its versions */
+  team.get('/shared/item', requireTeam('read'), (req, res) => {
+    const r = sharing.resolveRef(req.team, String(req.query.ref ?? ''), { version: Number(req.query.version) || undefined });
+    const versions =
+      sharing
+        .sharedWith(req.team)
+        .flatMap((s) => (s.owner.key === r.owner.key ? s.items : []))
+        .find((i) => i.id === r.id)?.versions ?? [];
+    res.json({ item: r, versions });
+  });
+  team.post(
+    '/adopt',
+    requireTeam('write'),
+    wrap(async (req, res) => {
+      const item = sharing.adopt(req.team, String(req.body?.ref ?? ''), { as: req.body?.as }, req.user);
+      res.json({ item });
+    }),
+  );
+
   team.get('/spec-types', requireTeam('read'), (req, res) => res.json({ types: listTypes(req.team.id) }));
   team.post(
     '/spec-types',
@@ -916,8 +1079,37 @@ export function apiRouter() {
         members: members(t.id).length,
         items: store.count(t.id),
         gitUrl: t.row.git_url ?? '',
+        parentId: t.row.parent_id ?? null,
         createdBy: t.row.created_by ? (getUser(t.row.created_by)?.email ?? null) : null,
       })),
+    }),
+  );
+  // instance admins link teams directly (no request) and can move the global glossary into a team (usually the root of the tree)
+  r.post(
+    '/admin/teams/:tid/parent',
+    ...admin,
+    wrap(async (req, res) => {
+      const child = getTeam(req.params.tid);
+      if (!child) throw new store.ApiError('No such team.', 404);
+      const parentId = req.body?.parentId ? String(req.body.parentId) : null;
+      if (child.row.parent_id) sharing.unlink(child.id);
+      if (parentId) await sharing.link(parentId, getTeam(child.id), req.user);
+      audit(req, 'team.parent.set', { team: child.id, target: parentId ? getTeam(parentId)?.key : null });
+      res.json({ ok: true });
+    }),
+  );
+  r.post(
+    '/admin/global-glossary/to-team',
+    ...admin,
+    wrap(async (req, res) => {
+      const t = getTeam(String(req.body?.teamId ?? ''));
+      if (!t) throw new store.ApiError('No such team.', 404);
+      const n = sharing.globalGlossaryToTeam(t, listGlobalTerms(), req.user);
+      if (n && t.row.foundation_auto)
+        for (const d of store.allDocs(t.id).filter((x) => x.pinned && x.rev > x.releasedRev))
+          store.scheduleFoundation(t.id, d.id, req.user);
+      audit(req, 'glossary.global.to-team', { team: t.id, detail: { terms: n } });
+      res.json({ terms: n });
     }),
   );
   r.get('/users', ...admin, (_req, res) => res.json({ users: listUsers().map(withCounts), roles: ROLES, scopes: MCP_SCOPES }));

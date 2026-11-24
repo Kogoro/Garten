@@ -1,3 +1,4 @@
+import { SharedSection, SharedView, InheritedView, ShareSheet, shareable } from '../sharing';
 import { useState, type ReactElement } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Dropdown } from '../dialogs';
@@ -40,6 +41,7 @@ function DocsList({ selected }: { selected?: string }) {
   const S = useStore();
   const ui = useUi();
   const [sheet, setSheet] = useState<null | { kind: PathSheetKind; value?: string; from?: string }>(null);
+  const [shareFolder, setShareFolder] = useState<string | null>(null);
   const can = S.can('write');
   const found = S.foundationDocs();
   const tree = buildTree(S);
@@ -49,8 +51,12 @@ function DocsList({ selected }: { selected?: string }) {
       { key: 'doc', label: 'New document here' },
       { key: 'sub', label: 'New subfolder' },
       { key: 'rename', label: 'Rename / move…' },
+      ...(S.can('approve') && shareable({ id: path, kind: 'folder' })
+        ? [{ key: 'share', label: S.sharing().shares.some((x: any) => x.itemId === path) ? 'Shared – change…' : 'Share with teams…' }]
+        : []),
       { key: 'delete', label: 'Delete folder', danger: true, disabled: !S.folderEmpty(path) },
     ]);
+    if (k === 'share') setShareFolder(path);
     if (k === 'doc') setSheet({ kind: 'newdoc', value: `${path}/` });
     if (k === 'sub') setSheet({ kind: 'newfolder', value: `${path}/` });
     if (k === 'rename') setSheet({ kind: 'renamefolder', from: path, value: path });
@@ -210,8 +216,10 @@ function DocsList({ selected }: { selected?: string }) {
             Add ADRs, schemas or notes and link them to specs. Organise them in folders.
           </div>
         )}
+        <SharedSection kind="doc" selected={selected} />
       </div>
       {sheet && <PathSheet kind={sheet.kind} value={sheet.value} from={sheet.from} onClose={() => setSheet(null)} />}
+      {shareFolder && <ShareSheet itemId={shareFolder} kind="folder" onClose={() => setShareFolder(null)} />}
       {can && (
         <Fab
           label="New"
@@ -240,7 +248,11 @@ export function DocsPage() {
       master={<DocsList selected={id} />}
       detail={
         id ? (
-          item && item.kind === 'doc' ? (
+          id.startsWith('@') ? (
+            <SharedView key={id} refId={id} />
+          ) : id.startsWith('~') ? (
+            <InheritedView key={id} refId={id} />
+          ) : item && item.kind === 'doc' ? (
             <ItemEditor key={id} item={item} />
           ) : (
             <NotFound what="document" to="/docs" back="Documents" />

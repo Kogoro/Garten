@@ -19,11 +19,13 @@ import { initAutoPush, catchUpPushes } from './gitremote.js';
 import { initHooks, resumeHooks } from './hooks.js';
 import { listTeams } from './teams.js';
 import { seedDemo } from './seed.js';
+import { startSharing, snapshotFoundation, snapshotShares } from './sharing.js';
 
 const defaultTeam = await bootstrapAdmin();
 store.ensureFoundation(defaultTeam);
 initAutoPush();
 initHooks();
+startSharing();
 if (
   SEED_DEMO &&
   store.allSpecs(defaultTeam.id).length === 0 &&
@@ -33,6 +35,11 @@ if (
   console.log('seeded demo data');
 }
 await store.startupSweep();
+// foundation versions and shared versions catch up with releases made before this version (or while the server was down)
+for (const t of listTeams()) {
+  await snapshotFoundation(t).catch((e) => console.error('foundation version', t.key, e.message));
+  await snapshotShares(t).catch((e) => console.error('shared versions', t.key, e.message));
+}
 startJanitor();
 resumeHooks();
 catchUpPushes(listTeams()).catch((e) => console.error('catch-up:', e.message));

@@ -32,7 +32,7 @@ export function RuleFormSheet({
   initial?: { rule?: string; kind?: 'always' | 'never'; body?: string; folder?: string };
   title: string;
   submit: string;
-  onSave: (r: { rule: string; kind: 'always' | 'never'; body: string; folder: string }) => void;
+  onSave: (r: { rule: string; kind: 'always' | 'never'; body: string; folder: string; requiredBy?: string | null }) => void;
   onClose: () => void;
 }) {
   const S = useStore();
@@ -41,9 +41,11 @@ export function RuleFormSheet({
   const [kind, setKind] = useState<'always' | 'never'>(initial?.kind ?? cur?.kind ?? 'always');
   const [body, setBody] = useState(initial?.body ?? cur?.body ?? '');
   const [folder, setFolder] = useState(initial?.folder ?? (item && !item.id.startsWith(PROPOSED) ? ruleFolder(item.id) : ''));
+  const [requiredBy, setRequiredBy] = useState(cur?.requiredBy ?? '');
+  const hasChildren = S.sharing().children.length > 0;
   function save() {
     try {
-      onSave({ rule, kind, body, folder });
+      onSave({ rule, kind, body, folder, ...(hasChildren || requiredBy ? { requiredBy: requiredBy || null } : {}) });
       onClose();
     } catch (e: any) {
       toast(e.message);
@@ -101,6 +103,15 @@ export function RuleFormSheet({
         onChange={(e) => setBody(e.target.value)}
         placeholder={'**Why:** …\n\n**Instead:** …\n\n**Exceptions:** none.'}
       />
+      {(hasChildren || requiredBy) && (
+        <>
+          <label className="field-lbl" htmlFor="gr-required">
+            Required for child teams by{' '}
+            <small className="muted">optional – after this date the rule applies to them even before they accept the update</small>
+          </label>
+          <input id="gr-required" className="field" type="date" value={requiredBy} onChange={(e) => setRequiredBy(e.target.value)} />
+        </>
+      )}
       <div className="btns">
         <button className="btn primary" data-act="gr-save" disabled={!rule.trim()} onClick={save}>
           {submit}
@@ -181,7 +192,7 @@ function GuardrailList({ arg }: { arg?: string }) {
             </div>
           </div>
           <div className="list" id="grList" role="tabpanel" aria-labelledby="tab-rules">
-            {!S.ruleItems().length && (
+            {!S.ruleItems().length && !S.sharing().inherited.some((a) => a.rules.length) && (
               <div className="empty">
                 No guardrails yet.
                 <br />
@@ -198,6 +209,46 @@ function GuardrailList({ arg }: { arg?: string }) {
                     {k === 'always' ? 'Always' : 'Never'} <small>{list.length}</small>
                   </div>
                   {list.map(({ item, r }) => row(item, r))}
+                </div>
+              );
+            })}
+            {[...S.sharing().inherited].reverse().map((a) => {
+              const list = a.rules.filter(
+                (r: any) =>
+                  !ql ||
+                  r.text.toLowerCase().includes(ql) ||
+                  String(r.body ?? '')
+                    .toLowerCase()
+                    .includes(ql) ||
+                  r.ref.toLowerCase() === ql,
+              );
+              if (!list.length) return null;
+              return (
+                <div key={a.team.id} className="kindgroup inherited" data-from={a.team.key}>
+                  <div className="grouplabel">
+                    From {a.team.name} <small>v{a.pinned}</small>
+                    {a.update && (
+                      <Link className="chip warn" to="/team?tab=sharing" style={{ marginLeft: 8 }}>
+                        Update v{a.update.version} waits
+                      </Link>
+                    )}
+                  </div>
+                  {list.map((r: any) => (
+                    <details key={r.ref} className="row inh-rule" data-rule={r.ref}>
+                      <summary>
+                        <div className="row-top">
+                          <span className="mono muted">{r.ref}</span>
+                          <span className="chip">{r.kind === 'never' ? 'Never' : 'Always'}</span>
+                          {r.forced && <span className="chip warn">required</span>}
+                        </div>
+                        <div className="row-title" style={{ whiteSpace: 'normal' }}>
+                          {r.text}
+                        </div>
+                      </summary>
+                      {r.body ? <Md text={r.body} idx={termIndex(glossaryTerms(S))} /> : <p className="muted">No details.</p>}
+                      <p className="note">Set by {a.team.name}. Your team cannot change or relax it – give feedback to them instead.</p>
+                    </details>
+                  ))}
                 </div>
               );
             })}

@@ -1,3 +1,4 @@
+import { SpecSharingStrip, SharedLinkRows, ShareSheet, ImplementsSheet, shareable } from '../sharing';
 import { GrowthIcon, STAGE_NAME, stageOf } from '../growth';
 import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
@@ -359,6 +360,7 @@ function DocsDd({ i, S, onNew }: { i: Item; S: Store; onNew: () => void }) {
           ) : (
             <div className="dd-empty">No documents yet.</div>
           )}
+          <SharedLinkRows item={i} S={S} />
           {can && (
             <>
               <div className="dd-sep" />
@@ -441,7 +443,7 @@ export function ItemEditor({ item }: { item: Item }) {
   const ui = useUi();
   const api = useRef<EditorApi | null>(null);
   const [derive, setDerive] = useState<null | { kind: 'spec' | 'term'; text: string; whole: boolean }>(null);
-  const [sheet, setSheet] = useState<null | 'link' | 'ref' | 'newdoc' | 'move' | 'conflict'>(null);
+  const [sheet, setSheet] = useState<null | 'link' | 'ref' | 'newdoc' | 'move' | 'conflict' | 'share' | 'implements'>(null);
   const isSpec = item.kind === 'spec';
   const ro = !S.can('write');
   const raw = rawMode(item);
@@ -490,6 +492,20 @@ export function ItemEditor({ item }: { item: Item }) {
       },
     ];
     const typeItem = isSpec && S.can('write') ? [{ key: 'type', label: `Type: ${S.specType(item.specType).label} – change…` }] : [];
+    const shared = S.sharing().shares.find((x: any) => x.itemId === item.id);
+    const shareItems = [
+      ...(S.can('approve') && shareable(item)
+        ? [
+            {
+              key: 'share',
+              label: shared ? `Shared with ${shared.teams.map((x: any) => x.key).join(', ') || 'teams'} – change…` : 'Share with teams…',
+            },
+          ]
+        : []),
+      ...(isSpec && S.can('write')
+        ? [{ key: 'implements', label: item.implements ? `Implements ${item.implements} – change…` : 'Implements…' }]
+        : []),
+    ];
     const modeItems = raw
       ? []
       : [
@@ -519,7 +535,18 @@ export function ItemEditor({ item }: { item: Item }) {
             { key: 'docs', label: `Linked documents: ${item.links.length}` },
           ]
         : [];
-    const key = await openMenu(item.id, [...info, ...phoneItems, ...impl, ...deriveItems, ...modeItems, ...typeItem, ...actions]);
+    const key = await openMenu(item.id, [
+      ...info,
+      ...phoneItems,
+      ...impl,
+      ...deriveItems,
+      ...modeItems,
+      ...typeItem,
+      ...shareItems,
+      ...actions,
+    ]);
+    if (key === 'share') return setSheet('share');
+    if (key === 'implements') return setSheet('implements');
     if (key === 'derive:spec' || key === 'derive:term')
       return setDerive({ kind: key === 'derive:spec' ? 'spec' : 'term', text: src, whole: !sel });
     if (key === 'derive:defs') {
@@ -748,6 +775,7 @@ export function ItemEditor({ item }: { item: Item }) {
           </div>
         </div>
       )}
+      {isSpec && tab === 'content' && <SpecSharingStrip item={item} />}
       {isSpec && (
         <Tabs
           label="Spec sections"
@@ -959,6 +987,8 @@ export function ItemEditor({ item }: { item: Item }) {
       {sheet === 'newdoc' && <PathSheet kind="newdoc" linkTo={item.id} onClose={() => setSheet(null)} />}
       {sheet === 'move' && <PathSheet kind="move" from={item.id} value={item.id} onClose={() => setSheet(null)} />}
       {sheet === 'conflict' && <ConflictSheet id={item.id} onClose={() => setSheet(null)} />}
+      {sheet === 'share' && <ShareSheet itemId={item.id} kind={item.kind} onClose={() => setSheet(null)} />}
+      {sheet === 'implements' && <ImplementsSheet item={item} onClose={() => setSheet(null)} />}
     </div>
   );
 }

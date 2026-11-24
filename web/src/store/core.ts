@@ -38,6 +38,7 @@ export const state: any = {
   authConfig: null as any,
   project: 'specs',
   feedback: {} as Record<string, Record<string, number>>, // open feedback per team and spec (from the last sync)
+  sharing: {} as Record<string, any>, // per team: parent and child teams, inherited foundation, shares in both directions (server/sharing.js sharingView)
   garden: {} as Record<string, Garden>, // per team: open feedback + decisions and the newest implementation report of every spec (kept for offline use)
   fbOps: {} as Record<string, FbOp[]>, // per team: answers and triage done on this device that the server has not seen yet
   gardenNotice: null as string | null, // an answer the server refused
@@ -95,6 +96,7 @@ export async function init() {
   state.types = (await idb.get('meta', 'types')) ?? {};
   state.feedback = {};
   state.garden = (await idb.get('meta', 'garden')) ?? {};
+  state.sharing = (await idb.get('meta', 'sharing')) ?? {};
   state.fbOps = (await idb.get('meta', 'fbOps')) ?? {};
   pickTeam((await idb.get('meta', 'teamId')) ?? null);
   // Single sign-on ends in a redirect to the app with only a session cookie set: pick that session up (password login does this itself).
@@ -175,6 +177,7 @@ async function wipeLocal() {
   state.types = {};
   state.feedback = {};
   state.garden = {};
+  state.sharing = {};
   state.fbOps = {};
   state.gardenNotice = null;
   await idb.clear('items');
@@ -185,6 +188,7 @@ async function wipeLocal() {
     meta('teamId', null),
     meta('types', {}),
     meta('garden', {}),
+    meta('sharing', {}),
     meta('fbOps', {}),
   ]);
 }
@@ -576,6 +580,8 @@ const fromServer = (s: any, tid: string): Item => ({
   links: s.links,
   pinned: !!s.pinned,
   specType: s.specType ?? DEFAULT_TYPE,
+  implements: s.implements ?? null,
+  origin: s.origin ?? null,
   ...serverMeta(s),
   dirty: false,
   baseRev: s.rev,
@@ -631,7 +637,7 @@ async function syncTeam(tid: string) {
       i.dirty && !i.del
         ? i.kind === 'doc'
           ? { title: i.title, body: i.body, links: i.links, pinned: !!i.pinned }
-          : { title: i.title, body: i.body, links: i.links, specType: i.specType }
+          : { title: i.title, body: i.body, links: i.links, specType: i.specType, implements: i.implements ?? null }
         : {},
     ls: i.localSeq,
   }));
@@ -643,6 +649,7 @@ async function syncTeam(tid: string) {
       fetchedSince: state.fetched[tid] ?? '',
       changes,
       gardenRev: state.garden[tid]?.rev ?? -1,
+      sharingRev: state.sharing[tid]?.rev ?? -1,
       ...(fbSent.length ? { feedbackOps: fbSent.map(({ id, status, answer, reply }) => ({ id, status, answer, reply })) } : {}),
     });
   } catch (e: any) {
@@ -719,6 +726,10 @@ async function syncTeam(tid: string) {
   if (data.specTypes) state.types[tid] = data.specTypes;
   state.feedback[tid] = data.feedbackOpen ?? {};
   await adoptGarden(tid, data, fbSent);
+  if (data.sharing) {
+    state.sharing[tid] = data.sharing;
+    await meta('sharing', state.sharing);
+  }
   state.cursors[tid] = data.cursor;
   if (data.me) {
     state.me = data.me;
@@ -857,6 +868,8 @@ export interface RuleInput {
   body?: string;
   folder?: string;
   see?: string[];
+  /** teams with child teams: after this date (YYYY-MM-DD) the rule applies to them even before they accept the update; '' = never forced */
+  requiredBy?: string | null;
 }
 /** Rule files on this device, by id number (rules not synced yet – no id – last). */
 export const ruleItems = (): Item[] =>
@@ -893,6 +906,7 @@ export function saveRule(r: RuleInput, path?: string): string {
     rule: r.rule,
     kind: r.kind,
     see: r.see ?? prev?.see ?? [],
+    requiredBy: r.requiredBy === undefined ? (prev?.requiredBy ?? null) : r.requiredBy || null,
     body: r.body ?? prev?.body ?? '',
   });
   if (!old) {
@@ -1193,3 +1207,144 @@ export const feedbackTotal = (): number => {
     ? g.filter((f) => f.status === 'open').length
     : Object.values<number>(state.feedback?.[state.teamId] ?? {}).reduce((a, b) => a + b, 0);
 };
+
+// ------------------------------------------------------------ sharing between teams (docs/SHARED-SPECS.md)
+export type SharingView = {
+  rev: number;
+  parent: TeamBrief | null;
+  ancestors: TeamBrief[];
+  children: TeamBrief[];
+  links: {
+    incoming: { team: TeamBrief; requestedBy: string | null; at: string }[];
+    outgoing: { team: TeamBrief; requestedBy: string | null; at: string }[];
+  };
+  foundationVersion: number;
+  inherited: Inherited[];
+  shares: any[];
+  sharedWith: any[];
+  implementedBy: Record<string, { rows: any[]; done: boolean }>;
+  teams: TeamBrief[];
+};
+export type TeamBrief = { id: string; key: string; name: string };
+export type Inherited = {
+  team: TeamBrief;
+  pinned: number;
+  newest: number;
+  acceptedBy: string | null;
+  acceptedAt: string | null;
+  files: { id: string; body: string }[];
+  rules: any[];
+  terms: any[];
+  docs: { id: string; body: string; team: string }[];
+  forced: string[];
+  update: null | {
+    version: number;
+    at: string | null;
+    since: string | null;
+    changes: { id: string; change: string }[];
+    required: { id: string; text: string; requiredBy: string }[];
+  };
+};
+const EMPTY_SHARING: SharingView = {
+  rev: -1,
+  parent: null,
+  ancestors: [],
+  children: [],
+  links: { incoming: [], outgoing: [] },
+  foundationVersion: 0,
+  inherited: [],
+  shares: [],
+  sharedWith: [],
+  implementedBy: {},
+  teams: [],
+};
+/** What the active team inherits and shares (from the last sync; kept for offline use). */
+export const sharing = (): SharingView => state.sharing[state.teamId] ?? EMPTY_SHARING;
+async function adoptSharing(data: any) {
+  if (!data?.sharing) return data;
+  state.sharing[state.teamId] = data.sharing;
+  await meta('sharing', state.sharing);
+  emit();
+  return data;
+}
+export const loadSharing = async () => adoptSharing(await teamApi('GET', '/sharing'));
+const sharingCall = async (method: string, path: string, body?: unknown) => adoptSharing(await teamApi(method, path, body));
+export const requestChild = (key: string) => sharingCall('POST', '/children', { key });
+export const removeChild = (id: string) => sharingCall('POST', `/children/${id}/remove`);
+export const acceptParent = (id: string) => sharingCall('POST', `/parent/${id}/accept`);
+export const declineParent = (id: string) => sharingCall('POST', `/parent/${id}/decline`);
+export const unlinkParent = () => sharingCall('POST', '/parent/unlink');
+export const acceptFoundation = (ancestorId: string, version?: number) =>
+  sharingCall('POST', `/foundation/${ancestorId}/accept`, { version });
+export const foundationDiff = async (ancestorId: string, from: number, to: number) =>
+  (await teamApi('GET', `/foundation/${ancestorId}/diff?from=${from}&to=${to}`)).changes as {
+    id: string;
+    change: string;
+    before?: string;
+    after?: string;
+  }[];
+export const shareItem = (itemId: string, audience: 'children' | 'descendants' | 'teams', teams: string[] = []) =>
+  sharingCall('POST', '/shares', { itemId, audience, teams });
+export const unshareItem = (itemId: string) => sharingCall('POST', '/shares/remove', { itemId });
+export const answerShare = (ownerId: string, itemId: string, accept: boolean) =>
+  sharingCall('POST', '/shared/answer', { owner: ownerId, itemId, accept });
+/** One version of an item another team shared, with its versions (online only). */
+export const sharedItem = async (ref: string, version?: number) =>
+  teamApi('GET', `/shared/item?ref=${encodeURIComponent(ref)}${version ? `&version=${version}` : ''}`);
+async function pullNow() {
+  try {
+    await sync();
+  } catch {
+    /* the next sync brings it */
+  }
+}
+export async function adopt(ref: string, as?: string) {
+  const r = await teamApi('POST', '/adopt', { ref, as });
+  await pullNow();
+  return r.item;
+}
+export async function adoptInherited(teamKey: string, file: string) {
+  const r = await adoptSharing(await teamApi('POST', '/foundation/adopt', { team: teamKey, file }));
+  await pullNow();
+  return r.item;
+}
+
+/** "@API/api/payments.yaml@v4" -> { key, id, version } */
+export const parseSharedRef = (ref: string) => {
+  const m = /^@([A-Za-z][A-Za-z0-9]{1,7})\/(.+?)(?:@v(\d+))?$/.exec(String(ref ?? ''));
+  return m ? { key: m[1].toUpperCase(), id: m[2], version: m[3] ? Number(m[3]) : null } : null;
+};
+export const isSharedRef = (s: string) => String(s ?? '').startsWith('@');
+/** Items of other teams this team may link: [{ ref, owner, id, kind, title, newest, versions }] (accepted shares only). */
+export const sharedItems = () =>
+  sharing()
+    .sharedWith.filter((s: any) => s.accepted)
+    .flatMap((s: any) => s.items.map((i: any) => ({ ...i, owner: s.owner, ref: `@${s.owner.key}/${i.id}` })));
+/** The newest version of a shared item this device knows (0 when the item is unknown). */
+export const newestShared = (ref: string) => {
+  const r = parseSharedRef(ref);
+  return (r && sharedItems().find((i: any) => i.owner.key === r.key && i.id === r.id)?.newest) || 0;
+};
+export function addSharedLink(specId: string, ref: string) {
+  const s = state.items.get(specId)!;
+  const r = parseSharedRef(ref)!;
+  const v = r.version ?? newestShared(ref);
+  const full = `@${r.key}/${r.id}${v ? `@v${v}` : ''}`;
+  const rest = s.links.filter((l: string) => parseSharedRef(l)?.id !== r.id || parseSharedRef(l)?.key !== r.key);
+  edit(specId, { links: [...rest, full] });
+}
+/** Moves a link to another version ("Update link"): a draft change an approver lets bloom. */
+export function updateSharedLink(specId: string, ref: string, version: number) {
+  const s = state.items.get(specId)!;
+  const r = parseSharedRef(ref)!;
+  edit(specId, { links: s.links.map((l: string) => (l === ref ? `@${r.key}/${r.id}@v${version}` : l)) });
+}
+export const setImplements = (specId: string, value: string | null) => edit(specId, { implements: value || null });
+/** Specs of this team that link a version of a shared item older than the newest. */
+export const linkUpdates = () =>
+  all('spec').flatMap((s) =>
+    s.links
+      .filter(isSharedRef)
+      .map((l: string) => ({ spec: s, ref: l, have: parseSharedRef(l)?.version ?? 0, newest: newestShared(l) }))
+      .filter((x: any) => x.have && x.newest > x.have),
+  );

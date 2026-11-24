@@ -3,6 +3,7 @@
 import { db } from './db.js';
 import { pruneAudit } from './audit.js';
 import { pruneFeedback } from './feedback.js';
+import { sweepSharing } from './sharing.js';
 
 export function sweepExpired() {
   const t = Math.floor(Date.now() / 1000);
@@ -21,6 +22,7 @@ export function sweepExpired() {
   db.prepare('DELETE FROM agent_activity WHERE last_at < ?').run(new Date(Date.now() - 90 * 86400_000).toISOString());
   pruneAudit();
   pruneFeedback();
+  sweepSharing();
 }
 
 export function startJanitor() {
