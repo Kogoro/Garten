@@ -1142,7 +1142,7 @@ export function TeamPage() {
                           </button>
                           <p className="note">
                             {d?.mailEnabled
-                              ? 'The invitation is sent by e-mail. You also get the one-time link in case it does not arrive.'
+                              ? 'The invitation is sent by e-mail. If it does not arrive, send it again.'
                               : 'No mail server is configured: you get a one-time link to send yourself (ask an instance admin to set up e-mail).'}
                           </p>
                         </form>
@@ -1156,14 +1156,17 @@ export function TeamPage() {
                             )}
                             <p className="note" style={{ color: 'var(--soft)' }}>
                               {invite.userExists ? 'They already have an account and will also see the invitation after signing in. ' : ''}
-                              {invite.emailed ? 'You can also send them this one-time link yourself' : 'Send them this one-time link'}{' '}
-                              (valid 7 days):
+                              {invite.link
+                                ? 'Send them this one-time link (valid 7 days):'
+                                : 'The one-time link went only to their mailbox, so it proves the address is theirs.'}
                             </p>
-                            <div className="code">{invite.link}</div>
+                            {invite.link && <div className="code">{invite.link}</div>}
                             <div className="btns">
-                              <button className="btn small" onClick={() => copy(invite.link)}>
-                                Copy link
-                              </button>
+                              {invite.link && (
+                                <button className="btn small" onClick={() => copy(invite.link)}>
+                                  Copy link
+                                </button>
+                              )}
                               <button className="btn small" onClick={() => setInvite(null)}>
                                 Done
                               </button>

@@ -1582,20 +1582,19 @@ try {
   await d.fill('#inv-email', 'ed@example.com');
   await d.selectOption('#inv-role', 'editor');
   await d.click('#inviteForm button[type=submit]');
-  await d.locator('.ok-card .code').waitFor();
   await d.getByText('Invitation e-mailed to ed@example.com').waitFor();
-  const shownLink = await d.locator('.ok-card .code').innerText();
-  assert.match(shownLink, /#\/invite\/inv_/);
-  const firstMail = smtp.mails.find((m) => m.to.includes('ed@example.com'));
-  assert.ok(firstMail && firstMail.text.includes(shownLink));
-  ok('team admin sends an invitation: it is e-mailed and the link is shown as a fallback');
+  assert.equal(await d.locator('.ok-card .code').count(), 0); // a mailed link is not shown: using it proves the address
+  const mailedLink = (n) =>
+    /https?:\/\/\S+#\/invite\/inv_[\w-]+/.exec(smtp.mails.filter((m) => m.to.includes('ed@example.com'))[n].text)[0];
+  const firstLink = mailedLink(0);
+  ok('team admin sends an invitation: it is e-mailed, and the one-time link goes only to the mailbox');
   // resend: a new mail with a new link; the old link stops working
   await d.locator('[data-act=invite-resend]').click();
   await d.waitForFunction(() => /sent again/.test(document.querySelector('#toast')?.textContent ?? ''));
-  const link = await d.locator('.ok-card .code').innerText();
-  assert.notEqual(link, shownLink);
   assert.equal(smtp.mails.filter((m) => m.to.includes('ed@example.com')).length, 2);
-  assert.equal((await new Client(BASE).get(`/api/invites/${shownLink.split('/invite/')[1]}`)).status, 404);
+  const link = mailedLink(1);
+  assert.notEqual(link, firstLink);
+  assert.equal((await new Client(BASE).get(`/api/invites/${firstLink.split('/invite/')[1]}`)).status, 404);
   ok('resending creates a new e-mail and link and invalidates the old one');
   await shot(d, '09-desktop-invite');
   const ictx = await browser.newContext({ viewport: { width: 390, height: 844 } });

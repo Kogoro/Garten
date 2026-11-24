@@ -35,6 +35,7 @@ if (
   console.log('seeded demo data');
 }
 await store.startupSweep();
+await store.backfillReleasedLinks(); // pinned @KEY/… versions of specs released before v0.13 come from their released files
 // foundation versions and shared versions catch up with releases made before this version (or while the server was down)
 for (const t of listTeams()) {
   await snapshotFoundation(t).catch((e) => console.error('foundation version', t.key, e.message));

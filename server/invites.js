@@ -3,7 +3,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { sql } from './db.js';
 import { INVITE_TTL_DAYS, PUBLIC_URL } from './config.js';
-import { sha, ROLES, setMember, getUserByEmail, createUser, AuthError, getUser } from './auth.js';
+import { sha, ROLES, setMember, getUserByEmail, createUser, AuthError, getUser, markEmailVerified } from './auth.js';
 import { getTeam } from './teams.js';
 import { isEmail } from './validate.js';
 
@@ -16,6 +16,7 @@ const toInvite = (r) =>
     email: r.email,
     role: r.role,
     invitedBy: r.invited_by,
+    vouched: !!r.vouched,
     createdAt: r.created_at,
     expiresAt: r.expires_at * 1000,
   };
@@ -27,7 +28,8 @@ export const invitesForEmail = (email) =>
   sql(`SELECT * FROM invites WHERE email=? AND ${pending} ORDER BY created_at DESC`).all(email, now()).map(toInvite);
 export const getInvite = (id) => toInvite(sql('SELECT * FROM invites WHERE id=?').get(id));
 
-export function createInvite({ team, email, role = 'viewer', by }) {
+/** `vouched`: the inviter is trusted to vouch for the address (an instance admin). A mailed link vouches too (markInviteMailed). */
+export function createInvite({ team, email, role = 'viewer', by, vouched = false }) {
   email = String(email ?? '')
     .trim()
     .toLowerCase();
@@ -39,7 +41,7 @@ export function createInvite({ team, email, role = 'viewer', by }) {
   sql('DELETE FROM invites WHERE team_id=? AND email=? AND accepted_at IS NULL').run(team.id, email); // a new invitation replaces an older one
   const token = `inv_${randomBytes(24).toString('base64url')}`;
   const id = randomUUID();
-  sql('INSERT INTO invites (id,team_id,email,role,token_hash,invited_by,created_at,expires_at) VALUES (?,?,?,?,?,?,?,?)').run(
+  sql('INSERT INTO invites (id,team_id,email,role,token_hash,invited_by,created_at,expires_at,vouched) VALUES (?,?,?,?,?,?,?,?,?)').run(
     id,
     team.id,
     email,
@@ -48,9 +50,12 @@ export function createInvite({ team, email, role = 'viewer', by }) {
     by?.name ?? null,
     new Date().toISOString(),
     now() + INVITE_TTL_DAYS * 86400,
+    vouched ? 1 : 0,
   );
   return { invite: getInvite(id), token, link: `${PUBLIC_URL}/#/invite/${token}`, userExists: !!existing };
 }
+/** The link was delivered by e-mail and not shown to the inviter. */
+export const markInviteMailed = (id) => sql('UPDATE invites SET vouched=1 WHERE id=?').run(id);
 export const revokeInvite = (teamId, id) => sql('DELETE FROM invites WHERE id=? AND team_id=?').run(id, teamId).changes > 0;
 
 /** Public lookup for the invitation page. */
@@ -69,13 +74,17 @@ function accept(inviteId, userId) {
   return r.team_id;
 }
 
-/** New person with an invitation link: creates the account (the link proves control of the e-mail address). */
+/**
+ * New person with an invitation link: creates the account. The link proves control of the e-mail address only when it went
+ * to that mailbox alone (or an instance admin vouched for it); otherwise the inviter had it too, and the account stays
+ * unverified: it does not receive other invitations for that address automatically (acceptForUser, me.invites).
+ */
 export async function registerFromInvite(token, { name, password }) {
   const inv = inviteByToken(token);
   if (!inv) throw new AuthError('This invitation is no longer valid', 410);
   if (inv.userExists) throw new AuthError('This e-mail already has an account – sign in to accept the invitation', 409);
   if (!password) throw new AuthError('Choose a password');
-  const user = await createUser({ email: inv.email, name, password });
+  const user = await createUser({ email: inv.email, name, password, emailVerified: inv.vouched });
   const teamId = accept(inv.id, user.id);
   return { user, teamId };
 }
@@ -83,9 +92,14 @@ export async function registerFromInvite(token, { name, password }) {
 /** Existing, signed-in user accepts (by link or from the list of pending invitations). */
 /** @param {any} user @param {{ token?: string, inviteId?: string }} ref */
 export function acceptForUser(user, { token, inviteId }) {
+  // without the link, the e-mail address must be proven: otherwise whoever registered the address would collect every invitation for it
+  if (!token && !user.emailVerified)
+    throw new AuthError('Your e-mail address is not confirmed: open the invitation link you were sent to accept it', 403);
   const inv = token ? inviteByToken(token) : invitesForEmail(user.email).find((i) => i.id === inviteId);
   if (!inv || inv.email.toLowerCase() !== user.email.toLowerCase()) throw new AuthError('This invitation is not for your account', 403);
-  return accept(inv.id, user.id);
+  const teamId = accept(inv.id, user.id);
+  if (inv.vouched && !user.emailVerified) markEmailVerified(user.id); // a link that reached the mailbox proves the address
+  return teamId;
 }
 export function declineForUser(user, inviteId) {
   return sql('DELETE FROM invites WHERE id=? AND email=? AND accepted_at IS NULL').run(inviteId, user.email).changes > 0;
