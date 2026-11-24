@@ -116,10 +116,11 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
         navigateFallback: '/index.html',
         // /authorize, /token, /register and /revoke: the MCP OAuth endpoints (mcpAuthRouter mounts them at the root).
+        // Workbox tests these against pathname + search, so a rule ending a path must also accept "?".
         navigateFallbackDenylist: [
           /^\/api\//,
           /^\/mcp/,
-          /^\/(authorize|token|register|revoke)(\/|$)/,
+          /^\/(authorize|token|register|revoke)([/?]|$)/,
           /^\/oauth/,
           /^\/\.well-known/,
           /^\/auth\//,
