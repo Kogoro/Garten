@@ -18,6 +18,7 @@ import {
 import { setTermLookup } from './editor/termLookup';
 import { mdToInline, type Inline } from './editor/inline';
 import type * as Store from './store/core';
+import { imageUrl } from './store/core';
 import type { Item } from './store/types';
 
 export interface Def {
@@ -263,11 +264,10 @@ export function Md({ text, idx }: { text: string; idx: Map<string, string> }) {
         break;
       case 'img':
         out.push(
-          <p key={i}>
-            <a href={b.src} target="_blank" rel="noopener noreferrer">
-              {b.text || b.src}
-            </a>
-          </p>,
+          <figure className="md-img" key={i}>
+            <img src={imageUrl(b.src)} alt={b.text || ''} loading="lazy" decoding="async" />
+            {b.text && <figcaption>{b.text}</figcaption>}
+          </figure>,
         );
         break;
       case 'def':

@@ -436,3 +436,16 @@ test('migrations: a v0.3 database without a schema version is brought to the cur
   up.close();
   assert.throws(() => openWith(old), /newer version/);
 });
+
+test('images: references in Markdown and type by signature', async () => {
+  const { imageRefs, sniffImage } = await import('../shared/images.js');
+  const a = 'a'.repeat(32);
+  assert.deepEqual(imageRefs(`![x](images/${a}.png)\n![](images/${a}.gif "t")\n![y](https://x/y.png)\n![z](images/nope.png)`), [
+    `${a}.png`,
+    `${a}.gif`,
+  ]);
+  assert.equal(sniffImage(Buffer.from('89504e470d0a1a0a0000000d', 'hex')), 'png');
+  assert.equal(sniffImage(Buffer.from('ffd8ffe000104a4649460001', 'hex')), 'jpg');
+  assert.equal(sniffImage(Buffer.from('RIFF\0\0\0\0WEBPVP8 ')), 'webp');
+  assert.equal(sniffImage(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>')), null);
+});

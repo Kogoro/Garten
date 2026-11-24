@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events';
 import { DATA_DIR } from './config.js';
 import { sql } from './db.js';
 import { Repo } from './git.js';
+import { syncImages } from './images.js';
 import { parseDefinitions, glossaryMarkdown, hasContent } from '../shared/glossary.js';
 import {
   parseTermFile,
@@ -417,6 +418,7 @@ const tidy = (team, keepDocs) => async (repo) => {
   const rules = await releasedRules(team, repo);
   if (rules.length) await repo.commitWrite(guardrailsPath(team), guardrailsMarkdown(rules));
   else await repo.commitRemove(guardrailsPath(team));
+  await syncImages(team.id, root(team), repo);
 };
 
 export async function releaseSpec(team, id, by = null) {

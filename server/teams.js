@@ -88,7 +88,7 @@ export function setFeedbackKeepDays(id, days) {
 }
 /** Removes a team and everything that belongs to it (the Git repository directory is removed by the caller). */
 export function deleteTeamRows(id) {
-  for (const t of ['items', 'feedback', 'reports', 'pats', 'oauth_tokens', 'oauth_codes', 'hook_outbox'])
+  for (const t of ['items', 'feedback', 'reports', 'pats', 'oauth_tokens', 'oauth_codes', 'hook_outbox', 'images'])
     sql(`DELETE FROM ${t} WHERE team_id=?`).run(id);
   sql('DELETE FROM teams WHERE id=?').run(id); // memberships + invites cascade
 }

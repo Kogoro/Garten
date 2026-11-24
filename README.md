@@ -69,7 +69,7 @@ What agents get: the team context in one call (vision, strategy, glossary, guard
 </p>
 
 - **Today** – one sentence of what waits for you, the agents at work, a stack of decisions, feedback, approvals and proposals, and every spec by stage.
-- **Specs** – block editor or forms per spec type (feature, API, UI, data model, NFR, integration, ADR, your own types), Mermaid diagrams, requirements, checklists; links to documents with `@` and to glossary words with `#`.
+- **Specs** – block editor or forms per spec type (feature, API, UI, data model, NFR, integration, ADR, your own types), Mermaid diagrams, images (paste, drop or pick a file; released into Git next to the spec), requirements, checklists; links to documents with `@` and to glossary words with `#`.
 - **Documents** – vision and strategy on top, then ADRs, schemas and notes in folders.
 - **Guardrails** – one file per rule with an id, _Always_ or _Never_, and why. A new or reworded rule puts built specs back on the agents' work list.
 - **Glossary** – one file per word: definition, other names, words to avoid, not-to-be-confused-with, see-also. Health checks find conflicting definitions and words to avoid in specs. Import and export as ZIP or CSV.

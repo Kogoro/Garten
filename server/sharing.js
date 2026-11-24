@@ -624,6 +624,16 @@ export function checkNewLinks(team, links, before = []) {
 }
 
 /** Everything other teams shared with `team`, accepted or waiting: [{ owner, itemId, kind, accepted, items: [...] }]. */
+/** The teams whose shared items this team accepted (their images show in those items). */
+export function shareOwners(team) {
+  const ids = new Set(
+    sharedWith(team)
+      .filter((s) => s.accepted)
+      .map((s) => s.owner.id),
+  );
+  return [...ids].map((id) => getTeam(id)).filter(Boolean);
+}
+
 export function sharedWith(team) {
   const out = [];
   for (const s of sql('SELECT * FROM shares WHERE team_id<>?').all(team.id)) {

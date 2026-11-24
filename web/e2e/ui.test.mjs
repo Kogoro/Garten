@@ -1404,6 +1404,33 @@ try {
   await d.getByRole('button', { name: 'Delete spec' }).click();
   await d.evaluate(() => (location.hash = '#/specs'));
 
+  // --- images: uploaded from the image block, kept as images/<hash> in the Markdown, loaded from the team
+  await d.evaluate(() => (location.hash = '#/specs'));
+  await d.click('.bar [data-act=new-spec]');
+  await d.getByRole('button', { name: /Feature spec/ }).click();
+  await d.locator('[data-act=use-type]').click();
+  await d.fill('#title', 'With a picture');
+  await d.click('[data-act=t-add]');
+  await d.getByRole('button', { name: 'Image', exact: true }).click();
+  await d
+    .locator('[data-content-type=image]')
+    .getByText(/Add image/i)
+    .click();
+  const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  await d.locator('input[type=file]').last().setInputFiles({ name: 'flow.png', mimeType: 'image/png', buffer: PNG });
+  await d.waitForFunction(() => {
+    const i = document.querySelector('[data-content-type=image] img');
+    return i?.complete && i.naturalWidth > 0 && /\/api\/teams\/[^/]+\/images\/[a-f0-9]{32}\.png$/.test(i.src);
+  });
+  await setMode(d, 'markdown');
+  assert.match(await d.inputValue('#body'), /!\[[^\]]*\]\(images\/[a-f0-9]{32}\.png\)/);
+  await setMode(d, 'blocks');
+  await d.waitForFunction(() => document.querySelector('[data-content-type=image] img')?.naturalWidth > 0);
+  ok('an image uploaded into a spec is kept as images/<hash> and shown from the team');
+  await d.click('[data-act=item-menu]');
+  d.once('dialog', (x) => x.accept());
+  await d.getByRole('button', { name: 'Delete spec' }).click();
+
   // --- delete a spec
   await d.evaluate(() => (location.hash = '#/specs'));
   await d.click('.bar [data-act=new-spec]');
