@@ -265,7 +265,9 @@ export function consentRouter() {
           `<h1>No team yet</h1><p>You are not a member of any team, so there is nothing to connect. Ask an admin to add you, then try again.</p>`,
         ),
       );
-    const wanted = (reqd.scopes.length ? reqd.scopes : ['mcp:read']).filter((s) => MCP_SCOPES.includes(s));
+    // Offer every MCP scope, not only the requested ones: clients such as claude.ai ask for the advertised minimum (mcp:read), so
+    // the person decides here. Requested scopes start ticked, mcp:write is always opt-in; the team role caps what is granted.
+    const requested = reqd.scopes.length ? reqd.scopes : ['mcp:read'];
     const label = {
       'mcp:read': 'Read released (approved) specifications and documents',
       'mcp:drafts': 'Also read drafts and unreleased changes (needs the editor role or higher in that team)',
@@ -280,7 +282,7 @@ export function consentRouter() {
       <form method="post" action="/oauth/consent" style="display:contents"><input type="hidden" name="request" value="${esc(reqd.id)}">
       <label for="team" class="m">Team</label>
       <select id="team" name="team" >${teams.map(({ team, role }) => `<option value="${esc(team.id)}">${esc(team.name)} (${esc(role)})</option>`).join('')}</select>
-      ${wanted.map((s) => `<label class="s"><input type="checkbox" name="scope" value="${s}" ${s === 'mcp:read' ? 'checked disabled' : s === 'mcp:write' ? '' : 'checked'}><span>${esc(label[s])}<br><span class="m">${s}</span></span></label>`).join('')}
+      ${MCP_SCOPES.map((s) => `<label class="s"><input type="checkbox" name="scope" value="${s}" ${s === 'mcp:read' ? 'checked disabled' : s !== 'mcp:write' && requested.includes(s) ? 'checked' : ''}><span>${esc(label[s])}<br><span class="m">${s}</span></span></label>`).join('')}
       <p class="m">Redirects to ${esc(new URL(reqd.redirectUri).origin)}</p>
       <div class="row"><button class="b" name="decision" value="deny">Deny</button><button class="b p" name="decision" value="allow">Allow</button></div></form>`,
       ),
@@ -323,8 +325,7 @@ export function consentRouter() {
     if (!role) return res.status(400).send('Choose a team you belong to');
     const allowed = allowedScopes(role);
     const picked = [].concat(req.body.scope ?? []);
-    const wanted = (reqd.scopes.length ? reqd.scopes : ['mcp:read']).filter((s) => MCP_SCOPES.includes(s));
-    let scopes = ['mcp:read', ...picked].filter((s, i, a) => a.indexOf(s) === i && wanted.includes(s) && allowed.includes(s));
+    let scopes = ['mcp:read', ...picked].filter((s, i, a) => a.indexOf(s) === i && MCP_SCOPES.includes(s) && allowed.includes(s));
     if (scopes.includes('mcp:write') && !scopes.includes('mcp:drafts') && allowed.includes('mcp:drafts'))
       scopes = [...scopes, 'mcp:drafts']; // writing implies reading drafts
     const code = rand('spa');

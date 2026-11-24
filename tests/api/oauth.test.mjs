@@ -25,7 +25,7 @@ describe('OAuth 2.1 for MCP (DCR + PKCE + consent with team choice)', () => {
     ({ base: BASE, T1 } = ctx);
     t2 = (await ctx.admin.post('/api/teams', { name: 'Payments', key: 'PAY' })).data.team; // a team the OAuth user does not belong to
   });
-  async function authorize(decision, { scope = 'mcp:read mcp:drafts', who = oauthUser.c, team = T1 } = {}) {
+  async function authorize(decision, { scope = 'mcp:read mcp:drafts', pick = 'mcp:drafts', who = oauthUser.c, team = T1 } = {}) {
     const p = pkce();
     const u = new URL(asm.authorization_endpoint);
     Object.entries({
@@ -42,7 +42,8 @@ describe('OAuth 2.1 for MCP (DCR + PKCE + consent with team choice)', () => {
     const consentUrl = new URL(a.headers.get('location'), BASE);
     const page = await who.req('GET', consentUrl.pathname + consentUrl.search);
     assert.match(page.data, /Test Agent/);
-    const form = new URLSearchParams({ request: consentUrl.searchParams.get('request'), decision, scope: 'mcp:drafts', team });
+    const form = new URLSearchParams({ request: consentUrl.searchParams.get('request'), decision, team });
+    for (const s of [].concat(pick)) form.append('scope', s);
     const d = await who.req('POST', '/oauth/consent', form, { 'content-type': 'application/x-www-form-urlencoded' });
     const loc = d.res.headers.get('location');
     return { p, loc: loc ? new URL(loc) : null, status: d.status, page: page.data };
@@ -168,5 +169,21 @@ describe('OAuth 2.1 for MCP (DCR + PKCE + consent with team choice)', () => {
       origin: 'https://evil.example',
     });
     assert.equal(foreign.status, 400);
+  });
+  step('a client asking only for mcp:read (as claude.ai does) can still be granted write on the consent page', async () => {
+    const g = await authorize('allow', { scope: 'mcp:read', pick: ['mcp:write'] });
+    assert.match(g.page, /value="mcp:drafts"/);
+    assert.match(g.page, /value="mcp:write"/);
+    assert.doesNotMatch(g.page, /value="mcp:write" checked/); // write stays opt-in
+    const t = await (
+      await tokenReq({
+        grant_type: 'authorization_code',
+        code: g.loc.searchParams.get('code'),
+        client_id: reg.client_id,
+        redirect_uri: redirect,
+        code_verifier: g.p.verifier,
+      })
+    ).json();
+    assert.deepEqual(t.scope.split(' ').sort(), ['mcp:drafts', 'mcp:read', 'mcp:write']); // writing implies reading drafts
   });
 });
