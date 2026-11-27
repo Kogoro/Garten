@@ -119,6 +119,7 @@ No public address? `scripts/go-public.sh` starts a Cloudflare tunnel and sets `P
 
 - [Reference (German)](docs/REFERENCE.de.md) – every feature, setting and workflow in detail: teams and roles, Git per team, MCP tools, agent routines, checks, HTTPS, backups, releases, known gaps.
 - [Design system](docs/DESIGN-SYSTEM.md) and [words in the interface](docs/UI-VOCABULARY.md).
+- [Plan: writing specs together with an agent (German)](docs/PLAN-SPEC-PAIRING.de.md) – the next step for the requirement side of the loop.
 - [The clickable design mockup](docs/fluent-mockup.html) the interface is built from.
 
 ## Development
