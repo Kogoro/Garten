@@ -167,7 +167,7 @@ function HistoryView({ rows, onOpen }: { rows: { s: any; st: { key: string } }[]
     bins[i].n += 1;
   }
   const top = Math.max(2, ...bins.map((b) => b.n));
-  const key = (k: string) => (k === 'partial' || k === 'in_progress' ? 'in_progress' : k === 'outdated' ? 'in_progress' : k);
+  const key = (k: string) => (k === 'partial' || k === 'in_progress' || k === 'outdated' || k === 'sent_back' ? 'in_progress' : k);
   const counts = IMPL_ORDER.map(([k, l]) => [k, l, rows.filter((x) => key(x.st.key) === k).length] as const);
   const releases = [...rows].filter((x) => x.s.releasedAt).sort((a, b) => Date.parse(b.s.releasedAt) - Date.parse(a.s.releasedAt));
   const [hover, setHover] = useState<number | null>(null);
@@ -266,7 +266,12 @@ export function AgentsPage() {
     answered = S.answeredDecisions().slice(0, 10);
   const rows = S.all('spec')
     .filter((s) => s.status === 'approved')
-    .map((s) => ({ s, r: S.latestReport(s.id), st: implState(s, S.latestReport(s.id)), checks: S.specChecks(s.id) as any[] }))
+    .map((s) => ({
+      s,
+      r: S.latestReport(s.id),
+      st: implState(s, S.latestReport(s.id)),
+      checks: (S.specChecks(s.id) as any[]).filter((c) => !c.outcome),
+    }))
     .sort((a, b) => a.st.rank - b.st.rank || a.s.id.localeCompare(b.s.id));
   const done = rows.filter((x) => x.st.key === 'implemented').length;
   const needs = decisions.length + feedback.length;
@@ -367,7 +372,11 @@ export function AgentsPage() {
     x.checks.some((c) => c.state === 'failing' || c.state === 'stale');
   const cols = [
     { key: 'new', title: 'New', items: rows.filter((x) => x.st.key === 'none') },
-    { key: 'progress', title: 'In progress', items: rows.filter((x) => (x.st.key === 'in_progress' || x.st.key === 'partial') && !bad(x)) },
+    {
+      key: 'progress',
+      title: 'In progress',
+      items: rows.filter((x) => (x.st.key === 'in_progress' || x.st.key === 'partial' || x.st.key === 'sent_back') && !bad(x)),
+    },
     { key: 'attention', title: 'Needs attention', items: rows.filter((x) => x.st.key !== 'none' && bad(x)), hot: true },
     { key: 'done', title: 'Implemented', items: rows.filter((x) => x.st.key === 'implemented' && !bad(x)) },
   ].filter((c) => c.items.length);
@@ -410,6 +419,12 @@ export function AgentsPage() {
     ...rows
       .filter((x) => x.r)
       .map((x) => ({ t: Date.parse(x.r.createdAt), text: `${who(x.r)} reported on ${x.s.id}: ${STATUS_TEXT[x.r.status] ?? x.r.status}` })),
+    ...rows
+      .filter((x) => x.r?.review?.at)
+      .map((x) => ({
+        t: Date.parse(x.r.review.at),
+        text: `${x.r.review.by ?? 'Someone'} ${x.r.review.verdict === 'accepted' ? 'accepted the build of' : 'sent back'} ${x.s.id} v${x.r.specVersion}`,
+      })),
     ...rows
       .filter((x) => x.s.releasedAt)
       .map((x) => ({ t: Date.parse(x.s.releasedAt!), text: `${x.s.releasedBy ?? 'Someone'} let ${x.s.id} v${x.s.version} bloom` })),

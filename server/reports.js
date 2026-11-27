@@ -46,6 +46,11 @@ const snap = (s) => {
     return null;
   }
 };
+/** What a person said about an "implemented" report: accepted, or sent back with a note. null while nobody reviewed it. */
+const reviewOf = (r) =>
+  r.review
+    ? { verdict: r.review, note: r.review_note || undefined, criteria: json(r.review_criteria), by: r.reviewed_by, at: r.reviewed_at }
+    : null;
 const view = (r, checks) => {
   const e = enrich(json(r.criteria), checks);
   return {
@@ -62,6 +67,7 @@ const view = (r, checks) => {
     author: r.author,
     via: r.via,
     createdAt: r.created_at,
+    review: reviewOf(r),
   };
 };
 const clip = (s, n) =>
@@ -121,7 +127,9 @@ export async function addReport(team, { specId, version, status, summary, criter
   if (evidence !== undefined && !Array.isArray(evidence)) throw new ApiError('evidence must be a list.');
   if ((criteria ?? []).length > 60) throw new ApiError('At most 60 criteria per report.');
   if ((evidence ?? []).length > 30) throw new ApiError('At most 30 evidence entries per report.');
-  const known = new Set(listChecks(team.id, { specId }).map((c) => c.name));
+  const specChecks = listChecks(team.id, { specId });
+  const known = new Set(specChecks.filter((c) => !c.outcome).map((c) => c.name));
+  const outcomeChecks = new Set(specChecks.filter((c) => c.outcome).map((c) => c.name));
   const own = (await releasedCriteria(team, specId, v)) ?? [];
   const used = new Map();
   const crit = (criteria ?? []).map((c) => {
@@ -145,7 +153,11 @@ export async function addReport(team, { specId, version, status, summary, criter
     if (c?.checks !== undefined && !Array.isArray(c.checks)) throw new ApiError('checks must be a list of check names.');
     const names = [...new Set((c?.checks ?? []).map((n) => clip(n, 80)).filter(Boolean))].slice(0, 8);
     for (const n of names)
-      if (!known.has(n))
+      if (outcomeChecks.has(n))
+        throw new ApiError(
+          `"${n}" measures an outcome of ${specId}, not a criterion: outcomes are measured once the spec is in use and are not part of the report.`,
+        );
+      else if (!known.has(n))
         throw new ApiError(
           `Criterion "${text.slice(0, 60)}" names the check "${n}", which ${specId} does not have. Register it first (register_check)${known.size ? `; known: ${[...known].join(', ')}` : ''}.`,
         );
@@ -270,7 +282,7 @@ export async function workList(team, agentKey = null) {
   const isBuilt = (id) => {
     const d = released.get(id);
     const r = latest[id];
-    return !!d && !!r && r.status === 'implemented' && r.specVersion === d.version;
+    return !!d && !!r && r.status === 'implemented' && r.specVersion === d.version && r.review?.verdict !== 'returned';
   };
   const work = [];
   const others = [];
@@ -288,7 +300,10 @@ export async function workList(team, agentKey = null) {
     else if (rep.specVersion < s.version) state = 'changed';
     else if (answered.length) state = 'decision_answered';
     else if (rep.status !== 'implemented') state = rep.status;
-    const chk = summarize(allChecks[s.id] ?? []);
+    else if (rep.review?.verdict === 'returned') state = 'sent_back';
+    // outcome checks measure the effect once the spec is in use – that is for people to look at, not work for the agent
+    const buildChecks = (allChecks[s.id] ?? []).filter((c) => !c.outcome);
+    const chk = summarize(buildChecks);
     if (!state && (chk.failing || chk.stale || chk.unverified)) state = 'recheck';
     // the code was checked against older guardrails: new or reworded rules have to be checked against it
     const drift = rep && rep.status === 'implemented' && rep.specVersion === s.version ? rulesChanged(rules, rep.guardrails) : [];
@@ -367,10 +382,28 @@ export async function workList(team, agentKey = null) {
             hint: 'The guardrails changed since your last report. Check the code of this spec against these rules (get_team_context lists them, get_guardrails explains them). If it complies, report again (report_implementation, same status and criteria); if not, fix it – or ask with request_decision when a rule and the spec contradict each other.',
           }
         : {}),
+      ...(state === 'sent_back'
+        ? {
+            review: {
+              note: rep.review.note,
+              ...(rep.review.criteria.length
+                ? {
+                    criteria: rep.review.criteria.map((id) => ({
+                      id,
+                      text: rep.criteria.find((c) => c.id === id)?.text ?? '',
+                    })),
+                  }
+                : {}),
+              by: rep.review.by,
+              at: rep.review.at,
+            },
+            hint: 'A person reviewed your implementation and sent it back. Do what the note says (it is a request about the code, not a change of the spec – if it contradicts the spec, ask with request_decision), then report again with report_implementation: the new report goes to review again.',
+          }
+        : {}),
       ...(state === 'recheck'
         ? {
             hint: 'Run these checks again (list_checks shows how) and report each result with report_check_result. If one fails, fix the code or report the spec as partial. Checks marked needs_ci pass only when the CI pipeline reports them: make sure the pipeline runs them (GET /api/ci/checks lists what to run).',
-            checks_to_run: (allChecks[s.id] ?? [])
+            checks_to_run: buildChecks
               .filter((c) => c.state !== 'passing')
               .map((c) => ({
                 name: c.name,
@@ -386,6 +419,7 @@ export async function workList(team, agentKey = null) {
   }
   const rank = {
     decision_answered: 0,
+    sent_back: 0.5,
     changed: 1,
     recheck: 2,
     guardrails_changed: 2.5,
@@ -409,7 +443,7 @@ export async function workList(team, agentKey = null) {
     ...(held.length ? { on_hold: held } : {}),
     ...(waiting.length ? { waiting_on_specs: waiting } : {}),
     states:
-      'new = never reported · changed = a newer version was released since your last report · recheck = implemented, but a check fails, is stale (too old or from an older version) or never ran – run it again · guardrails_changed = implemented, but guardrails were added or reworded since: check the code against rules_changed and report again · decision_answered = a person answered your question, or dismissed it (outcome "dismissed": do not ask it again – follow the note, or continue with your recommendation and say so in the report) · in_progress / partial / blocked = your last report · implemented = done, listed only because a question is still open · claimed_by_others = another agent is building these right now: leave them alone · on_hold = a person put these on hold: do not start or continue them · waiting_on_specs = these are built after the specs in waits_for are implemented · priority high / low = a person wants these sooner / later; the list is already in that order',
+      'new = never reported · sent_back = a person reviewed your "implemented" report and sent it back: read review.note, fix it and report again · changed = a newer version was released since your last report · recheck = implemented, but a check fails, is stale (too old or from an older version) or never ran – run it again · guardrails_changed = implemented, but guardrails were added or reworded since: check the code against rules_changed and report again · decision_answered = a person answered your question, or dismissed it (outcome "dismissed": do not ask it again – follow the note, or continue with your recommendation and say so in the report) · in_progress / partial / blocked = your last report · implemented = done, listed only because a question is still open · claimed_by_others = another agent is building these right now: leave them alone · on_hold = a person put these on hold: do not start or continue them · waiting_on_specs = these are built after the specs in waits_for are implemented · priority high / low = a person wants these sooner / later; the list is already in that order',
     note: work.length
       ? 'Claim an entry with claim_spec before you build it. Entries with a blocking waiting_for_decision must wait for a person; work on the others.'
       : others.length

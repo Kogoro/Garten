@@ -581,7 +581,7 @@ function HookForm({
   const preset = () => {
     setFormat('text');
     setHeaders(ROUTINE_HEADERS);
-    if (!ev.length) setEv(['release', 'answer', 'check', 'resume']);
+    if (!ev.length) setEv(['release', 'answer', 'review', 'check', 'resume']);
     toast('Filled in for a Claude Code routine – add the URL and the token of your routine');
   };
   const test = guard(async () => {
@@ -678,6 +678,10 @@ function HookForm({
         <label className="check">
           <input type="checkbox" id="h-ev-answer" checked={ev.includes('answer')} onChange={(e) => flip('answer', e.target.checked)} /> Call
           when a decision is answered
+        </label>
+        <label className="check">
+          <input type="checkbox" id="h-ev-review" checked={ev.includes('review')} onChange={(e) => flip('review', e.target.checked)} /> Call
+          when a person sends an implementation back
         </label>
         <label className="check">
           <input type="checkbox" id="h-ev-check" checked={ev.includes('check')} onChange={(e) => flip('check', e.target.checked)} /> Call

@@ -1212,6 +1212,38 @@ export async function steer(specId: string, patch: Partial<Steering>) {
   emit();
   return r.steering as Steering;
 }
+/** The second gate: an approver accepts what the agent reported as implemented, or sends it back with a note. Needs a connection. */
+export async function reviewBuild(
+  specId: string,
+  body: { verdict: 'accepted' | 'returned'; note?: string; criteria?: string[]; reportId?: string },
+) {
+  const tid = state.teamId;
+  const r: any = await api('POST', `/api/teams/${tid}/reviews/${encodeURIComponent(specId)}`, body);
+  const g = state.garden[tid];
+  if (g) {
+    g.reports = { ...g.reports, [specId]: r.report };
+    await meta('garden', state.garden);
+  }
+  emit();
+  return r.report;
+}
+/** Outcome checks that missed their target and that nobody has looked at since (they wait on Today). */
+export const outcomesOffTarget = (): any[] =>
+  Object.values<any[]>(state.garden[state.teamId]?.checks ?? {})
+    .flat()
+    .filter((c) => c.outcome && c.needsAttention);
+/** A person saw that an outcome is off target: it leaves Today until it fails anew after passing. Needs a connection. */
+export async function ackOutcome(specId: string, name: string) {
+  const tid = state.teamId;
+  const r: any = await api('POST', `/api/teams/${tid}/outcomes/${encodeURIComponent(specId)}/ack`, { name });
+  const g = state.garden[tid];
+  if (g) {
+    g.checks = { ...g.checks, [specId]: (g.checks[specId] ?? []).map((c: any) => (c.name === name ? r.check : c)) };
+    await meta('garden', state.garden);
+  }
+  emit();
+  return r.check;
+}
 export const dismissGardenNotice = () => {
   state.gardenNotice = null;
   emit();

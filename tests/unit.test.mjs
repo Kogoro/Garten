@@ -181,6 +181,25 @@ test('criteria: requirements and acceptance items get stable ids; fences and oth
   assert.deepEqual(specCriteria('## GOAL\nnothing\n'), []);
 });
 
+test('outcomes: items under OUTCOMES (or Wirkung, Impact) are O1, O2 …; they are never acceptance criteria', async () => {
+  const { specCriteria, specOutcomes } = await import('../shared/criteria.js');
+  const md =
+    '## GOAL\nx\n\n## OUTCOMES\n- [ ] Conversion ≥ 2.5 %\n* Fewer tickets\n\n```\n- in a fence\n```\n\n## Wirkung\n- Faster onboarding\n\n## ACCEPTANCE CRITERIA\n- Works\n';
+  assert.deepEqual(
+    specOutcomes(md).map((o) => [o.id, o.text]),
+    [
+      ['O1', 'Conversion ≥ 2.5 %'],
+      ['O2', 'Fewer tickets'],
+      ['O3', 'Faster onboarding'],
+    ],
+  );
+  assert.deepEqual(
+    specCriteria(md).map((c) => c.id),
+    ['AC1'],
+  );
+  assert.deepEqual(specOutcomes('## GOAL\n- x\n'), []);
+});
+
 // guardrails: rules and what changed since a report
 test('guardrails: rules are parsed by section; new and reworded rules count, whitespace and removed rules do not', async () => {
   const { parseRules, ruleSnapshot, rulesChanged } = await import('../shared/guardrails.js');

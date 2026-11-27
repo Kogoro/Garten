@@ -4,12 +4,15 @@ import { Sheet } from './dialogs';
 import type { Item } from './store/types';
 import { Icon, ago, toast, useStore } from './ui';
 import { RuleSheet } from './guardrails';
+import { specOutcomes } from '@shared/criteria.js';
 
 export type Impl = {
-  key: 'none' | 'outdated' | 'implemented' | 'partial' | 'blocked' | 'in_progress';
+  key: 'none' | 'outdated' | 'implemented' | 'partial' | 'blocked' | 'in_progress' | 'sent_back';
   cls: string;
   text: string;
   rank: number;
+  /** implemented only: what a person said about it – waiting for review, accepted */
+  review?: 'waiting' | 'accepted';
 };
 const met = (r: any) => {
   const c: any[] = r?.criteria ?? [];
@@ -23,7 +26,12 @@ export function implState(spec: Item, r: any | null): Impl {
   if (!r) return { key: 'none', cls: '', text: 'Not started', rank: 4 };
   if (r.specVersion < spec.version)
     return { key: 'outdated', cls: 'warn', text: `Outdated · built v${r.specVersion}, in bloom v${spec.version}`, rank: 1 };
-  if (r.status === 'implemented') return { key: 'implemented', cls: 'ok', text: `Implemented v${r.specVersion}${met(r)}`, rank: 5 };
+  if (r.status === 'implemented') {
+    if (r.review?.verdict === 'returned') return { key: 'sent_back', cls: 'warn', text: `Sent back · v${r.specVersion}`, rank: 1.5 };
+    if (r.review?.verdict === 'accepted')
+      return { key: 'implemented', cls: 'ok', text: `Accepted v${r.specVersion}${met(r)}`, rank: 6, review: 'accepted' };
+    return { key: 'implemented', cls: 'ok', text: `Implemented v${r.specVersion} · ready for review${met(r)}`, rank: 5, review: 'waiting' };
+  }
   if (r.status === 'partial') return { key: 'partial', cls: 'warn', text: `Partly built${met(r)}`, rank: 2 };
   if (r.status === 'blocked') return { key: 'blocked', cls: 'bad', text: 'Blocked', rank: 0 };
   return { key: 'in_progress', cls: 'agent', text: 'In progress', rank: 3 };
@@ -61,7 +69,7 @@ const CHK: Record<string, [string, string]> = {
 
 function Checks({ specId, latest }: { specId: string; latest: boolean }) {
   const S = useStore();
-  const list: any[] = S.specChecks(specId);
+  const list: any[] = S.specChecks(specId).filter((c: any) => !c.outcome);
   if (!list.length || !latest) return null;
   const n = (k: string) => list.filter((c) => c.state === k).length;
   return (
@@ -204,6 +212,193 @@ function Report({ r, latest }: { r: any; latest: boolean }) {
   );
 }
 
+/**
+ * The second gate: an approver looks at an "implemented" report for the version in bloom and accepts the build, or sends it back
+ * with a note (and the criteria it is about) – the agents get it back on their work list. Everyone sees the verdict. Needs a connection.
+ */
+export function Review({ specId, r }: { specId: string; r: any }) {
+  const S = useStore();
+  const spec = S.get(specId);
+  const [mode, setMode] = useState<'idle' | 'back'>('idle');
+  const [note, setNote] = useState('');
+  const [crit, setCrit] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  if (!spec || r.status !== 'implemented' || r.specVersion !== spec.version) return null;
+  const rv = r.review;
+  const can = S.can('approve');
+  const send = async (verdict: 'accepted' | 'returned') => {
+    setErr('');
+    setBusy(true);
+    try {
+      await S.reviewBuild(specId, {
+        verdict,
+        reportId: r.id,
+        ...(verdict === 'returned' ? { note: note.trim(), criteria: crit } : {}),
+      });
+      toast(verdict === 'accepted' ? `Build of ${specId} v${r.specVersion} accepted` : `${specId} sent back to the agents`);
+      setMode('idle');
+      setNote('');
+      setCrit([]);
+    } catch (e: any) {
+      setErr(e instanceof TypeError ? 'A review needs a connection to the server.' : e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const failing = (r.verification?.failing ?? 0) > 0;
+  const ids: any[] = (r.criteria ?? []).filter((c: any) => c.id);
+  return (
+    <section className="rp-review" id="rp-review" data-review={rv?.verdict ?? 'waiting'}>
+      <div className="sect-title">
+        <span>Review</span>
+        <small>a person looks at the build before it counts</small>
+      </div>
+      {rv ? (
+        <p className={`note ${rv.verdict === 'accepted' ? 'ok' : 'warn'}`} role="status">
+          <b>{rv.verdict === 'accepted' ? 'Accepted' : 'Sent back'}</b> by {rv.by ?? 'someone'} · {ago(Date.parse(rv.at))}
+          {rv.note ? ` – ${rv.note}` : ''}
+          {rv.criteria?.length ? ` (${rv.criteria.join(', ')})` : ''}
+        </p>
+      ) : (
+        <p className="muted">
+          The agent says v{r.specVersion} is built
+          {r.verification?.verified ? `; ${r.verification.verified} criteria are verified by checks` : ''}.
+          {can ? ' Accept it, or send it back with what has to change.' : ' An approver accepts it or sends it back.'}
+        </p>
+      )}
+      {failing && !rv && <p className="note warn">A check of this report is failing right now.</p>}
+      {can && mode === 'idle' && (
+        <div className="btns">
+          {rv?.verdict !== 'accepted' && (
+            <button type="button" className="btn primary small" data-act="accept-build" disabled={busy} onClick={() => send('accepted')}>
+              Accept
+            </button>
+          )}
+          {rv?.verdict !== 'returned' && (
+            <button type="button" className="btn small" data-act="send-back" disabled={busy} onClick={() => setMode('back')}>
+              Send back
+            </button>
+          )}
+        </div>
+      )}
+      {can && mode === 'back' && (
+        <div className="rp-back">
+          <label className="sr" htmlFor={`rb-${r.id}`}>
+            What has to change
+          </label>
+          <textarea
+            id={`rb-${r.id}`}
+            className="field"
+            rows={3}
+            maxLength={2000}
+            placeholder="What has to change (the agent reads this)"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+          />
+          {ids.length > 0 && (
+            <fieldset className="rp-back-crit">
+              <legend className="muted">About these criteria (optional)</legend>
+              {ids.map((c: any) => (
+                <label className="check" key={c.id}>
+                  <input
+                    type="checkbox"
+                    data-crit={c.id}
+                    checked={crit.includes(c.id)}
+                    onChange={(e) => setCrit((l) => (e.target.checked ? [...l, c.id] : l.filter((x) => x !== c.id)))}
+                  />{' '}
+                  <span className="mono">{c.id}</span> {String(c.text).slice(0, 120)}
+                </label>
+              ))}
+            </fieldset>
+          )}
+          <div className="btns">
+            <button
+              type="button"
+              className="btn primary small"
+              data-act="send-back-confirm"
+              disabled={busy || !note.trim()}
+              onClick={() => send('returned')}
+            >
+              Send back
+            </button>
+            <button type="button" className="btn small" onClick={() => setMode('idle')}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+      {err && (
+        <p className="note bad" role="alert">
+          {err}
+        </p>
+      )}
+    </section>
+  );
+}
+
+const OUT: Record<string, [string, string]> = {
+  passing: ['ok', 'On target'],
+  failing: ['bad', 'Off target'],
+  stale: ['warn', 'No recent measurement'],
+  unverified: ['', 'Not measured yet'],
+};
+/**
+ * The effect a spec should have once it is in use (## OUTCOMES → O1, O2 …) and what the measurements say. Agents register the
+ * measurement (a check with an outcome); monitoring or CI reports the numbers. A miss goes to Today, back to the people who write specs.
+ */
+export function Outcomes({ spec }: { spec: Item }) {
+  const S = useStore();
+  const list = specOutcomes(spec.body);
+  const checks: any[] = S.specChecks(spec.id).filter((c: any) => c.outcome);
+  if (!list.length && !checks.length) return null;
+  const ids = [...new Set([...list.map((o) => o.id), ...checks.map((c) => c.outcome)])];
+  return (
+    <section className="rp-outcomes" id="rp-outcomes">
+      <div className="sect-title">
+        <span>Outcomes</span>
+        <small>the effect once it is in use</small>
+      </div>
+      <ul className="rp-chk">
+        {ids.map((id) => {
+          const o = list.find((x) => x.id === id);
+          const cs = checks.filter((c) => c.outcome === id);
+          return (
+            <li key={id} data-outcome={id}>
+              {cs.length ? (
+                cs.map((c) => (
+                  <span key={c.name} className={`chip ${OUT[c.state]?.[0] ?? ''}`} data-check={c.name} data-state={c.state}>
+                    {OUT[c.state]?.[1] ?? c.state}
+                  </span>
+                ))
+              ) : (
+                <span className="chip" title="No measurement is registered yet – the agent registers one when it builds the spec">
+                  No measurement
+                </span>
+              )}
+              <span className="rp-ref">
+                <b>
+                  <span className="mono">{id}</span> {o?.text ?? <span className="muted">no longer in the spec</span>}
+                </b>
+                {cs.map((c) => (
+                  <small key={c.name}>
+                    {c.name}
+                    {c.expect ? ` · target: ${c.expect}` : ''}
+                    {c.last
+                      ? ` · ${c.last.value ?? (c.last.status === 'pass' ? 'on target' : 'off target')} · ${ago(Date.parse(c.last.at))}`
+                      : ''}
+                    {c.ack && c.state === 'failing' ? ` · seen by ${c.ack.by ?? 'someone'}` : ''}
+                  </small>
+                ))}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
 /** What an agent reported about building a spec: status, every acceptance criterion, evidence and deviations. Read-only for people. */
 export function ReportBody({ specId }: { specId: string }) {
   const S = useStore();
@@ -250,6 +445,7 @@ export function ReportBody({ specId }: { specId: string }) {
         </p>
       )}
       <Report r={r} latest={r.id === latest?.id} />
+      {r.id === latest?.id && <Review specId={specId} r={r} />}
       {all.length > 1 && (
         <>
           <div className="sect-title">
@@ -259,7 +455,8 @@ export function ReportBody({ specId }: { specId: string }) {
           <div className="rp-hist">
             {all.map((x) => (
               <button type="button" key={x.id} className="filter" aria-pressed={x.id === r.id} onClick={() => setSel(x.id)}>
-                v{x.specVersion} · {STATUS[x.status] ?? x.status} · {ago(Date.parse(x.createdAt))}
+                v{x.specVersion} · {STATUS[x.status] ?? x.status}
+                {x.review ? (x.review.verdict === 'accepted' ? ' · accepted' : ' · sent back') : ''} · {ago(Date.parse(x.createdAt))}
               </button>
             ))}
           </div>
@@ -413,6 +610,7 @@ export function ReportSheet({ specId, onClose, link }: { specId: string; onClose
       <h2>Implementation of {specId}</h2>
       {spec?.title && <p>{spec.title}</p>}
       <ReportBody specId={specId} />
+      {spec && spec.version > 0 && <Outcomes spec={spec} />}
       {spec?.status === 'approved' && <Steering specId={specId} />}
       {link && (
         <div className="btns" style={{ marginTop: 12 }}>

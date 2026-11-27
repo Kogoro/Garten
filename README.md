@@ -13,7 +13,8 @@
 
 - **Agents build from what you approved, not from a chat log.** A spec is a private draft until an approver lets it bloom. Only then do agents see it – as a fixed version they can cite.
 - **Agents ask instead of guessing.** When a spec leaves a choice open, the agent asks. The question lands on _Today_, you answer (also offline), and the answer can go straight into the spec.
-- **You see what was built.** Agents report every requirement and acceptance criterion as met, deviating or open, with evidence and re-runnable checks.
+- **You see what was built – and accept it.** Agents report every requirement and acceptance criterion as met, deviating or open, with evidence and re-runnable checks. An approver accepts the build or sends it back with a note, straight onto the agents' work list.
+- **You see what it changed.** Specs name their outcomes; agents make each one measurable, monitoring reports the numbers, and an outcome off target comes back to _Today_ – the loop from use back to the spec is closed.
 - **Your words, your rules.** A glossary with full definitions and words to avoid, and guardrails (_Always_ / _Never_) that every agent follows on every task.
 - **Everything is Markdown in Git.** Each approved version is one commit and one tag in your team's repository, optionally pushed to the project repository itself.
 - **Yours to run.** One container or one install script, SQLite, no external services. Works offline as an installable app on desktop and phone.
@@ -27,6 +28,10 @@ flowchart LR
   C --> D["Agents read it over MCP"]
   D --> E["They build, ask, report"]
   E -- "questions, reports" --> F["Today"]
+  F -- "Accept" --> G["Accepted build"]
+  F -- "Send back" --> E
+  G --> H["Outcomes measured in use"]
+  H -- "off target" --> F
   F -- "answers, edits" --> A
 ```
 

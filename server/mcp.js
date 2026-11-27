@@ -5,7 +5,7 @@ import * as store from './store.js';
 import { getUser, roleIn, perms } from './auth.js';
 import { getTeam } from './teams.js';
 import { addFeedback, addProposal, listFeedback, withdrawFeedback, requestDecision, KINDS, DECISION } from './feedback.js';
-import { registerCheck, retireCheck, recordRun, listChecks, runHistory, CHECK_KINDS, RUN_STATUSES } from './checks.js';
+import { registerCheck, retireCheck, recordRun, listChecks, runHistory, releasedOutcomes, CHECK_KINDS, RUN_STATUSES } from './checks.js';
 import {
   addReport,
   listReports,
@@ -58,6 +58,8 @@ function buildServer(team, canDrafts, writer, agent) {
         (writer
           ? ' When you are done with a spec – or stuck – call report_implementation (status, every acceptance criterion, evidence such as commits, PRs and tests, deviations): people steer by these reports and do not read your code. ' +
             'Back every criterion you call met with a re-runnable check: register_check (test, CI job, metric, command), run it, report_check_result, and name it in the criterion – checks are run again after changes, and get_work_list shows the specs whose checks fail or went stale as "recheck". ' +
+            'A person reviews every "implemented" report: they accept it or send it back with a note – get_work_list then lists the spec as "sent_back" with that note. ' +
+            'Specs may name OUTCOMES (O1 …, in get_criteria): the effect they should have once in use. They are not part of your report; make each measurable with register_check (outcome: "O1", usually kind metric) so monitoring or CI can report it later. ' +
             `Before you build a spec, claim it with claim_spec (a lease of ${CLAIM_DEFAULT_MIN} minutes) and call claim_spec again while you work – it is your heartbeat; another agent's claim means: work on something else. report_implementation gives the claim back unless the status is in_progress. ` +
             'When the spec leaves a choice open that a person should make, do not guess: call request_decision with 2–6 options and your recommendation, continue with other work, and look for the answer with list_decisions later. ' +
             'If you disagree with a spec or find it conflicts with the code, do not edit it: use add_feedback (check list_feedback first). ' +
@@ -616,7 +618,21 @@ function buildServer(team, canDrafts, writer, agent) {
           }
         } else releaseClaim(t, agent, spec_id);
         const unproven = r.criteria.filter((c) => c.status === 'met' && !c.checks?.length).length;
+        const outcomes = status === 'implemented' ? await releasedOutcomes(team, spec_id, r.specVersion) : [];
+        const measured = new Set(
+          listChecks(t, { specId: spec_id })
+            .filter((c) => c.outcome)
+            .map((c) => c.outcome),
+        );
+        const unmeasured = outcomes.filter((o) => !measured.has(o.id));
         return {
+          ...(unmeasured.length
+            ? {
+                unmeasured_outcomes: unmeasured.map((o) => ({ id: o.id, text: o.text })),
+                outcomes_advice:
+                  'These outcomes of the spec have no measurement yet. Register a check for each (register_check with outcome, usually kind metric, expect = the target) so its effect can be followed once the spec is in use.',
+              }
+            : {}),
           ...(unproven
             ? {
                 unverified_criteria: unproven,
@@ -643,7 +659,12 @@ function buildServer(team, canDrafts, writer, agent) {
           criteria: r.criteria.map((c) => ({ id: c.id, status: c.status })),
           ...(r.specVersion < cur.version
             ? { note: `Recorded for v${r.specVersion}. The current version is v${cur.version}: see get_spec_changes("${spec_id}").` }
-            : { note: 'Recorded. People see it in the Specs app.' }),
+            : {
+                note:
+                  status === 'implemented'
+                    ? 'Recorded. A person reviews it next: accepted, or sent back with a note (then get_work_list lists it as "sent_back").'
+                    : 'Recorded. People see it in the Specs app.',
+              }),
         };
       }),
     );
@@ -662,11 +683,26 @@ function buildServer(team, canDrafts, writer, agent) {
           expect: z.string().max(300).optional().describe('What counts as passing, e.g. "exit 0", "p95 < 200 ms", "coverage >= 80 %"'),
           criterion: z.string().max(400).optional().describe('The acceptance criterion this check proves, quoted from the spec'),
           max_age_days: z.number().int().min(1).max(365).optional().describe('A passing result older than this is stale (default 14)'),
+          outcome: z
+            .string()
+            .max(10)
+            .optional()
+            .describe(
+              'Id of an outcome of the spec (get_criteria, e.g. "O1"): the check measures that effect once the spec is in use, instead of proving a criterion. expect is the target, e.g. "conversion >= 2.5 %".',
+            ),
         },
       },
-      run(async ({ spec_id, name, kind, how, expect, criterion, max_age_days }) => {
-        const c = registerCheck(team, { specId: spec_id, name, kind, how, expect, criterion, maxAgeDays: max_age_days }, by);
-        return { spec: c.specId, name: c.name, state: c.state, note: 'Registered. Run it and call report_check_result.' };
+      run(async ({ spec_id, name, kind, how, expect, criterion, max_age_days, outcome }) => {
+        const c = await registerCheck(team, { specId: spec_id, name, kind, how, expect, criterion, maxAgeDays: max_age_days, outcome }, by);
+        return {
+          spec: c.specId,
+          name: c.name,
+          state: c.state,
+          ...(c.outcome ? { outcome: c.outcome } : {}),
+          note: c.outcome
+            ? `Registered as the measurement of ${c.outcome}. Results come later, once the spec is in use – from monitoring or CI (POST /api/ci/checks/results) or report_check_result. Do not name it in report_implementation.`
+            : 'Registered. Run it and call report_check_result.',
+        };
       }, 'checks'),
     );
 
@@ -1033,6 +1069,11 @@ function buildServer(team, canDrafts, writer, agent) {
       if (!list) throw new store.ApiError(`Version v${v} of ${spec_id} was not found.`);
       const rep = latestReports(t)[spec_id];
       const last = rep && rep.specVersion === v ? new Map(rep.criteria.filter((c) => c.id).map((c) => [c.id, c])) : null;
+      const sentBack = rep && rep.specVersion === v && rep.review?.verdict === 'returned' ? new Set(rep.review.criteria) : new Set();
+      const outcomes = await releasedOutcomes(team, spec_id, v);
+      const measuredBy = new Map();
+      for (const c of listChecks(t, { specId: spec_id }))
+        if (c.outcome) measuredBy.set(c.outcome, [...(measuredBy.get(c.outcome) ?? []), c]);
       return {
         spec: spec_id,
         version: v,
@@ -1043,7 +1084,24 @@ function buildServer(team, canDrafts, writer, agent) {
           ...(last?.get(c.id)
             ? { last_reported: last.get(c.id).status, ...(last.get(c.id).checks ? { checks: last.get(c.id).checks } : {}) }
             : {}),
+          ...(sentBack.has(c.id) ? { sent_back: true } : {}),
         })),
+        ...(rep && rep.specVersion === v && rep.review
+          ? { review: { verdict: rep.review.verdict, note: rep.review.note, by: rep.review.by, at: rep.review.at } }
+          : {}),
+        ...(outcomes.length
+          ? {
+              outcomes: outcomes.map((o) => ({
+                id: o.id,
+                text: o.text,
+                ...(measuredBy.has(o.id)
+                  ? { measured_by: measuredBy.get(o.id).map((c) => ({ check: c.name, state: c.state, value: c.last?.value })) }
+                  : {}),
+              })),
+              outcomes_note:
+                'Outcomes are the effect the spec should have once it is in use. They are not part of report_implementation. Make each measurable: register_check with outcome (usually kind metric, expect = the target).',
+            }
+          : {}),
         ...(list.length
           ? {}
           : {
@@ -1056,7 +1114,7 @@ function buildServer(team, canDrafts, writer, agent) {
     'list_reports',
     {
       description:
-        'Implementation reports (newest first): which version of a spec was implemented, the status of every criterion, evidence and deviations.',
+        'Implementation reports (newest first): which version of a spec was implemented, the status of every criterion, evidence, deviations, and the review of a person (accepted, or returned with a note).',
       inputSchema: { spec_id: z.string().optional(), limit: z.number().int().min(1).max(50).optional() },
     },
     safe(async ({ spec_id, limit }) =>
@@ -1071,6 +1129,7 @@ function buildServer(team, canDrafts, writer, agent) {
         deviations: r.deviations || undefined,
         by: r.via ?? r.author,
         at: r.createdAt,
+        ...(r.review ? { review: r.review } : {}),
       })),
     ),
   );
@@ -1089,6 +1148,7 @@ function buildServer(team, canDrafts, writer, agent) {
         how: c.how,
         expect: c.expect || undefined,
         proves: c.criterion || undefined,
+        ...(c.outcome ? { measures_outcome: c.outcome } : {}),
         max_age_days: c.maxAgeDays,
         state: c.state,
         ...(c.needsCi ? { needs_ci: true } : {}),

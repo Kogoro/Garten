@@ -76,3 +76,32 @@ export function findCriterion(list, reported) {
     null
   );
 }
+
+/** Sections whose list items are outcomes: the effect a spec should have once it is in use (measured later, not checked off by the agent). */
+export const isOutcomeHeading = (h) => /^(outcomes?|wirkung|impact)\b/i.test(String(h ?? '').trim());
+export const OUTCOME_ID = /^O\d+$/;
+
+/** [{ id: 'O1', text, section }]: every list item under an OUTCOMES heading, numbered O1, O2 … in the order of the spec. */
+export function specOutcomes(md) {
+  const body = String(md ?? '')
+    .replace(/\r\n/g, '\n')
+    .replace(/^---\n[\s\S]*?\n---\n/, '');
+  const out = [];
+  let section = '';
+  let fence = false;
+  for (const line of body.split('\n')) {
+    if (FENCE.test(line)) {
+      fence = !fence;
+      continue;
+    }
+    if (fence) continue;
+    let m;
+    if ((m = H2.exec(line))) {
+      section = m[1];
+      continue;
+    }
+    if (isOutcomeHeading(section) && (m = ITEM.exec(line)) && m[1].trim())
+      out.push({ id: `O${out.length + 1}`, text: m[1].trim(), section });
+  }
+  return out;
+}

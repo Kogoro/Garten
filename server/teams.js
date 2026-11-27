@@ -48,7 +48,13 @@ export function createTeam({ name, key, createdBy = null }) {
   if (!/^[A-Z][A-Z0-9]{1,7}$/.test(key)) throw new TeamError('Team key: 2–8 letters/digits, starting with a letter (e.g. BILL)');
   if (getTeamByKey(key)) throw new TeamError('A team with this key already exists', 409);
   const id = randomUUID();
-  sql('INSERT INTO teams (id,key,name,created_at,created_by) VALUES (?,?,?,?,?)').run(id, key, name, iso(), createdBy);
+  sql("INSERT INTO teams (id,key,name,created_at,created_by,hook_events) VALUES (?,?,?,?,?,'release,answer,review')").run(
+    id,
+    key,
+    name,
+    iso(),
+    createdBy,
+  );
   return getTeam(id);
 }
 export const teamsCreatedBy = (userId) => sql('SELECT COUNT(*) AS n FROM teams WHERE created_by=?').get(userId).n;
