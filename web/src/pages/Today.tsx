@@ -9,18 +9,26 @@ import { NewSpecSheet } from '../sheets';
 import { GrowthIcon, STAGE_NAME, STAGE_TIP, stageOf, type Stage } from '../growth';
 import { awaitsApproval } from '../lib';
 import { useTeamInfo } from '../hooks';
-import { Icon, ago, touched, useStore } from '../ui';
+import { Icon, ago, toast, touched, useStore } from '../ui';
 import { ApproveButton } from './ItemEditor';
+import { ReportSheet, implState } from '../reports';
+import { specOutcomes } from '@shared/criteria.js';
 import type { Item } from '../store/types';
 
 /** The name of an agent, from a report or question (via), a claim (by) or the server's agent list (name). */
 const who = (x: any) => String(x?.via ?? x?.by ?? x?.name ?? x?.author ?? 'An agent').replace(/^(token|agent):\s*/i, '');
 const BED = 5;
 
-type Card = { key: string; kind: 'decision' | 'feedback' | 'approve' | 'term' | 'rule'; agent: boolean; node: ReactNode };
+type Card = {
+  key: string;
+  kind: 'decision' | 'feedback' | 'approve' | 'review' | 'outcome' | 'term' | 'rule';
+  agent: boolean;
+  node: ReactNode;
+};
 
-/** Everything that waits for a person, most urgent first: decisions (blocking first), feedback, sprouts to let bloom, proposals. */
-function useCards(): Card[] {
+/** Everything that waits for a person, most urgent first: decisions (blocking first), feedback, sprouts to let bloom, builds to review,
+ * outcomes off target, proposals. */
+function useCards(openReport: (specId: string) => void = () => {}): Card[] {
   const S = useStore();
   const act = useFbAct();
   const approver = S.can('approve');
@@ -36,6 +44,16 @@ function useCards(): Card[] {
       .filter((x) => awaitsApproval(S, x) && !x.approve)
       .sort((a, b) => touched(b) - touched(a))
       .forEach((x) => cards.push({ key: `a:${x.id}`, kind: 'approve', agent: false, node: <ApproveCard i={x} /> }));
+    S.all('spec')
+      .filter((x) => x.status === 'approved' && implState(x, S.latestReport(x.id)).review === 'waiting')
+      .sort((a, b) => Date.parse(S.latestReport(a.id).createdAt) - Date.parse(S.latestReport(b.id).createdAt))
+      .forEach((x) => cards.push({ key: `v:${x.id}`, kind: 'review', agent: true, node: <ReviewCard i={x} onOpen={openReport} /> }));
+  }
+  if (S.can('write'))
+    S.outcomesOffTarget().forEach((c) =>
+      cards.push({ key: `o:${c.specId}:${c.name}`, kind: 'outcome', agent: false, node: <OutcomeCard c={c} /> }),
+    );
+  if (approver) {
     S.proposedItems().forEach((d) => cards.push({ key: `t:${d.id}`, kind: 'term', agent: true, node: <ProposalCard d={d} kind="term" /> }));
     S.proposedRuleItems().forEach((d) =>
       cards.push({ key: `r:${d.id}`, kind: 'rule', agent: true, node: <ProposalCard d={d} kind="rule" /> }),
@@ -64,6 +82,87 @@ function ApproveCard({ i }: { i: Item }) {
           Read
         </Link>
         <ApproveButton i={i} S={S} />
+      </div>
+    </article>
+  );
+}
+
+/** An agent reports a spec as built: an approver accepts it or sends it back (the second gate, after Let it bloom). */
+function ReviewCard({ i, onOpen }: { i: Item; onOpen: (specId: string) => void }) {
+  const S = useStore();
+  const r = S.latestReport(i.id);
+  const c: any[] = r?.criteria ?? [];
+  const v = r?.verification;
+  return (
+    <article className="tcard" data-review={i.id}>
+      <div className="tc-from">
+        <span className="who agent">
+          <Icon name="agent" size={13} />
+        </span>
+        <span>
+          {who(r)} · <span className="mono">{i.id}</span> · {ago(Date.parse(r.createdAt))}
+        </span>
+      </div>
+      <h2 className="tc-title">
+        {i.title} v{r.specVersion} is built – take a look
+      </h2>
+      <p className="muted">
+        {String(r.summary).split('\n')[0].slice(0, 200)}
+        {c.length ? ` · ${c.filter((x) => x.status === 'met').length} of ${c.length} criteria met` : ''}
+        {v?.verified ? `, ${v.verified} verified by checks` : ''}
+        {v?.failing ? ` · ${v.failing} with a failing check` : ''}
+      </p>
+      <div className="tc-acts">
+        <button type="button" className="btn primary" data-act="review-open" onClick={() => onOpen(i.id)}>
+          Review
+        </button>
+      </div>
+    </article>
+  );
+}
+
+/** An outcome measured in use missed its target: back to the people who write the spec (the closed loop). */
+function OutcomeCard({ c }: { c: any }) {
+  const S = useStore();
+  const spec = S.get(c.specId);
+  const o = spec ? specOutcomes(spec.body).find((x) => x.id === c.outcome) : null;
+  const [busy, setBusy] = useState(false);
+  const ack = async () => {
+    setBusy(true);
+    try {
+      await S.ackOutcome(c.specId, c.name);
+    } catch (e: any) {
+      toast(e instanceof TypeError ? 'This needs a connection to the server.' : e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <article className="tcard" data-outcome={`${c.specId}:${c.outcome}`}>
+      <div className="tc-from">
+        <span className="who">
+          <Icon name="warn" size={13} />
+        </span>
+        <span>
+          {c.last?.source === 'ci' ? 'Measured by CI' : 'Measured'} · <span className="mono">{c.specId}</span>
+          {c.last?.at ? ` · ${ago(Date.parse(c.last.at))}` : ''}
+        </span>
+      </div>
+      <h2 className="tc-title">
+        {spec?.title ?? c.specId} misses its outcome {c.outcome}
+      </h2>
+      <p className="muted">
+        {o ? `“${o.text}”` : c.name}
+        {c.last?.value ? ` · measured ${c.last.value}` : ''}
+        {c.expect ? ` · target ${c.expect}` : ''}. Change the spec, or note that you saw it.
+      </p>
+      <div className="tc-acts">
+        <Link className="btn primary" to={`/spec/${encodeURIComponent(c.specId)}`}>
+          Open spec
+        </Link>
+        <button type="button" className="btn" data-act="outcome-ack" disabled={busy} onClick={ack}>
+          Seen
+        </button>
       </div>
     </article>
   );
@@ -110,10 +209,14 @@ function headline(cards: Card[]) {
     );
   const q = cards.filter((c) => c.kind === 'decision' || c.kind === 'feedback').length,
     a = cards.filter((c) => c.kind === 'approve').length,
-    p = cards.length - q - a;
+    v = cards.filter((c) => c.kind === 'review').length,
+    o = cards.filter((c) => c.kind === 'outcome').length,
+    p = cards.length - q - a - v - o;
   const parts = [
     q && `${q} question${q > 1 ? 's' : ''} from agents`,
     a && `${a} approval${a > 1 ? 's' : ''}`,
+    v && `${v} build${v > 1 ? 's' : ''} to review`,
+    o && `${o} outcome${o > 1 ? 's' : ''} off target`,
     p && `${p} proposal${p > 1 ? 's' : ''}`,
   ].filter(Boolean) as string[];
   if (parts.length > 2)
@@ -396,7 +499,9 @@ const today = () => new Date().toLocaleDateString(undefined, { weekday: 'long', 
 /** Today: the one place to act. What waits for a person, one line about the agents, and every spec by stage. Works offline. */
 export function TodayPage() {
   const S = useStore();
-  const cards = useCards();
+  // the report sheet lives here, not in its card: after a review the card leaves the stack, the sheet stays open
+  const [report, setReport] = useState<string | null>(null);
+  const cards = useCards(setReport);
   const synced = !!S.state.garden[S.state.teamId] && S.state.garden[S.state.teamId].rev >= 0;
   return (
     <Shell
@@ -416,6 +521,7 @@ export function TodayPage() {
               <Deck cards={cards} />
               <Answered />
               <Beds />
+              {report && <ReportSheet specId={report} link onClose={() => setReport(null)} />}
             </div>
           </div>
         </>
@@ -426,9 +532,17 @@ export function TodayPage() {
 
 /** Everything that waits for a person, as one list (the stack on Today shows one card at a time). */
 export function QueuePage() {
-  const cards = useCards();
-  const [f, setF] = useState<'all' | 'questions' | 'approvals' | 'proposals'>('all');
-  const kindOf = (c: Card) => (c.kind === 'approve' ? 'approvals' : c.kind === 'term' || c.kind === 'rule' ? 'proposals' : 'questions');
+  const [report, setReport] = useState<string | null>(null);
+  const cards = useCards(setReport);
+  const [f, setF] = useState<'all' | 'questions' | 'approvals' | 'proposals' | 'outcomes'>('all');
+  const kindOf = (c: Card) =>
+    c.kind === 'approve' || c.kind === 'review'
+      ? 'approvals'
+      : c.kind === 'term' || c.kind === 'rule'
+        ? 'proposals'
+        : c.kind === 'outcome'
+          ? 'outcomes'
+          : 'questions';
   const n = (k: string) => cards.filter((c) => k === 'all' || kindOf(c) === k).length;
   const shown = f !== 'all' && !n(f) ? 'all' : f;
   return (
@@ -444,11 +558,13 @@ export function QueuePage() {
                 <Icon name="back" size={16} /> Today
               </Link>
               <div className="seg" role="group" aria-label="Show">
-                {(['all', 'questions', 'approvals', 'proposals'] as const).map((k) => (
-                  <button key={k} type="button" className="filter" aria-pressed={shown === k} onClick={() => setF(k)}>
-                    {k[0].toUpperCase() + k.slice(1)} {n(k)}
-                  </button>
-                ))}
+                {(['all', 'questions', 'approvals', 'proposals', 'outcomes'] as const)
+                  .filter((k) => k !== 'outcomes' || n(k) > 0)
+                  .map((k) => (
+                    <button key={k} type="button" className="filter" aria-pressed={shown === k} onClick={() => setF(k)}>
+                      {k[0].toUpperCase() + k.slice(1)} {n(k)}
+                    </button>
+                  ))}
               </div>
               {!cards.length && <p className="quiet">Nothing waits for you.</p>}
               <div className="queue">
@@ -461,6 +577,7 @@ export function QueuePage() {
                   ))}
               </div>
               <Answered />
+              {report && <ReportSheet specId={report} link onClose={() => setReport(null)} />}
             </div>
           </div>
         </>

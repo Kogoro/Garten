@@ -2,6 +2,7 @@
 import { db } from './db.js';
 import * as store from './store.js';
 import { latestReports } from './reports.js';
+import { listChecks } from './checks.js';
 import { DECISION, PROPOSALS } from './feedback.js';
 import { typeLabel } from './specTypes.js';
 
@@ -33,6 +34,19 @@ export function teamMetrics(team, days = 30) {
     else if (r.specVersion < s.version) state.outdated += 1;
     else state[r.status] += 1;
   }
+  // the second gate: implemented reports for the current version, as people judged them
+  const review = { accepted: 0, waiting: 0, sentBack: 0 };
+  for (const s of specs) {
+    const r = latest[s.id];
+    if (!r || r.status !== 'implemented' || r.specVersion !== s.version) continue;
+    if (r.review?.verdict === 'accepted') review.accepted += 1;
+    else if (r.review?.verdict === 'returned') review.sentBack += 1;
+    else review.waiting += 1;
+  }
+  // the effect once in use: outcome checks by their state
+  const outcomes = { onTarget: 0, offTarget: 0, noRecentMeasurement: 0, notMeasured: 0 };
+  const key = { passing: 'onTarget', failing: 'offTarget', stale: 'noRecentMeasurement', unverified: 'notMeasured' };
+  for (const c of listChecks(t)) if (c.outcome) outcomes[key[c.state]] += 1;
   const verified = Object.values(latest).reduce(
     (a, r) => ({ met: a.met + (r.verification?.met ?? 0), verified: a.verified + (r.verification?.verified ?? 0) }),
     { met: 0, verified: 0 },
@@ -47,6 +61,8 @@ export function teamMetrics(team, days = 30) {
     openDecisions: open.length,
     oldestOpenDecisionHours: oldestOpen,
     implementation: state,
+    review,
+    ...(Object.values(outcomes).some(Boolean) ? { outcomes } : {}),
     ...(verified.met ? { claimsVerified: verified } : {}),
     quality: specQuality(team),
   };
@@ -62,9 +78,13 @@ export function specQuality(team) {
   if (!specs.length) return { types: [], unclear: [] };
   const fb = db.prepare('SELECT spec_id, kind FROM feedback WHERE team_id=?').all(t);
   const reports = db
-    .prepare('SELECT spec_id, spec_version, status, criteria, deviations, created_at FROM reports WHERE team_id=? ORDER BY created_at')
+    .prepare(
+      'SELECT spec_id, spec_version, status, criteria, deviations, created_at, review FROM reports WHERE team_id=? ORDER BY created_at',
+    )
     .all(t);
-  const per = new Map(specs.map((s) => [s.id, { s, questions: 0, feedback: 0, reports: 0, deviating: false, implementedAt: null }]));
+  const per = new Map(
+    specs.map((s) => [s.id, { s, questions: 0, feedback: 0, reports: 0, sentBack: 0, deviating: false, implementedAt: null }]),
+  );
   for (const f of fb) {
     const x = per.get(f.spec_id);
     if (!x) continue;
@@ -75,6 +95,7 @@ export function specQuality(team) {
     const x = per.get(r.spec_id);
     if (!x) continue;
     x.reports += 1;
+    if (r.review === 'returned') x.sentBack += 1;
     let crit = [];
     try {
       crit = JSON.parse(r.criteria) ?? [];
@@ -113,6 +134,8 @@ export function specQuality(team) {
         feedbackPerSpec: round(xs.reduce((a, x) => a + x.feedback, 0) / n),
         deviationRate: reported.length ? round(reported.filter((x) => x.deviating).length / reported.length) : null,
         reportsPerSpec: reported.length ? round(reported.reduce((a, x) => a + x.reports, 0) / reported.length) : null,
+        // how often people sent a build back: many means the acceptance criteria do not say what people expect
+        sentBackPerSpec: reported.length ? round(reported.reduce((a, x) => a + x.sentBack, 0) / reported.length) : null,
         medianHoursToImplemented: round(median(hrs), 1),
       };
     })

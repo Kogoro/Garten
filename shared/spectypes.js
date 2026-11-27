@@ -10,8 +10,9 @@ export const BUILTIN_TYPES = [
     group: 'Define',
     label: 'Feature spec',
     short: 'Feature',
-    description: 'What a feature must do and when it counts as done: goal, requirements, acceptance criteria.',
-    template: '## GOAL\n\n## USER STORIES\n\n## REQUIREMENTS\n\n## ACCEPTANCE CRITERIA\n\n## OUT OF SCOPE\n',
+    description:
+      'What a feature must do, when it counts as done and what it should change once in use: goal, outcomes, requirements, acceptance criteria.',
+    template: '## GOAL\n\n## OUTCOMES\n\n## USER STORIES\n\n## REQUIREMENTS\n\n## ACCEPTANCE CRITERIA\n\n## OUT OF SCOPE\n',
   },
   {
     key: 'api',
@@ -130,6 +131,9 @@ const FORMS = {
     view: 'editor',
     fields: [
       F('goal', 'GOAL', 'longtext'),
+      F('outcomes', 'OUTCOMES', 'list', {
+        help: 'The effect once it is in use, one measurable outcome per line – e.g. “Checkout conversion ≥ 2.5 % four weeks after it blooms”.',
+      }),
       F('stories', 'USER STORIES', 'list'),
       F('requirements', 'REQUIREMENTS', 'requirements'),
       F('acceptance', 'ACCEPTANCE CRITERIA', 'checklist'),

@@ -3318,6 +3318,34 @@ textarea.field.hook-headers {
 .rp-steer-deps .btn {
   flex: none;
 }
+/* the second gate (review of a build) and the outcomes of a spec in use */
+.rp-review,
+.rp-outcomes {
+  display: grid;
+  gap: 10px;
+  margin: 16px 0;
+}
+.rp-review .note.ok {
+  color: var(--text);
+}
+.rp-review .note.warn {
+  color: var(--amber);
+}
+.rp-back {
+  display: grid;
+  gap: 8px;
+}
+.rp-back-crit {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.rp-back-crit legend {
+  font-size: 13px;
+  margin-bottom: 4px;
+}
 .rp-ev .chip {
   flex: none;
 }

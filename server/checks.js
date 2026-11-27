@@ -5,6 +5,7 @@ import { sql } from './db.js';
 import * as store from './store.js';
 import { ApiError, events } from './store.js';
 import { bumpGarden } from './feedback.js';
+import { specOutcomes, OUTCOME_ID } from '../shared/criteria.js';
 
 export const CHECK_KINDS = ['test', 'ci', 'metric', 'command', 'url', 'manual'];
 export const RUN_STATUSES = ['pass', 'fail', 'error'];
@@ -15,13 +16,27 @@ const clip = (s, n) =>
 const NAME = /^[\w][\w .:/@#()+-]{0,79}$/;
 
 const ciRequired = (teamId) => !!sql('SELECT ci_required AS v FROM teams WHERE id=?').get(teamId)?.v;
-/** state: passing · failing · stale (too old, or for an older spec version) · unverified (never ran – or, where the team requires CI, only the agent says it passes) */
+/** When the current run of failures of a check began (the first failing run after the last pass), or null when it passes. */
+const failingSince = (checkId) => {
+  const pass = sql("SELECT at FROM check_runs WHERE check_id=? AND status='pass' ORDER BY at DESC, rowid DESC LIMIT 1").get(checkId);
+  return (
+    sql("SELECT at FROM check_runs WHERE check_id=? AND status<>'pass' AND at > ? ORDER BY at, rowid LIMIT 1").get(checkId, pass?.at ?? '')
+      ?.at ?? null
+  );
+};
+/**
+ * state: passing · failing · stale (too old, or for an older spec version) · unverified (never ran – or, where the team requires CI, only the agent says it passes).
+ * Outcome checks (c.outcome = "O1" …) measure the effect of a spec in use: a newer spec version does not make their measurement stale,
+ * and CI is not required (the numbers come from monitoring as often as from a pipeline).
+ */
 const checkView = (c, run, specVersion, needCi = false) => {
   let state = 'unverified';
+  const outcome = c.outcome || null;
+  if (outcome) needCi = false;
   if (run) {
     const ageDays = (Date.now() - Date.parse(run.at)) / 86400000;
     if (run.status !== 'pass') state = 'failing';
-    else if (ageDays > c.max_age_days || (specVersion && run.spec_version < specVersion)) state = 'stale';
+    else if (ageDays > c.max_age_days || (!outcome && specVersion && run.spec_version < specVersion)) state = 'stale';
     else if (needCi && run.source !== 'ci') state = 'unverified';
     else state = 'passing';
   }
@@ -35,6 +50,18 @@ const checkView = (c, run, specVersion, needCi = false) => {
     criterion: c.criterion,
     maxAgeDays: c.max_age_days,
     retired: !!c.retired,
+    ...(outcome
+      ? (() => {
+          const since = state === 'failing' ? failingSince(c.id) : null;
+          return {
+            outcome,
+            ...(since ? { failingSince: since } : {}),
+            // a person saw this miss: it is not shown again until the outcome fails anew after passing
+            ...(c.outcome_ack_at ? { ack: { at: c.outcome_ack_at, by: c.outcome_ack_by } } : {}),
+            ...(since && !(c.outcome_ack_at && c.outcome_ack_at >= since) ? { needsAttention: true } : {}),
+          };
+        })()
+      : {}),
     state,
     ...(needCi && run?.status === 'pass' && run.source !== 'ci' && state === 'unverified' ? { needsCi: true } : {}),
     last: run
@@ -54,10 +81,33 @@ const checkView = (c, run, specVersion, needCi = false) => {
 };
 const lastRun = (checkId) => sql('SELECT * FROM check_runs WHERE check_id=? ORDER BY at DESC, rowid DESC LIMIT 1').get(checkId);
 
-/** Register a check for a released spec, or update its definition (same name = same check). */
-export function registerCheck(team, { specId, name, kind, how, expect, criterion, maxAgeDays }, by) {
+/** The outcomes (O1 …) of the released version of a spec; [] when it names none or is not released. */
+export async function releasedOutcomes(team, specId, version) {
+  try {
+    return version >= 1 ? specOutcomes(await store.readReleasedSpec(team, specId, version)) : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Register a check for a released spec, or update its definition (same name = same check).
+ * With outcome ("O1" …) the check measures that outcome of the spec once it is in use instead of proving a criterion.
+ */
+export async function registerCheck(team, { specId, name, kind, how, expect, criterion, maxAgeDays, outcome }, by) {
   const spec = store.getItem(team.id, specId);
   if (!spec || spec.kind !== 'spec') throw new ApiError(`No spec "${specId}".`, 404);
+  const oc = clip(outcome, 10).toUpperCase();
+  if (oc) {
+    if (!OUTCOME_ID.test(oc)) throw new ApiError('outcome must be the id of an outcome of the spec, e.g. "O1" (get_criteria lists them).');
+    const list = await releasedOutcomes(team, specId, spec.version);
+    if (!list.some((o) => o.id === oc))
+      throw new ApiError(
+        list.length
+          ? `${specId} v${spec.version} has no outcome "${oc}". Its outcomes: ${list.map((o) => o.id).join(', ')}.`
+          : `${specId} names no outcomes (a "## OUTCOMES" section) in its released version.`,
+      );
+  }
   name = clip(name, 80);
   if (!NAME.test(name)) throw new ApiError('A check needs a short name (letters, digits and . : / @ # ( ) + - _ and spaces).');
   if (!CHECK_KINDS.includes(kind)) throw new ApiError(`kind must be one of: ${CHECK_KINDS.join(', ')}`);
@@ -68,12 +118,13 @@ export function registerCheck(team, { specId, name, kind, how, expect, criterion
   const now = new Date().toISOString();
   const cur = sql('SELECT * FROM checks WHERE team_id=? AND spec_id=? AND name=?').get(team.id, specId, name);
   if (cur) {
-    sql('UPDATE checks SET kind=?, how=?, expect=?, criterion=?, max_age_days=?, retired=0, updated_at=? WHERE id=?').run(
+    sql('UPDATE checks SET kind=?, how=?, expect=?, criterion=?, max_age_days=?, outcome=?, retired=0, updated_at=? WHERE id=?').run(
       kind,
       how,
       clip(expect, 300),
       clip(criterion, 400),
       age,
+      oc || null,
       now,
       cur.id,
     );
@@ -81,7 +132,7 @@ export function registerCheck(team, { specId, name, kind, how, expect, criterion
     const n = sql('SELECT COUNT(*) AS n FROM checks WHERE team_id=? AND spec_id=? AND retired=0').get(team.id, specId).n;
     if (n >= 40) throw new ApiError('At most 40 checks per spec.');
     sql(
-      'INSERT INTO checks (id,team_id,spec_id,name,kind,how,expect,criterion,max_age_days,created_by,via,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      'INSERT INTO checks (id,team_id,spec_id,name,kind,how,expect,criterion,max_age_days,outcome,created_by,via,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
     ).run(
       randomUUID(),
       team.id,
@@ -92,6 +143,7 @@ export function registerCheck(team, { specId, name, kind, how, expect, criterion
       clip(expect, 300),
       clip(criterion, 400),
       age,
+      oc || null,
       by?.name ?? null,
       by?.via ?? null,
       now,
@@ -202,4 +254,13 @@ export function summarize(list) {
   const n = { total: list.length, passing: 0, failing: 0, stale: 0, unverified: 0 };
   for (const c of list) n[c.state] += 1;
   return n;
+}
+
+/** A person saw that an outcome is off target: the reminder on Today goes away until the outcome passes and fails again. */
+export function acknowledgeOutcome(team, specId, name, user) {
+  const c = sql('SELECT * FROM checks WHERE team_id=? AND spec_id=? AND name=?').get(team.id, specId, clip(name, 80));
+  if (!c || !c.outcome) throw new ApiError(`${specId} has no outcome check "${name}".`, 404);
+  sql('UPDATE checks SET outcome_ack_at=?, outcome_ack_by=? WHERE id=?').run(new Date().toISOString(), user?.name ?? null, c.id);
+  bumpGarden(team.id);
+  return getCheck(team.id, specId, c.name);
 }

@@ -90,7 +90,8 @@ import { listReports, latestReports, guardrailDrift } from './reports.js';
 import { teamMetrics } from './metrics.js';
 import { listAgents, activeClaims } from './agents.js';
 import { steeringOf, setSteering } from './steering.js';
-import { recordRun, listChecks, runHistory, checksBySpec } from './checks.js';
+import { recordRun, listChecks, runHistory, checksBySpec, acknowledgeOutcome } from './checks.js';
+import { reviewReport } from './review.js';
 import { publicHook, saveHook, testHook } from './hooks.js';
 import { listTypes, createType, updateType, deleteType, TypeError_ } from './specTypes.js';
 import * as store from './store.js';
@@ -709,6 +710,34 @@ export function apiRouter() {
       });
       res.json({ steering: out, all: steeringOf(req.team.id) });
     }),
+  );
+  // the second gate: approvers accept what an agent reported as implemented, or send it back with a note
+  team.post(
+    '/reviews/:spec',
+    requireTeam('approve'),
+    wrap(async (req, res) => {
+      const b = req.body ?? {};
+      const report = reviewReport(
+        req.team,
+        String(req.params.spec),
+        { verdict: b.verdict, note: b.note, criteria: b.criteria, reportId: b.reportId },
+        req.user,
+      );
+      audit(req, `spec.${report.review.verdict === 'accepted' ? 'accept_build' : 'send_back'}`, {
+        team: req.team.id,
+        target: report.specId,
+        detail: { version: report.specVersion, report: report.id },
+      });
+      res.json({ report });
+    }),
+  );
+  // an outcome is off target and a person has seen it: the reminder on Today goes away until it fails anew
+  team.post(
+    '/outcomes/:spec/ack',
+    requireTeam('write'),
+    wrap(async (req, res) =>
+      res.json({ check: acknowledgeOutcome(req.team, String(req.params.spec), String(req.body?.name ?? ''), req.user) }),
+    ),
   );
   team.get('/metrics', requireTeam('read'), (req, res) => res.json({ metrics: teamMetrics(req.team) }));
   team.get('/checks', requireTeam('read'), (req, res) => {

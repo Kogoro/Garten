@@ -11,8 +11,8 @@ import { makeSafeLookup, isPrivateHostLiteral } from './netguard.js';
 import { listChecks } from './checks.js';
 
 // release: a person approved a spec · answer: a person answered a decision · check: CI reported a failing check, or a check went stale
-// resume: a person resumed paused agents
-export const HOOK_EVENTS = ['release', 'answer', 'check', 'resume'];
+// resume: a person resumed paused agents · review: a person sent an implementation back
+export const HOOK_EVENTS = ['release', 'answer', 'review', 'check', 'resume'];
 export const HOOK_FORMATS = ['full', 'text'];
 
 // ---- never call into the server's own network (SSRF): private, loopback, link-local and metadata ranges are refused (see netguard.js)
@@ -253,6 +253,7 @@ async function flush(teamId) {
   const released = rows.filter((r) => r.kind === 'release').map((r) => JSON.parse(r.entry));
   const answered = rows.filter((r) => r.kind === 'answer').map((r) => JSON.parse(r.entry));
   const checks = rows.filter((r) => r.kind === 'check').map((r) => JSON.parse(r.entry));
+  const returned = rows.filter((r) => r.kind === 'review').map((r) => JSON.parse(r.entry));
   const resumed = rows.some((r) => r.kind === 'resume');
   // Names, titles and notes are written by people (or other agents): one line each, shortened – they are data, not instructions.
   const one = (x, n = 200) =>
@@ -276,6 +277,12 @@ async function flush(teamId) {
           `- ${one(a.spec_id, 40)}: "${one(a.question, 300)}" → ${one(a.answer, 120) || 'see note'}${a.note ? ` (note: ${one(a.note, 300)})` : ''}`,
       ),
     );
+  if (returned.length)
+    lines.push(
+      '',
+      'Sent back after review (a person wants changes):',
+      ...returned.map((x) => `- ${one(x.spec_id, 40)} v${x.version}: ${one(x.note, 300)}${x.by ? ` (${one(x.by, 80)})` : ''}`),
+    );
   if (checks.length)
     lines.push(
       '',
@@ -288,12 +295,19 @@ async function flush(teamId) {
   if (resumed) lines.push('', 'A person resumed the agents of this team after a pause: pick up everything that is open.');
   lines.push('', HOWTO);
   const out = await send(teamId, {
-    event: [released.length && 'release', answered.length && 'answer', checks.length && 'check', resumed && 'resume']
+    event: [
+      released.length && 'release',
+      answered.length && 'answer',
+      returned.length && 'review',
+      checks.length && 'check',
+      resumed && 'resume',
+    ]
       .filter(Boolean)
       .join('+'),
     team: { id: team.id, key: team.key, name: team.name },
     released,
     answered,
+    returned,
     checks,
     resumed,
     mcpUrl: `${PUBLIC_URL}/mcp`,
@@ -328,7 +342,7 @@ export function sweepStaleChecks(teamId = null) {
     .all()) {
     if (teamId && t.id !== teamId) continue;
     for (const c of listChecks(t.id)) {
-      if (c.state !== 'stale' || !c.last) continue;
+      if (c.state !== 'stale' || !c.last || c.outcome) continue;
       const run = db.prepare('SELECT id FROM check_runs WHERE check_id=? ORDER BY at DESC, rowid DESC LIMIT 1').get(c.id);
       const row = db.prepare('SELECT stale_notified FROM checks WHERE id=?').get(c.id);
       if (!run || row?.stale_notified === run.id) continue;
@@ -341,7 +355,7 @@ export function sweepStaleChecks(teamId = null) {
 export function initHooks() {
   // failing results from a pipeline: the agent did not run them itself, so it does not know yet
   events.on('check', ({ teamId, check: c, source }) => {
-    if (c.state === 'failing' && source === 'ci')
+    if (c.state === 'failing' && source === 'ci' && !c.outcome)
       queue(teamId, 'check', `${c.specId}|${c.name}`, { spec_id: c.specId, name: c.name, state: 'failing', source, value: c.last?.value });
   });
   // new guardrails: agents check what they built against them (the work list says which specs); the garden shows the drift
@@ -353,6 +367,11 @@ export function initHooks() {
       title: 'Guardrails (check built specs against new rules)',
       by,
     });
+  });
+  // an implementation sent back: the agent has to work on it again (the work list says what the person wrote)
+  events.on('reviewed', ({ teamId, specId, version, review }) => {
+    if (review?.verdict === 'returned')
+      queue(teamId, 'review', specId, { spec_id: specId, version, note: review.note, criteria: review.criteria, by: review.by });
   });
   events.on('resumed', ({ teamId }) => queue(teamId, 'resume', 'resume', { at: new Date().toISOString() }));
   const sweep = setInterval(() => {

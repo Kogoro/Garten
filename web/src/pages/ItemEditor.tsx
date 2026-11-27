@@ -15,7 +15,7 @@ import { newDefinitions, termPrefill } from '../derive';
 import { openMenu, useUi } from '../state';
 import type { Item } from '../store/types';
 import { FeedbackBody } from '../feedback';
-import { ImplChip, ReportBody, implState } from '../reports';
+import { ImplChip, Outcomes, ReportBody, implState } from '../reports';
 import { Tabs } from '../Tabs';
 import { Icon, ago, toast, touched, useStore } from '../ui';
 
@@ -792,7 +792,12 @@ export function ItemEditor({ item }: { item: Item }) {
       {isSpec && tab !== 'content' && (
         <div className="ed-scroll">
           <div className="page" id="tabpanel" role="tabpanel" aria-labelledby={`tab-${tab}`}>
-            {tab === 'report' && <ReportBody specId={item.id} />}
+            {tab === 'report' && (
+              <>
+                <ReportBody specId={item.id} />
+                {item.version > 0 && <Outcomes spec={item} />}
+              </>
+            )}
             {tab === 'feedback' && <FeedbackBody specId={item.id} version={item.version} />}
             {tab === 'history' && <HistoryPanel item={item} />}
           </div>

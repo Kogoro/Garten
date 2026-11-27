@@ -563,6 +563,83 @@ try {
   await page.locator('.tabbar a[href="#/guardrails"] .badge', { hasText: '1' }).waitFor({ timeout: 10000 });
   await page.locator('.deck, .queue-item, [data-proposal]').first().waitFor();
   ok('a proposed rule shows as a badge on the Guardrails tab and waits on Today for approvers');
+
+  // the second gate and the closed loop: a person reviews a build; an outcome measured in use that misses comes back to Today
+  {
+    const rv = 'SPEC-777';
+    let it = await admin.push([
+      {
+        id: rv,
+        kind: 'spec',
+        baseRev: 0,
+        fields: {
+          title: 'Express checkout',
+          body: '## GOAL\nFaster\n\n## OUTCOMES\n- Conversion reaches 2.5 %\n\n## ACCEPTANCE CRITERIA\n- [ ] Pay in one click\n',
+        },
+      },
+    ]);
+    it = await admin.push([{ id: rv, kind: 'spec', baseRev: it[0].item.rev, approve: true, fields: {} }]);
+    assert.equal(it[0].item.version, 1);
+    await tool('register_check', {
+      spec_id: rv,
+      name: 'metric: conversion',
+      kind: 'metric',
+      how: 'dashboard: checkout conversion, 7 days',
+      expect: '>= 2.5 %',
+      outcome: 'O1',
+    });
+    const built = (summary) =>
+      tool('report_implementation', { spec_id: rv, status: 'implemented', summary, criteria: [{ id: 'AC1', status: 'met' }] });
+    await built('One-click pay is built.');
+    await page.evaluate(() => (location.hash = '#/queue'));
+    await page.evaluate(() => dispatchEvent(new Event('online')));
+    const rc = page.locator(`[data-review="${rv}"]`);
+    await rc.waitFor({ timeout: 10000 });
+    ok('review: a spec the agent reports as implemented waits on Today for an approver');
+    await rc.locator('[data-act=review-open]').click();
+    await page.locator('.sheet #rp-review[data-review=waiting]').waitFor();
+    await page.locator('.sheet #rp-review [data-act=send-back]').click();
+    assert.equal(await page.locator('.sheet #rp-review [data-act=send-back-confirm]').isDisabled(), true);
+    await page.locator('.sheet #rp-review textarea').fill('Show the total before paying');
+    await page.locator('.sheet #rp-review [data-crit=AC1]').check();
+    await page.locator('.sheet #rp-review [data-act=send-back-confirm]').click();
+    await page.locator('.sheet #rp-review[data-review=returned]').waitFor();
+    const wlRv = (await tool('get_work_list')).work.find((x) => x.spec_id === rv);
+    assert.equal(wlRv.state, 'sent_back');
+    assert.match(wlRv.review.note, /Show the total/);
+    ok('review: an approver sends a build back with a note; the agent finds it on its work list');
+    await page.keyboard.press('Escape');
+    await rc.waitFor({ state: 'detached' });
+    await built('Shows the total first.');
+    await page.evaluate(() => dispatchEvent(new Event('online')));
+    await rc.waitFor({ timeout: 10000 });
+    await rc.locator('[data-act=review-open]').click();
+    await page.locator('.sheet #rp-review [data-act=accept-build]').click();
+    await page.locator('.sheet #rp-review[data-review=accepted]').waitFor();
+    await page.locator('.sheet .rp-head .chip', { hasText: 'Accepted v1' }).waitFor();
+    await page.locator('.sheet #rp-outcomes [data-outcome=O1] [data-state=unverified]').waitFor();
+    ok('review: the next report is reviewed again; accepted, the spec shows "Accepted" and its outcome, not measured yet');
+    await shot(page, '05e-review');
+    await page.keyboard.press('Escape');
+    const res = await fetch(`${BASE}/api/ci/checks/results`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${agentTok}` },
+      body: JSON.stringify({ spec_id: rv, name: 'metric: conversion', status: 'fail', value: '2.1 %' }),
+    });
+    assert.equal((await res.json()).results[0].state, 'failing');
+    await page.evaluate(() => dispatchEvent(new Event('online')));
+    const oc = page.locator(`[data-outcome="${rv}:O1"]`);
+    await oc.getByText('Conversion reaches 2.5 %').waitFor({ timeout: 10000 });
+    assert.match(await oc.innerText(), /measured 2\.1 %[\s\S]*target >= 2\.5 %/);
+    assert.equal(
+      (await tool('get_work_list')).work.find((x) => x.spec_id === rv),
+      undefined,
+    );
+    ok('outcomes: a miss measured in use waits on Today for people, not on the work list of the agents');
+    await oc.locator('[data-act=outcome-ack]').click();
+    await oc.waitFor({ state: 'detached' });
+    ok('outcomes: "Seen" takes the miss off Today');
+  }
   await page.click('.bar [data-act=user-menu]');
   await page.getByRole('button', { name: /^Sync/ }).click();
   await page.waitForFunction(() => location.hash === '#/sync');

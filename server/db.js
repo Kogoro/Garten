@@ -524,6 +524,23 @@ const MIGRATIONS = [
       PRIMARY KEY (team_id, name)
     )`);
   },
+  /* 8 */ () => {
+    db.exec(`
+      -- a person reviews an "implemented" report: accepted, or sent back to the agent with a note (server/review.js)
+      ALTER TABLE reports ADD COLUMN review TEXT;            -- accepted | returned | NULL (not reviewed yet)
+      ALTER TABLE reports ADD COLUMN review_note TEXT;
+      ALTER TABLE reports ADD COLUMN review_criteria TEXT;   -- JSON list of criterion ids the person points at
+      ALTER TABLE reports ADD COLUMN reviewed_by TEXT;
+      ALTER TABLE reports ADD COLUMN reviewed_at TEXT;
+      -- a check can measure an outcome of a spec (O1 …) instead of proving a criterion: the effect once the spec is in use
+      ALTER TABLE checks ADD COLUMN outcome TEXT;
+      -- a person saw that an outcome is off target (shown again when it fails anew after passing)
+      ALTER TABLE checks ADD COLUMN outcome_ack_at TEXT;
+      ALTER TABLE checks ADD COLUMN outcome_ack_by TEXT;
+    `);
+    // teams that hear about answers want to hear about implementations sent back, too
+    db.exec("UPDATE teams SET hook_events = hook_events || ',review' WHERE (',' || hook_events || ',') LIKE '%,answer,%'");
+  },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.length;
 
